@@ -1,0 +1,187 @@
+---
+name: ai-slop-detector
+description: "Use after generating or editing ANY artifact a human will read — HTML page, mockup, landing, deck, dashboard, markdown doc, lifecycle email, product-UI copy — AND after writing or editing source code, to catch AI 'slop': the visual machine-tells (fake protocol URIs, monospace-as-decoration, system-font defaults, purple-blue and cream-terracotta palettes, emoji headings, middot chains, decorative numbering, external-link ↗ arrows), the text tells (not-just-X-but-Y, 'in today's fast-paced world', hedge openers, sycophancy residue, inflated-vocabulary density, em-dash overuse, metronomic sentences), and the code-comment tells (essay-length comment blocks, chaptered comments with dividers, prose density above one line per two lines of code). Deterministic, runnable, four levels of strictness. Complements voice (text register) and design (constructive). Trigger on: ai slop, slop check, remove ai slop, visual slop, text slop, comment slop, verbose comments, slop detector, does this look ai-generated, machine-generated look, before publishing a page or mockup or deck, before committing code, launch copy audit, on-brand check."
+added: 2026-07-28
+---
+
+# AI Slop Detector
+
+The adversarial check that an artifact didn't drift into machine-generated defaults.
+`voice` and `design` are the constructive side — what good copy and good design are.
+This is the linter that catches what slipped through: the decorative tech-cosplay and
+templated tells that read as AI-generated even when the content is right.
+
+**Core principle:** structure and ornament must encode something true about the content,
+never decorate it. A URI implies a real address; monospace implies code; a number implies
+a sequence; an inflated adjective implies a claim. When the form makes a promise the
+content doesn't keep, it reads as machine filler.
+
+**What it is NOT:** an "is this AI-generated?" classifier. That problem is probabilistic,
+unexplainable, and false-positive-prone (GPTZero, Pangram, Binoculars) — it must never
+drive a decision about a person. This tool claims only "this *reads as* templated," and
+every finding is explainable with a concrete fix.
+
+## When to use
+
+Run it **after every iteration** of a customer- or agent-facing artifact, before you show
+or ship it — same discipline as running `voice` on the copy: generate → detect → fix →
+re-detect. An artifact with an `error`-level hit is not ready to publish.
+
+Covers HTML, markdown, and plain text (landing, docs, decks, dashboards, product UI,
+error/empty states, lifecycle email). Not for: internal Slack/ClickUp notes, PR
+descriptions, commit messages.
+
+It also covers **source files**, where the slop is the comment. An agent that has nowhere
+to record an argument records it in the file it is editing, and the result is a design
+document with no date, no author and no reviewer, going stale from the moment the code
+around it changes. Run it before you commit; when it fires, the fix is to move the
+rationale into an ADR or the project docs and leave a one-line pointer behind.
+
+## Levels of danger
+
+Each level is a superset of the one below. Pick by how much the surface matters.
+
+| Level | Name | Adds | Use for |
+|-------|------|------|---------|
+| 1 | `ban` | Hard bans only — things that are **always** slop. All errors. | The merge gate. Never negotiable. |
+| 2 | `recommended` | + strong, high-precision structural & phrase tells (warnings). **Default.** | Every artifact, every iteration. |
+| 3 | `strict` | + opinionated stylistic tells, density-gated vocabulary. | Landing, launch post, hero surfaces. |
+| 4 | `paranoid` | + statistical rules that may false-positive (em-dash rate, burstiness). | Deep pre-launch audit. |
+
+`error`-severity findings fail the run (exit 1); warnings never do (exit 0). Level 1 is
+all errors; levels 2–4 add warnings. So level 1 is the block, higher levels are the polish.
+
+## Run it
+
+```bash
+node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js <file>                 # level 2 (default)
+node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js src scripts --level 1  # a tree, hard bans only
+node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js 'src/**/*.js' --json
+```
+
+Arguments are files, directories (walked) or globs. Each file is routed by its extension:
+`.html`/`.md`/`.txt` to the visual and text packs, source files to the comments pack.
+`--as source|artifact` overrides. Git-ignored files are skipped unless you pass
+`--no-git-ignore`, and `--ignore 'vendor/**'` drops more.
+
+The linter lives here and only here. It is not published, so nothing outside a session
+runs it: a repository that wants the rules enforced by CI has to carry a copy, the way
+apliteni-ui carries `brand.generated.css`.
+
+Exit code `1` on any `error`. `--json` emits `{verdict, level, files[], stats}` for
+chaining. Fix every error; treat warnings as strong defaults unless you have a deliberate
+reason — and record that reason (see below).
+
+## What it flags
+
+Three rule packs. Structural tells are weighted above vocabulary because vocabulary decays
+every model generation (delve → showcasing → …) while structure ("not just X, but Y")
+stays stable.
+
+**Visual** (markup/CSS): `fake-uri`, `mono-noncode`, `system-font`, `external-link-arrow`
+(bans) · `middot-chain`, `decor-numbering`, `eyebrow-kicker`, `emoji-heading`,
+`purple-blue-hero`, `ai-palette` · `heading-italic`, `heading-period`, `decor-bullet-dot`
+· `radius-monotony`.
+
+**Text** (prose): `sycophancy-opener` (ban) · `negative-parallelism`, `hedge-opener`,
+`world-opener`, `formulaic-closer`, `scope-template` · `vocab-density`,
+`empty-transition-density`, `bold-header-list` · `em-dash-density`, `low-burstiness`.
+
+**Comments** (source files): `comment-essay`, `comment-chaptered` (bans) · `comment-long`,
+`comment-ratio`.
+
+Vocabulary is **density-gated** — flagged only when ≥3 inflated terms cluster in one
+paragraph. One "robust" is fine; a pile of them is machine register.
+
+The comments pack measures shape, never wording, and it excludes what a comment is for:
+API tag lines (`@param`, `@returns`) never count toward length, a divider that frames a
+comment is not a divider that chapters one, and a trailing `// note` is not a block. What
+is left is prose — and past a couple of dozen lines of it, you are reading a document that
+somebody filed in the wrong place.
+
+| Rule | Fires when |
+|---|---|
+| `comment-essay` | one block carries 25+ prose lines |
+| `comment-chaptered` | a block of 8+ lines is split by an interior divider or a shouted section heading |
+| `comment-long` | one block carries 12–24 prose lines |
+| `comment-ratio` | a file holds more than one prose line per two lines of code |
+
+## Deliberate exceptions
+
+A false positive that nags is itself slop. When a warning is a deliberate choice — a hero
+that genuinely uses one em-dash, an engineering doc that legitimately says "robust" once —
+the density gates already let single uses pass. If a rule still fires on an intentional
+choice, **record the reason** in the PR (not in the artifact) and move on. Never silence a
+rule by weakening the artifact to dodge it; fix the rule if it's wrong (see below).
+
+`error`-level bans have no deliberate-use case. There is no good reason for a fake `app://`
+URI or a system-font default in a shipped surface, and none for a design document living in
+a source file — that argument has a home, and the home is reviewable.
+
+## Relationship to other skills
+
+- **voice** — judges *what the text says* and its register (Notarial-Warm/Founder/Plain/
+  Terse). This skill catches *surface tells* voice doesn't score. A polished artifact passes
+  both.
+- **design** — the constructive source of truth (brand tokens, typography, layout). This
+  skill is the adversarial check that the build didn't drift into the defaults design warns
+  against.
+
+Order: build with `design` + `voice`, then run `ai-slop-detector` as the last gate.
+
+## Extending it
+
+Rules live in `scripts/rules/{visual,text,comments}.js`. Adding one is a one-line push
+into the pack — nothing in `detect.js` changes. The pack a rule joins decides which context
+it reads, and the registry stamps the `kind` on it. Each rule is:
+
+```js
+{ id: 'kebab-id', level: 1|2|3|4, severity: 'error'|'warning',
+  why: 'why this reads as slop', fix: 'the concrete fix',
+  test(ctx) { return [/* string hit per occurrence */]; } }
+```
+
+`ctx` for the visual and text packs: `{html, isHtml, css, runs, styleBodies, cssRules,
+text, paragraphs}`. For the comments pack: `{lines, blocks, commentLines, proseLines,
+codeLines}`, where each block carries `{start, end, len, prose, dividers, headings, first}`.
+
+Disagree with a rule, or want it re-leveled or removed? The rule set is a shared contract —
+don't fork or silence it locally. Open an issue in this repo (name the rule `id`, show the
+case, say what you'd change). Details: `docs/ai-slop-detector.md` § Disagree with a rule.
+
+Before adding a rule, it must earn its place (high signal, cite where the pattern appears
+in real AI output) and it must be **tested both ways**:
+
+1. Add a triggering case to a slop fixture — `scripts/detect.test.js` asserts every rule
+   fires in at least one fixture.
+2. Confirm every `fixtures/clean.*` stays silent at paranoid. If a new rule makes the good
+   file fire, the rule is too aggressive — fix the rule, not the good file.
+
+```bash
+npm test          # unit tests + fixtures
+npm run lint:self # the detector must pass its own rules
+```
+
+## Common mistakes
+
+- **Treating warnings as blockers.** Only `error` fails the run. Warnings are defaults to
+  follow-or-justify, not gates.
+- **Cleaning a fixture to make tests pass.** The slop fixtures are supposed to fire. The
+  clean fixtures are supposed to stay silent. Never edit a fixture to dodge a test — that's
+  deleting the test.
+- **Reaching for level 4 by default.** Paranoid rules (em-dash rate, burstiness) false-
+  positive on legitimate house style. Use level 2 day-to-day; escalate deliberately.
+- **Expecting it to judge quality.** It catches tells, not weak arguments or wrong facts —
+  that's human review and `voice`.
+- **Deleting the comment instead of moving it.** A comment-essay usually holds something
+  real. Silencing the rule by cutting the text throws that away; the fix is to file the
+  argument where it can be reviewed and leave a pointer.
+
+## Context
+
+Full rule catalogue and human reference: `docs/ai-slop-detector.md`.
+
+The visual and text packs were built for the launch-copy audit gate
+(lessly-hub/lessly#732): the pass every customer-facing surface clears before public-launch
+go/no-go. The comments pack was added when the same agents that write the copy turned out
+to be writing design documents into source files.

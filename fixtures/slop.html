@@ -1,0 +1,38 @@
+<!doctype html>
+<!-- FIXTURE: deliberately slop-laden. Every visual rule and most text rules
+     must fire here. Do not "clean" this file — the test suite depends on it. -->
+<html>
+<head>
+<style>
+  body { font-family: system-ui, sans-serif; }              /* system-font */
+  .meta { font-family: 'SF Mono', monospace; }              /* mono-noncode */
+  .kicker { text-transform: uppercase; letter-spacing: 0.18em; } /* eyebrow-kicker */
+  .hero { background: linear-gradient(135deg, #7c3aed, #3b82f6); } /* purple-blue-hero */
+  :root { --bg: #f4f1ea; --accent: #e07a5f; }               /* ai-palette */
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .card { border-radius: 12px; }                            /* radius-monotony ×6 */
+  .btn { border-radius: 12px; }
+  .badge { border-radius: 12px; }
+  .box { border-radius: 12px; }
+  .panel { border-radius: 12px; }
+  .tag { border-radius: 12px; }
+</style>
+</head>
+<body class="hero">
+  <p class="kicker">01 — the ladder</p>                     <!-- decor-numbering -->
+  <h2>🚀 Launch plan</h2>                                    <!-- emoji-heading -->
+  <h1>Ship it.</h1>                                          <!-- heading-period -->
+  <h3>Push <em>it</em> out</h3>                              <!-- heading-italic -->
+  <p class="meta">draft · 2026 · brainstorm</p>             <!-- middot-chain (+ mono) -->
+  <p><a href="#">Open on GitHub ↗</a> — see lessly://c4/goal for detail.</p>
+  <p><span class="dot"></span> a decorative marker</p>       <!-- decor-bullet-dot -->
+
+  <p>We shipped. Certainly! I'd be happy to walk you through it.</p>
+  <p>In today's fast-paced world, our platform is not just fast, but robust.</p>
+  <p>It's important to note that we leverage a seamless, comprehensive, robust
+     experience. Moreover, it is intricate. Furthermore, it is meticulous.
+     Additionally, it is pivotal.</p>
+  <p>Whether you're a founder or a marketer, this is a testament to a vibrant tapestry.</p>
+  <p>In conclusion, we win.</p>
+</body>
+</html>

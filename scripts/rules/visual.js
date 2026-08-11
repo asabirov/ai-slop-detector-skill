@@ -1,0 +1,310 @@
+'use strict';
+
+// VISUAL / DESIGN slop rules — the decorative machine-tells in markup & CSS.
+// Ported and extended from Artur's field-validated detector (2026-07 planning
+// artifacts) plus the design skill's known-slop catalogue.
+//
+// Principle behind all of them: structure and ornament must encode something true
+// about the content, never decorate it. A URI implies a real address; monospace
+// implies code; a number implies a sequence. When the form makes a promise the
+// content doesn't keep, it reads as machine-generated filler.
+//
+// Each rule: { id, level, severity, why, fix, test(ctx) -> string[] hits }
+
+const { DECOR_ARROWS, EMOJI } = require('../lib/html');
+
+const countOcc = (s, sub) => s.split(sub).length - 1;
+
+// ── level 1 · ban (always slop → error) ──────────────────────────────────
+
+const fakeUri = {
+  id: 'fake-uri',
+  level: 1,
+  severity: 'error',
+  why: 'Fake protocol URI (e.g. lessly://c4/goal) — decorative tech-cosplay pretending to be a real address. It links to nothing.',
+  fix: 'Use plain words, or a real https:// link.',
+  test(ctx) {
+    const hits = [];
+    for (const t of ctx.runs) {
+      const re = /\b([a-z][a-z0-9]{1,15}):\/\/[^\s"'<>]+/g;
+      let m;
+      while ((m = re.exec(t)) !== null) {
+        if (!['http', 'https', 'ftp', 'ws', 'wss'].includes(m[1].toLowerCase())) {
+          hits.push(m[0]);
+        }
+      }
+    }
+    return hits;
+  },
+};
+
+const monoNoncode = {
+  id: 'mono-noncode',
+  level: 1,
+  severity: 'error',
+  why: 'Monospace font on prose or a label — fake-terminal decoration. Real code gets mono; a metadata line does not.',
+  fix: 'Use the brand sans. If you want a label to stand out, weight or size it — do not costume it as code.',
+  test(ctx) {
+    const hits = [];
+    const re = /([^{}]+)\{[^{}]*font-family\s*:\s*([^;}]*mono[^;}]*)/gi;
+    let m;
+    while ((m = re.exec(ctx.css)) !== null) {
+      const selLines = m[1].trim().split('\n');
+      const sel = selLines[selLines.length - 1].trim();
+      if (sel.startsWith('@')) continue; // @font-face merely loads a face
+      if (!/\b(code|pre|kbd|samp|tt)\b/i.test(sel)) {
+        hits.push(`${sel} → ${m[2].trim().slice(0, 40)}`);
+      }
+    }
+    return hits;
+  },
+};
+
+const systemFont = {
+  id: 'system-font',
+  level: 1,
+  severity: 'error',
+  why: 'system-ui / -apple-system as the first font family — "no typeface was chosen". The page inherits whatever the OS hands it.',
+  fix: 'Embed the brand face (Inter) via @font-face and lead the stack with it.',
+  test(ctx) {
+    const hits = [];
+    const re = /font-family\s*:\s*(system-ui|-apple-system)\b/gi;
+    let m;
+    while ((m = re.exec(ctx.css)) !== null) hits.push(m[0]);
+    return hits;
+  },
+};
+
+const externalLinkArrow = {
+  id: 'external-link-arrow',
+  level: 1,
+  severity: 'error',
+  why: 'Diagonal "↗" open-in-new-tab arrow tacked onto a link — decorative external-link cosplay. A link already reads as a link.',
+  fix: 'Drop the glyph. Plain directional →←↑↓ (flows, deltas) are fine.',
+  test(ctx) {
+    return ctx.runs.filter((t) => DECOR_ARROWS.test(t)).map((t) => t.slice(0, 60));
+  },
+};
+
+// ── level 2 · recommended (strong tells → warning) ───────────────────────
+
+const middotChain = {
+  id: 'middot-chain',
+  level: 2,
+  severity: 'warning',
+  why: 'Middot metadata chain (a · b · c) — templated polish that packs unrelated facts into one dotted line.',
+  fix: 'Write a sentence, or split into real elements.',
+  test(ctx) {
+    return ctx.runs
+      .filter((t) => countOcc(t, ' · ') >= 2 || countOcc(t, ' • ') >= 2)
+      .map((t) => t.slice(0, 70));
+  },
+};
+
+const decorNumbering = {
+  id: 'decor-numbering',
+  level: 2,
+  severity: 'warning',
+  why: 'Decorative "01 — label" eyebrow where the number indexes nothing.',
+  fix: 'Drop the number, or use it only where it encodes a real sequence.',
+  test(ctx) {
+    return ctx.runs.filter((t) => /^0\d\s*[·•—:.\-]\s*\S/.test(t)).map((t) => t.slice(0, 50));
+  },
+};
+
+const eyebrowKicker = {
+  id: 'eyebrow-kicker',
+  level: 2,
+  severity: 'warning',
+  why: 'Uppercase, wide-tracked micro-label above a heading that just pre-announces it (WHAT’S IN THE BOX).',
+  fix: 'Drop the kicker; let the heading lead. Use sentence case for labels.',
+  test(ctx) {
+    const hits = new Set();
+    for (const body of ctx.styleBodies) {
+      if (!/text-transform\s*:\s*uppercase/i.test(body)) continue;
+      const ls = /letter-spacing\s*:\s*([0-9.]+)\s*(em|rem|px)/i.exec(body);
+      hits.add(`text-transform:uppercase${ls ? ` + letter-spacing:${ls[1]}${ls[2]}` : ''}`);
+    }
+    return [...hits];
+  },
+};
+
+const emojiHeading = {
+  id: 'emoji-heading',
+  level: 2,
+  severity: 'warning',
+  why: 'Emoji as a section marker (🚀 / ✨) — generic AI decoration standing in for type hierarchy.',
+  fix: 'Let heading weight and size carry the structure.',
+  test(ctx) {
+    const hits = [];
+    const re = /<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi;
+    let m;
+    while ((m = re.exec(ctx.html)) !== null) {
+      const inner = m[1].replace(/<[^>]+>/g, '').trim();
+      if (inner && EMOJI.test(inner)) hits.push(inner.slice(0, 40));
+    }
+    return hits;
+  },
+};
+
+const purpleBlueHero = {
+  id: 'purple-blue-hero',
+  level: 2,
+  severity: 'warning',
+  why: 'The default purple→blue gradient hero — the single most common AI-generated look.',
+  fix: 'Use brand gradient tokens.',
+  test(ctx) {
+    const hits = [];
+    const re = /linear-gradient\([^)]*\)/gi;
+    let m;
+    while ((m = re.exec(ctx.css)) !== null) {
+      const g = m[0].toLowerCase();
+      const purple = /#[89ab][0-9a-f]{2}[cf][0-9a-f]|purple|violet|indigo|#7c3aed|#6d28d9/.test(g);
+      const blue = /blue|#[0-6][0-9a-f]{2}[ef][0-9a-f]|#2563eb|#3b82f6/.test(g);
+      if (purple && blue) hits.push(g.slice(0, 50));
+    }
+    return hits;
+  },
+};
+
+const aiPalette = {
+  id: 'ai-palette',
+  level: 2,
+  severity: 'warning',
+  why: 'Warm-cream (#F4F1EA) + terracotta — the most common AI-generated palette.',
+  fix: 'Use brand color tokens.',
+  test(ctx) {
+    const cream = /#f4f1ea|#faf6f0|#f5f1e8/i.test(ctx.css);
+    const terra = /#e07a5f|#cc6b49|#d4744f|terracotta/i.test(ctx.css);
+    return cream && terra ? ['warm-cream + terracotta palette'] : [];
+  },
+};
+
+// ── level 3 · strict (opinionated stylistic tells → warning) ─────────────
+
+const headingItalic = {
+  id: 'heading-italic',
+  level: 3,
+  severity: 'warning',
+  why: 'Italicised word(s) inside a heading (<i>/<em>) — decorative AI polish. Headings stay upright.',
+  fix: 'Remove the italics; if you need emphasis, restructure the heading.',
+  test(ctx) {
+    const hits = new Set();
+    const re = /<(h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/gi;
+    let m;
+    while ((m = re.exec(ctx.html)) !== null) {
+      const inner = m[2];
+      if (/<(i|em)\b/i.test(inner) || /font-style\s*:\s*italic/i.test(inner)) {
+        hits.add(inner.replace(/<[^>]+>/g, '').trim().slice(0, 40));
+      }
+    }
+    return [...hits];
+  },
+};
+
+const headingPeriod = {
+  id: 'heading-period',
+  level: 3,
+  severity: 'warning',
+  why: 'Short display heading ending in a lone period ("Ship it.") — affected AI polish. Titles don’t punctuate.',
+  fix: 'Drop the trailing period.',
+  test(ctx) {
+    const hits = new Set();
+    const re = /<h[12]\b[^>]*>([\s\S]*?)<\/h[12]>/gi;
+    let m;
+    while ((m = re.exec(ctx.html)) !== null) {
+      const inner = m[1].replace(/<[^>]+>/g, '').trim();
+      if (
+        inner.endsWith('.') &&
+        !inner.endsWith('...') &&
+        countOcc(inner, '.') === 1 &&
+        inner.split(/\s+/).length <= 6
+      ) {
+        hits.add(inner.slice(0, 40));
+      }
+    }
+    return [...hits];
+  },
+};
+
+const decorBulletDot = {
+  id: 'decor-bullet-dot',
+  level: 3,
+  severity: 'warning',
+  why: 'Empty colored round element prefixing a label — AI category-marker polish that encodes nothing.',
+  fix: 'Let the label stand alone, or make the dot encode a real state/color meaning.',
+  test(ctx) {
+    const dotClasses = new Set();
+    for (const [sel, block] of ctx.cssRules) {
+      const w = /\bwidth\s*:\s*([0-9.]+)px/.exec(block);
+      const h = /\bheight\s*:\s*([0-9.]+)px/.exec(block);
+      const round = /border-radius\s*:\s*(50%|999px|[0-9.]+px)/.test(block);
+      if (w && h && round && parseFloat(w[1]) <= 12 && parseFloat(h[1]) <= 12) {
+        for (const cls of sel.match(/\.([A-Za-z0-9_-]+)/g) || []) dotClasses.add(cls.slice(1));
+      }
+    }
+    if (!dotClasses.size) return [];
+    const encodesColor = (cls) => {
+      const c = cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\.${c}\\b[.:][^{}]*\\{[^{}]*(?:background|color)\\s*:`).test(ctx.css)) return true;
+      const tagRe = new RegExp(`<(?:span|i|div)\\b[^>]*\\bclass="[^"]*\\b${c}\\b[^"]*"[^>]*>`, 'g');
+      let mm;
+      while ((mm = tagRe.exec(ctx.html)) !== null) {
+        if (/style="[^"]*(?:background|color)\s*:/.test(mm[0])) return true;
+      }
+      return false;
+    };
+    const hits = [];
+    for (const cls of dotClasses) {
+      if (encodesColor(cls)) continue;
+      const c = cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const emptyRe = new RegExp(`<(span|i|div)\\b[^>]*class="[^"]*\\b${c}\\b[^"]*"[^>]*>\\s*</\\1>`);
+      if (emptyRe.test(ctx.html)) hits.push(`.${cls} (empty dot element)`);
+    }
+    return hits;
+  },
+};
+
+// ── level 4 · paranoid (may false-positive → warning) ────────────────────
+
+const radiusMonotony = {
+  id: 'radius-monotony',
+  level: 4,
+  severity: 'warning',
+  why: 'One border-radius on literally every surface — templated. Weight is a design choice; sameness is a default.',
+  fix: 'Vary radius by element weight, or commit to the sameness deliberately.',
+  test(ctx) {
+    const radii = [];
+    const re = /border-radius\s*:\s*([0-9.]+)(px|rem)/gi;
+    let m;
+    while ((m = re.exec(ctx.css)) !== null) radii.push([m[1], m[2]]);
+    if (radii.length < 6) return [];
+    const vals = radii
+      .filter(([v, u]) => !(u === 'px' && parseFloat(v) > 100))
+      .map(([v, u]) => `${v}${u}`);
+    const counts = {};
+    for (const v of vals) counts[v] = (counts[v] || 0) + 1;
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    if (top && top[1] >= Math.max(6, vals.length * 0.8)) {
+      return [`one radius (${top[0]}) on ~all surfaces — vary or intend it`];
+    }
+    return [];
+  },
+};
+
+module.exports = [
+  fakeUri,
+  monoNoncode,
+  systemFont,
+  externalLinkArrow,
+  middotChain,
+  decorNumbering,
+  eyebrowKicker,
+  emojiHeading,
+  purpleBlueHero,
+  aiPalette,
+  headingItalic,
+  headingPeriod,
+  decorBulletDot,
+  radiusMonotony,
+];

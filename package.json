@@ -1,0 +1,19 @@
+{
+  "name": "@apliteni/slop-detector",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Deterministic AI-slop linter \u2014 visual, text and code-comment rules. Runs from this skill directory; not published.",
+  "license": "MIT",
+  "author": "Apliteni",
+  "bin": {
+    "slop-detector": "bin/slop-detector.js"
+  },
+  "main": "scripts/detect.js",
+  "scripts": {
+    "test": "node --test scripts/*.test.js",
+    "lint:self": "node bin/slop-detector.js scripts bin --level 4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
