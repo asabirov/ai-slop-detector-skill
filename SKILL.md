@@ -35,7 +35,8 @@ It also covers **source files**, where the slop is the comment. An agent that ha
 to record an argument records it in the file it is editing, and the result is a design
 document with no date, no author and no reviewer, going stale from the moment the code
 around it changes. Run it before you commit; when it fires, the fix is to move the
-rationale into an ADR or the project docs and leave a one-line pointer behind.
+rationale to the issue where the decision was argued — project docs if there isn't one —
+and leave a one-line pointer behind.
 
 ## Levels of danger
 
@@ -48,8 +49,13 @@ Each level is a superset of the one below. Pick by how much the surface matters.
 | 3 | `strict` | + opinionated stylistic tells, density-gated vocabulary. | Landing, launch post, hero surfaces. |
 | 4 | `paranoid` | + statistical rules that may false-positive (em-dash rate, burstiness). | Deep pre-launch audit. |
 
-`error`-severity findings fail the run (exit 1); warnings never do (exit 0). Level 1 is
-all errors; levels 2–4 add warnings. So level 1 is the block, higher levels are the polish.
+Three severities, two outcomes: `error` findings fail the run (exit 1); `medium` and
+`warning` never do (exit 0). Level 1 is all errors; levels 2–4 add the rest. So level 1 is
+the block, higher levels are the polish.
+
+`medium` is for a finding a rule is sure of but will not gate a merge on — louder than a
+warning, and not an invitation to disagree with it. The verdict names the loudest thing
+present: `fail`, `review`, `warn`, `pass`.
 
 ## Run it
 
@@ -69,7 +75,8 @@ runs it: a repository that wants the rules enforced by CI has to carry a copy, t
 apliteni-ui carries `brand.generated.css`.
 
 Exit code `1` on any `error`. `--json` emits `{verdict, level, files[], stats}` for
-chaining. Fix every error; treat warnings as strong defaults unless you have a deliberate
+chaining, where `stats` counts `errors`, `medium` and `warnings`. Fix every error; treat
+medium findings as work to do and warnings as strong defaults unless you have a deliberate
 reason — and record that reason (see below).
 
 ## What it flags
@@ -87,7 +94,7 @@ stays stable.
 `world-opener`, `formulaic-closer`, `scope-template` · `vocab-density`,
 `empty-transition-density`, `bold-header-list` · `em-dash-density`, `low-burstiness`.
 
-**Comments** (source files): `comment-essay`, `comment-chaptered` (bans) · `comment-long`,
+**Comments** (source files): `comment-chaptered` (ban) · `comment-essay` (medium) ·
 `comment-ratio`.
 
 Vocabulary is **density-gated** — flagged only when ≥3 inflated terms cluster in one
@@ -99,12 +106,15 @@ comment is not a divider that chapters one, and a trailing `// note` is not a bl
 is left is prose — and past a couple of dozen lines of it, you are reading a document that
 somebody filed in the wrong place.
 
-| Rule | Fires when |
-|---|---|
-| `comment-essay` | one block carries 25+ prose lines |
-| `comment-chaptered` | a block of 8+ lines is split by an interior divider or a shouted section heading |
-| `comment-long` | one block carries 12–24 prose lines |
-| `comment-ratio` | a file holds more than one prose line per two lines of code |
+| Rule | Severity | Fires when |
+|---|---|---|
+| `comment-chaptered` | error | a block of 8+ lines is split by an interior divider or a shouted section heading |
+| `comment-essay` | medium | one block carries 12+ prose lines |
+| `comment-ratio` | warning | a file holds more than one prose line per two lines of code |
+
+Chaptering is the only ban here. It is a shape — the divider is there or it is not — so a
+gate can be certain of it. Length is a population with no honest place to cut it, so it is
+one rule at one severity from 12 lines up (issue #59).
 
 ## Deliberate exceptions
 
@@ -115,8 +125,11 @@ choice, **record the reason** in the PR (not in the artifact) and move on. Never
 rule by weakening the artifact to dodge it; fix the rule if it's wrong (see below).
 
 `error`-level bans have no deliberate-use case. There is no good reason for a fake `app://`
-URI or a system-font default in a shipped surface, and none for a design document living in
-a source file — that argument has a home, and the home is reviewable.
+URI or a system-font default in a shipped surface, and none for a comment with chapters —
+a thing with chapters is a document, and a document has a home where it can be reviewed.
+
+A `medium` is not a warning you get to record a reason for. It is work you have not done
+yet, and it does not block the merge only because the argument it names is worth keeping.
 
 ## Relationship to other skills
 

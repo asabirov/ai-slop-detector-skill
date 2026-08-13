@@ -29,12 +29,21 @@ surface matters.
 | Level | Name | What it adds | Use for |
 |-------|------|--------------|---------|
 | 1 | `ban` | Hard bans — always slop. All `error`. | The merge gate. Non-negotiable. |
-| 2 | `recommended` | + strong, high-precision structural and phrase tells (`warning`). | Default. Every artifact, every iteration. |
+| 2 | `recommended` | + strong, high-precision structural and phrase tells (`medium`, `warning`). | Default. Every artifact, every iteration. |
 | 3 | `strict` | + opinionated stylistic tells and density-gated vocabulary. | Landing, launch post, hero surfaces. |
 | 4 | `paranoid` | + statistical rules that may false-positive. | Deep pre-launch audit. |
 
-`error` findings fail the run (exit `1`); `warning` findings never do (exit `0`). Level 1
-is all errors, so it is the block; levels 2–4 add warnings, so they are the polish.
+There are three severities and two outcomes. `error` findings fail the run (exit `1`);
+`medium` and `warning` findings never do (exit `0`). Level 1 is all errors, so it is the
+block; levels 2–4 add the rest, so they are the polish.
+
+`medium` sits between the two because a rule can be certain about what it found and still
+not be worth blocking a merge over. A warning invites you to disagree; a medium does not,
+it just isn't the gate. A rule whose text says the content is unreviewable and whose
+severity says *ship it anyway* was the specific defect this tier fixes — see issue #59.
+
+The verdict names the loudest thing present: `fail`, then `review` (a medium), then `warn`,
+then `pass`.
 
 ## Run it
 
@@ -109,10 +118,18 @@ no reviewer, and it starts going stale the moment the code around it moves.
 
 | id | Level | Severity | Tell |
 |----|-------|----------|------|
-| `comment-essay` | 1 | error | One block carrying 25+ prose lines. |
 | `comment-chaptered` | 1 | error | A block of 8+ lines split by an interior divider or a shouted section heading. |
-| `comment-long` | 2 | warning | One block carrying 12–24 prose lines. |
+| `comment-essay` | 2 | medium | One block carrying 12+ prose lines. |
 | `comment-ratio` | 2 | warning | More than one prose line per two lines of code (files of 20+ code lines). |
+
+**Length is `medium`, and chaptering is the only ban.** Chaptering is a shape: a comment
+either has an interior divider or it does not, so a gate can be certain about it. Length is
+a population, and the pack has no honest place to cut it. Measured across twelve Apliteni
+repositories (issue #59), 1,511 comment blocks carry 12 or more prose lines, and the mass
+of them sits at 12–17 — so a ban anywhere in that range draws a line through the middle of
+one population rather than at its edge, and calls two sides of a distribution by two
+different names. `comment-essay` covers all of it at one severity instead: certain about
+what it found, and not a merge blocker.
 
 The pack measures shape, never wording, and it is deliberately blind to the things a
 comment is for. API tag lines (`@param`, `@returns`) never count toward length, so a fully
@@ -131,9 +148,12 @@ the whole signal; vocabulary adds noise.
 Languages: `//` and `/* */` (JS/TS, Go, Rust, Java, C-family, SCSS), `#` (Python, shell,
 YAML, TOML, Ruby), and CSS block comments.
 
-**The fix is always the same.** Move the rationale into an ADR or the project docs, and
-leave a one-line pointer where it was: `// why: docs/adr/0007-name.md`. The comment keeps
-what the code cannot say. The argument goes where it can be reviewed, dated and superseded.
+**The fix is always the same.** Move the rationale to where the decision was argued — the
+issue — and leave a one-line pointer where it was: `// why: #197`. The issue already holds
+the measurement, the alternatives and the back-and-forth, dated and attributed, so a
+decision record kept beside it is a second copy maintained by hand. Project docs are the
+home for anything the issue does not cover. The comment keeps what the code cannot say.
+
 Deleting it instead is the one wrong answer — a `comment-essay` usually holds something
 real, and silencing the rule by cutting the text throws that away.
 
@@ -160,7 +180,7 @@ Rules live in `scripts/rules/visual.js` and `scripts/rules/text.js`. Adding one 
 one-line push into the pack; nothing in `detect.js` changes. A rule is:
 
 ```js
-{ id: 'kebab-id', level: 1 | 2 | 3 | 4, severity: 'error' | 'warning',
+{ id: 'kebab-id', level: 1 | 2 | 3 | 4, severity: 'error' | 'medium' | 'warning',
   why: 'why this reads as slop', fix: 'the concrete fix',
   test(ctx) { /* ctx: { html, isHtml, css, runs, styleBodies, cssRules, text, paragraphs } */
     return [/* one string per occurrence */]; } }

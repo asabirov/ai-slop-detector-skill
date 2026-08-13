@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { parse } = require('./lib/html');
 const { parseSource, syntaxFor } = require('./lib/source');
-const { RULES } = require('./rules');
+const { RULES, SEVERITIES } = require('./rules');
 
 const LEVELS = ['ban', 'recommended', 'strict', 'paranoid'];
 const DEFAULT_LEVEL = 2;
@@ -55,22 +55,45 @@ function detect(source, { level = DEFAULT_LEVEL, kind = 'artifact', ext = 'js' }
       });
     }
   }
-  const errors = findings.filter((f) => f.severity === 'error').length;
-  const warnings = findings.length - errors;
-  const verdict = errors ? 'fail' : warnings ? 'warn' : 'pass';
-  return { verdict, level: LEVELS[level - 1], findings, stats: { errors, warnings } };
+  return { verdict: verdictFor(findings), level: LEVELS[level - 1], findings, stats: tally(findings) };
+}
+
+// Three severities, two outcomes. `error` fails the run; `medium` and `warning`
+// are reported and exit 0. Medium exists because a rule can be certain about
+// what it found and still not be a merge gate — see rules/comments.js.
+//
+// One row per severity, so a fourth is one edit and detect.test.js fails if the
+// row is missing. `stat` is the key it counts under, `verdict` what it makes the
+// run, `mark` how a finding prints.
+const SEVERITY = {
+  error: { stat: 'errors', verdict: 'fail', mark: '✗' },
+  medium: { stat: 'medium', verdict: 'review', mark: '●' },
+  warning: { stat: 'warnings', verdict: 'warn', mark: '▲' },
+};
+
+const VERDICT_ICON = { fail: '✗', review: '●', warn: '▲', pass: '✓' };
+
+function tally(findings) {
+  const stats = {};
+  for (const s of SEVERITIES) stats[SEVERITY[s].stat] = findings.filter((f) => f.severity === s).length;
+  return stats;
+}
+
+// SEVERITIES is ordered loudest first, so the first one present wins.
+function verdictFor(findings) {
+  const loudest = SEVERITIES.find((s) => findings.some((f) => f.severity === s));
+  return loudest ? SEVERITY[loudest].verdict : 'pass';
 }
 
 function report(rep) {
-  const icon = { pass: '✓', warn: '▲', fail: '✗' }[rep.verdict];
   const lines = [];
   lines.push(
-    `${icon} ${rep.verdict.toUpperCase()}  ` +
-      `[level ${rep.level}]  (${rep.stats.errors} errors, ${rep.stats.warnings} warnings)`
+    `${VERDICT_ICON[rep.verdict]} ${rep.verdict.toUpperCase()}  ` +
+      `[level ${rep.level}]  (${rep.stats.errors} errors, ${rep.stats.medium} medium, ${rep.stats.warnings} warnings)`
   );
   lines.push('');
   for (const f of rep.findings) {
-    const mark = f.severity === 'error' ? '✗' : '▲';
+    const mark = SEVERITY[f.severity].mark;
     lines.push(`  ${mark} [${f.rule}] ${f.span}`);
     lines.push(`      ${f.why}`);
     lines.push(`      fix: ${f.fix}`);
@@ -120,4 +143,7 @@ function main(argv) {
 
 if (require.main === module) main(process.argv.slice(2));
 
-module.exports = { detect, report, resolveLevel, kindForPath, LEVELS, DEFAULT_LEVEL };
+module.exports = {
+  detect, report, resolveLevel, kindForPath, verdictFor,
+  SEVERITY, VERDICT_ICON, LEVELS, DEFAULT_LEVEL,
+};

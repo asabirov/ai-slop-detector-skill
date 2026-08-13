@@ -13,7 +13,9 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { detect, report, resolveLevel, kindForPath, LEVELS } = require('../scripts/detect');
+const {
+  detect, report, resolveLevel, kindForPath, verdictFor, VERDICT_ICON, LEVELS,
+} = require('../scripts/detect');
 
 const SKIP_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', 'coverage', 'vendor',
@@ -147,14 +149,21 @@ function main(argv) {
     results.push({ file, ...rep });
   }
 
-  const errors = results.reduce((n, r) => n + r.stats.errors, 0);
-  const warnings = results.reduce((n, r) => n + r.stats.warnings, 0);
-  const verdict = errors ? 'fail' : warnings ? 'warn' : 'pass';
+  const total = (key) => results.reduce((n, r) => n + r.stats[key], 0);
+  const errors = total('errors');
+  const medium = total('medium');
+  const warnings = total('warnings');
+  const verdict = verdictFor(results.flatMap((r) => r.findings));
 
   if (asJson) {
     process.stdout.write(
       JSON.stringify(
-        { verdict, level: LEVELS[level - 1], files: results, stats: { files: files.length, errors, warnings } },
+        {
+          verdict,
+          level: LEVELS[level - 1],
+          files: results,
+          stats: { files: files.length, errors, medium, warnings },
+        },
         null,
         2
       ) + '\n'
@@ -166,10 +175,9 @@ function main(argv) {
       out.push(`\n${r.file}`);
       out.push(report(r).split('\n').slice(1).join('\n'));
     }
-    const icon = { pass: '✓', warn: '▲', fail: '✗' }[verdict];
     out.push(
-      `${icon} ${verdict.toUpperCase()}  [level ${LEVELS[level - 1]}]  ` +
-        `${files.length} file(s), ${errors} error(s), ${warnings} warning(s)`
+      `${VERDICT_ICON[verdict]} ${verdict.toUpperCase()}  [level ${LEVELS[level - 1]}]  ` +
+        `${files.length} file(s), ${errors} error(s), ${medium} medium, ${warnings} warning(s)`
     );
     process.stdout.write(out.join('\n') + '\n');
   }

@@ -3,34 +3,23 @@
 // CODE-COMMENT slop rules — the essay that an agent wrote into a source file
 // because the project had nowhere else to put an argument.
 //
-// The pack measures shape, not vocabulary. Two candidate rules were dropped
-// during calibration against a 12,708-line codebase: `restates-code` fired
-// twice and both were false positives, and an argument-marker density rule
-// ("which is why", "the obvious implementation") caught 6 blocks whose average
-// length was 92 lines — every one already caught by comment-essay. Length and
-// chaptering carry the whole signal.
+// The pack measures shape, not vocabulary; two vocabulary rules were dropped in
+// calibration. Length is `medium` and chaptering is the ban — a shape is either
+// there or it is not, while a length threshold lands mid-population wherever you
+// put it. why: apliteni/claude-apliteni-plugin#59, and docs/ai-slop-detector.md.
 //
 // Each rule: { id, level, severity, why, fix, test(ctx) -> string[] hits }
 // ctx here is the SOURCE context (scripts/lib/source.js), not the HTML one.
 
-const ADR = 'Move the rationale into an ADR or the project docs and leave a one-line pointer: `// why: docs/adr/0007-name.md`.';
+const ELSEWHERE =
+  'Move the rationale to where the decision was argued — the issue, or the project docs — and leave a one-line pointer: `// why: #197`.';
 
 function label(block, detail) {
   const head = block.first.length > 60 ? block.first.slice(0, 57) + '…' : block.first;
   return `line ${block.start}: ${head} (${detail})`;
 }
 
-// ── level 1 · ban (a document living in a source file → error) ───────────
-
-const commentEssay = {
-  id: 'comment-essay',
-  level: 1,
-  severity: 'error',
-  why:
-    'A comment block of 25+ prose lines is a design document that was pasted into a source file. It cannot be reviewed as a decision, it has no date and no author, and it goes stale the first time the code around it changes — the reader has no way to tell whether it still describes the code.',
-  fix: ADR + ' A comment says what the code cannot; the argument for it belongs where it can be reviewed, dated and superseded.',
-  test: (ctx) => ctx.blocks.filter((b) => b.prose >= 25).map((b) => label(b, `${b.prose} prose lines`)),
-};
+// ── level 1 · ban (a comment with chapters is a document → error) ────────
 
 const commentChaptered = {
   id: 'comment-chaptered',
@@ -38,23 +27,23 @@ const commentChaptered = {
   severity: 'error',
   why:
     'A comment with dividers or shouted section headings has chapters, and a thing with chapters is a document. Length alone misses this one: a 10-line comment split into titled sections is still an ADR wearing a comment.',
-  fix: ADR + ' Keep dividers for separating code, not for sectioning prose.',
+  fix: ELSEWHERE + ' Keep dividers for separating code, not for sectioning prose.',
   test: (ctx) =>
     ctx.blocks
       .filter((b) => b.len >= 8 && (b.dividers >= 1 || b.headings >= 1))
       .map((b) => label(b, b.dividers ? `${b.dividers} divider(s) in a ${b.len}-line block` : `${b.headings} section heading(s)`)),
 };
 
-// ── level 2 · recommended (warnings) ─────────────────────────────────────
+// ── level 2 · recommended ────────────────────────────────────────────────
 
-const commentLong = {
-  id: 'comment-long',
+const commentEssay = {
+  id: 'comment-essay',
   level: 2,
-  severity: 'warning',
+  severity: 'medium',
   why:
-    'Twelve prose lines is past what a comment can hold accurate. It is usually the beginning of an essay — the same content, still unreviewable, just under the ban threshold.',
-  fix: 'Cut it to the one thing the code cannot say. If the rest is an argument worth keeping, ' + ADR,
-  test: (ctx) => ctx.blocks.filter((b) => b.prose >= 12 && b.prose < 25).map((b) => label(b, `${b.prose} prose lines`)),
+    'A comment block of 12+ prose lines is a design document that was pasted into a source file. It cannot be reviewed as a decision, it has no date and no author, and it goes stale the first time the code around it changes — the reader has no way to tell whether it still describes the code.',
+  fix: ELSEWHERE + ' A comment says what the code cannot; the argument for it belongs where it can be reviewed, dated and superseded.',
+  test: (ctx) => ctx.blocks.filter((b) => b.prose >= 12).map((b) => label(b, `${b.prose} prose lines`)),
 };
 
 const commentRatio = {
@@ -72,4 +61,4 @@ const commentRatio = {
   },
 };
 
-module.exports = [commentEssay, commentChaptered, commentLong, commentRatio];
+module.exports = [commentChaptered, commentEssay, commentRatio];

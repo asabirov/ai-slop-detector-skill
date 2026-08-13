@@ -9,13 +9,17 @@
 // kind matches the file in front of it.
 //
 // Every rule must carry: id (unique, kebab), level (1..4), severity
-// ('error' | 'warning'), why, fix, and test(ctx) -> string[] hits.
+// (see SEVERITIES), why, fix, and test(ctx) -> string[] hits.
 
 const visual = require('./visual');
 const text = require('./text');
 const comments = require('./comments');
 
 const KINDS = ['artifact', 'source'];
+
+// Loudest first — detect.js reads the order to pick a verdict. Only `error`
+// fails the run; `medium` is a finding a rule is sure of but will not gate on.
+const SEVERITIES = ['error', 'medium', 'warning'];
 
 const withKind = (kind) => (rule) => ({ ...rule, kind });
 
@@ -33,11 +37,11 @@ for (const r of RULES) {
     if (r[field] == null) throw new Error(`rule ${r.id || '?'} missing "${field}"`);
   }
   if (typeof r.test !== 'function') throw new Error(`rule ${r.id} test is not a function`);
-  if (!['error', 'warning'].includes(r.severity)) throw new Error(`rule ${r.id} bad severity`);
+  if (!SEVERITIES.includes(r.severity)) throw new Error(`rule ${r.id} bad severity`);
   if (![1, 2, 3, 4].includes(r.level)) throw new Error(`rule ${r.id} bad level`);
   if (!KINDS.includes(r.kind)) throw new Error(`rule ${r.id} bad kind`);
   if (seen.has(r.id)) throw new Error(`duplicate rule id: ${r.id}`);
   seen.add(r.id);
 }
 
-module.exports = { RULES, KINDS, visual, text, comments };
+module.exports = { RULES, KINDS, SEVERITIES, visual, text, comments };

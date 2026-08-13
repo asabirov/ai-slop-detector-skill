@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { detect, resolveLevel, kindForPath, LEVELS } = require('./detect');
+const { detect, resolveLevel, kindForPath, SEVERITY, VERDICT_ICON, LEVELS } = require('./detect');
 const { RULES } = require('./rules');
 
 const FIX = path.join(__dirname, '..', 'fixtures');
@@ -75,6 +75,58 @@ test('a warning-only page warns but does not fail', () => {
   assert.ok(rep.stats.warnings > 0);
   assert.strictEqual(rep.stats.errors, 0);
   assert.strictEqual(rep.verdict, 'warn');
+});
+
+// ── medium is louder than a warning and still exits 0 (issue #59) ────────
+test('a medium finding reports "review" and does not fail the run', () => {
+  const src = ['const before = 1;']
+    .concat(Array.from({ length: 14 }, (_, i) => `// a sentence about the ${i}th consideration here`))
+    .concat(['const after = 2;'])
+    .join('\n');
+  const rep = detect(src, { level: 4, kind: 'source', ext: 'js' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['comment-essay']);
+  assert.strictEqual(rep.findings[0].severity, 'medium');
+  assert.strictEqual(rep.stats.errors, 0);
+  assert.strictEqual(rep.verdict, 'review', 'a medium must not read as a plain warning');
+});
+
+// The registry names the severities; the engine says what each one does. A new
+// severity in one and not the other is the failure this catches.
+test('every severity the registry declares is one the engine can render', () => {
+  const { SEVERITIES } = require('./rules');
+  for (const s of SEVERITIES) {
+    const row = SEVERITY[s];
+    assert.ok(row, `severity "${s}" has no row in detect.js SEVERITY`);
+    for (const field of ['stat', 'verdict', 'mark']) {
+      assert.ok(row[field], `severity "${s}" is missing "${field}"`);
+    }
+    assert.ok(VERDICT_ICON[row.verdict], `verdict "${row.verdict}" has no icon`);
+  }
+  assert.deepStrictEqual(Object.keys(SEVERITY).sort(), [...SEVERITIES].sort(), 'the two lists drifted');
+});
+
+// ── the length rule is one rule, from 12 up, with no ceiling ─────────────
+test('comment-essay covers 12 prose lines and up, in one band', () => {
+  const block = (n) =>
+    ['const before = 1;']
+      .concat(Array.from({ length: n }, (_, i) => `// a sentence about the ${i}th consideration here`))
+      .concat(['const after = 2;'])
+      .join('\n');
+  const fired = (n) =>
+    detect(block(n), { level: 4, kind: 'source', ext: 'js' }).findings.map((f) => f.rule);
+
+  assert.deepStrictEqual(fired(11), [], '11 prose lines is under the rule');
+  for (const n of [12, 17, 24, 25, 40]) {
+    assert.deepStrictEqual(fired(n), ['comment-essay'], `${n} prose lines`);
+  }
+  assert.ok(!RULES.some((r) => r.id === 'comment-long'), 'comment-long was merged into comment-essay');
+});
+
+// ── length is no longer a merge gate; chaptering still is ────────────────
+test('at level 1 the comments pack gates on chaptering, never on length', () => {
+  const rep = detect(read('slop.js'), { level: 1, kind: 'source', ext: 'js' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['comment-chaptered']);
+  assert.strictEqual(rep.verdict, 'fail');
 });
 
 // ── packs stay on their own side of the routing ──────────────────────────
