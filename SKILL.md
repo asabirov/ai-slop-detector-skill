@@ -102,7 +102,9 @@ paragraph. One "robust" is fine; a pile of them is machine register.
 
 The comments pack measures shape, never wording, and it excludes what a comment is for:
 API tag lines (`@param`, `@returns`) never count toward length, a divider that frames a
-comment is not a divider that chapters one, and a trailing `// note` is not a block. What
+comment is not a divider that chapters one, a rule must carry to the end of its line so a
+dot leader inside a table is content rather than a chapter break (issue #64), and a
+trailing `// note` is not a block. What
 is left is prose — and past a couple of dozen lines of it, you are reading a document that
 somebody filed in the wrong place.
 
@@ -127,6 +129,11 @@ rule by weakening the artifact to dodge it; fix the rule if it's wrong (see belo
 `error`-level bans have no deliberate-use case. There is no good reason for a fake `app://`
 URI or a system-font default in a shipped surface, and none for a comment with chapters —
 a thing with chapters is a document, and a document has a home where it can be reviewed.
+
+`fake-uri` reads prose only. A real scheme quoted as a technical value — `neo4j://`,
+`postgres://`, `s3://` — passes inside a code span or a fenced block, which is where a
+document that means it puts it (issue #64). The rule is after ornament, and ornament does
+not live in a code block.
 
 A `medium` is not a warning you get to record a reason for. It is work you have not done
 yet, and it does not block the merge only because the argument it names is worth keeping.

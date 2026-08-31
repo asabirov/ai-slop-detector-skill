@@ -209,3 +209,58 @@ test('resolveLevel accepts names and numbers', () => {
   assert.throws(() => resolveLevel('nonsense'));
   assert.strictEqual(LEVELS.length, 4);
 });
+
+// ── issue #64 · two false positives that failed a level-1 gate ───────────
+
+test('a dot leader in a comment table is not a chapter divider', () => {
+  const src = [
+    'const a = 1;',
+    '/*',
+    ' * Contrast ratios measured against the card background:',
+    ' *',
+    ' * | surface    | ratio  |',
+    ' * | card edge ................ 3.02:1 |',
+    ' * | body text ................ 8.14:1 |',
+    ' *',
+    ' * Both clear the threshold.',
+    ' */',
+    'const b = 2;',
+  ].join('\n');
+  const rep = detect(src, { level: 1, kind: 'source', ext: 'js' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), []);
+});
+
+test('a real divider inside a long comment still chapters it', () => {
+  const src = [
+    'const a = 1;',
+    '// Why the cache is keyed on the tuple and not the id.',
+    '// The id is reassigned by the importer, so two rows can share one.',
+    '//',
+    '// ─────────────────────────────',
+    '//',
+    '// The tuple survives the import because the importer never rewrites it,',
+    '// which is the property the cache depends on.',
+    '// It has held since the 4.0 migration.',
+    'const b = 2;',
+  ].join('\n');
+  const rep = detect(src, { level: 1, kind: 'source', ext: 'js' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['comment-chaptered']);
+});
+
+test('a real URI scheme quoted as code is not a fake URI', () => {
+  const doc = [
+    'The service reaches the graph over `neo4j://graph:7687`.',
+    '',
+    '```js',
+    'const url = "neo4j+s://graph:7687";',
+    '```',
+  ].join('\n');
+  const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), []);
+});
+
+test('a decorative URI in prose is still a fake URI', () => {
+  const doc = 'See lessly://c4/goal for the goal model.';
+  const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['fake-uri']);
+});

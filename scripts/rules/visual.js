@@ -22,16 +22,17 @@ const fakeUri = {
   level: 1,
   severity: 'error',
   why: 'Fake protocol URI (e.g. lessly://c4/goal) — decorative tech-cosplay pretending to be a real address. It links to nothing.',
-  fix: 'Use plain words, or a real https:// link.',
+  fix:
+    'Use plain words, or a real https:// link. A real scheme being quoted as a technical value (neo4j://, postgres://, s3://) belongs in a code span or a fenced block, where this rule does not read it.',
+  // Reads ctx.codeless, not ctx.runs: the tell is a URI used as ornament in
+  // prose. The same string inside backticks is a value somebody is quoting.
   test(ctx) {
     const hits = [];
-    for (const t of ctx.runs) {
-      const re = /\b([a-z][a-z0-9]{1,15}):\/\/[^\s"'<>]+/g;
-      let m;
-      while ((m = re.exec(t)) !== null) {
-        if (!['http', 'https', 'ftp', 'ws', 'wss'].includes(m[1].toLowerCase())) {
-          hits.push(m[0]);
-        }
+    const re = /\b([a-z][a-z0-9]{1,15}):\/\/[^\s"'<>]+/g;
+    let m;
+    while ((m = re.exec(ctx.codeless)) !== null) {
+      if (!['http', 'https', 'ftp', 'ws', 'wss'].includes(m[1].toLowerCase())) {
+        hits.push(m[0]);
       }
     }
     return hits;

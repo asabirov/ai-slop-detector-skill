@@ -85,6 +85,17 @@ function plainText(source, isHtml) {
     .trim();
 }
 
+// Prose with code removed — fenced blocks and inline spans in markdown, <code>
+// and <pre> in HTML. A URI inside code is being quoted as a technical value, so
+// the rules that judge decoration must not read it.
+function proseWithoutCode(source, isHtml) {
+  if (isHtml) {
+    const body = ['style', 'script', 'code', 'pre'].reduce(stripBetween, source);
+    return body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  return plainText(source, false);
+}
+
 // Prose split into paragraphs — the unit for density-gated text rules.
 // HTML: split on block-level boundaries. Markdown/text: split on blank lines
 // (fenced code removed first so code never counts as prose).
@@ -111,6 +122,7 @@ function parse(source) {
     styleBodies: styleBodies(source, css),
     cssRules: cssRules(css),
     text: plainText(source, isHtml),
+    codeless: proseWithoutCode(source, isHtml),
     paragraphs: paragraphs(source, isHtml),
   };
 }
@@ -123,6 +135,7 @@ module.exports = {
   cssRules,
   looksLikeHtml,
   plainText,
+  proseWithoutCode,
   paragraphs,
   parse,
   DECOR_ARROWS,

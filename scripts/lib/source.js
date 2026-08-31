@@ -29,9 +29,12 @@ function syntaxFor(ext) {
   return EXT_SYNTAX[String(ext || '').replace(/^\./, '').toLowerCase()] || null;
 }
 
-// A run of 8+ box-drawing or rule characters — the divider that turns a comment
-// into a chaptered document. Requires a run, so `a -- b` and `x → y` are safe.
-const DIVIDER = /([-=_~*#─━═.]\s?){8,}/;
+// A run of 8+ box-drawing or rule characters that carries to the END of the
+// line — the divider that turns a comment into a chaptered document. Requires a
+// run, so `a -- b` and `x → y` are safe; requires the end, so a dot leader in a
+// table row (`| card edge ....... 3.02:1 |`) is content, not a rule. A titled
+// divider still matches, because its run trails the title.
+const DIVIDER = /([-=_~*#─━═.]\s?){8,}$/;
 
 // Structured API metadata, not prose: `@param`, `@returns`, `@type`, `@example`.
 const TAG_LINE = /^@\w+/;
