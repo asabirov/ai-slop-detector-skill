@@ -133,7 +133,13 @@ a thing with chapters is a document, and a document has a home where it can be r
 `fake-uri` reads prose only. A real scheme quoted as a technical value — `neo4j://`,
 `postgres://`, `s3://` — passes inside a code span or a fenced block, which is where a
 document that means it puts it (issue #64). The rule is after ornament, and ornament does
-not live in a code block.
+not live in a code block. In prose the rule allows the schemes a reader's browser resolves
+— `http`, `https`, `ftp`, `ws`, `wss`, `file` — because its charge is that the URI links to
+nothing, and `file:///Users/x/a.png` opens the file (RFC 8089, issue #631).
+
+`sycophancy-opener` reads bare "here is" as an opener only where a paragraph opens. A line
+break inside a paragraph is a wrap, not a sentence start, and reading one as a start failed
+the gate on every wrapped line beginning "here is" (issue #632).
 
 A `medium` is not a warning you get to record a reason for. It is work you have not done
 yet, and it does not block the merge only because the argument it names is worth keeping.

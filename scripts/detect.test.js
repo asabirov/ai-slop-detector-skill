@@ -264,3 +264,45 @@ test('a decorative URI in prose is still a fake URI', () => {
   const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
   assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['fake-uri']);
 });
+
+// ── #631 · file:// is a registered scheme, not a costume ─────────────────
+
+test('a file:// URL in prose is a real address, not a fake URI', () => {
+  const doc = 'The browser resolves file:///Users/x/a.png to the file on disk.';
+  const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), []);
+});
+
+test('a scheme no browser navigates is still a fake URI in prose', () => {
+  for (const uri of ['ssh://git@github.com/a/b.git', 'git://host/r.git', 's3://bucket/key']) {
+    const rep = detect(`The job reads ${uri} on every run.`, {
+      level: 1, kind: 'artifact', ext: 'md',
+    });
+    assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['fake-uri'], uri);
+  }
+});
+
+// ── #632 · a line break inside a paragraph is not a sentence start ───────
+
+test('a wrapped line beginning "here is" is not a sycophancy opener', () => {
+  const doc = [
+    "    Derived from the cache's own path rather than resolved a second time. None",
+    '    here is the "not mounted" case — CI, a container — and the caller treats it',
+    '    the same way it treats a git directory that will not take the file.',
+  ].join('\n');
+  const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), []);
+});
+
+test('a real opener is still caught wherever a sentence or paragraph starts', () => {
+  const cases = [
+    "Certainly! Here's what I found.",
+    'Sure, here is the summary you asked for.',
+    "The run is green.\n\nHere's what I found in the logs.",
+    'It failed twice. Certainly, here is why.',
+  ];
+  for (const doc of cases) {
+    const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
+    assert.deepStrictEqual([...new Set(rep.findings.map((f) => f.rule))], ['sycophancy-opener'], doc);
+  }
+});

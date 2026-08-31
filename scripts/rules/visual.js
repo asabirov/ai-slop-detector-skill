@@ -17,6 +17,12 @@ const countOcc = (s, sub) => s.split(sub).length - 1;
 
 // ── level 1 · ban (always slop → error) ──────────────────────────────────
 
+// Schemes a reader's browser resolves. The charge this rule brings is "it links
+// to nothing", so the list is what a link can be, not every scheme that exists:
+// `file` is RFC 8089 and opens the file. `ssh`, `git` and `s3` address a tool
+// rather than a reader, and belong in a code span, where this rule does not look.
+const NAVIGABLE = ['http', 'https', 'ftp', 'ws', 'wss', 'file'];
+
 const fakeUri = {
   id: 'fake-uri',
   level: 1,
@@ -31,9 +37,7 @@ const fakeUri = {
     const re = /\b([a-z][a-z0-9]{1,15}):\/\/[^\s"'<>]+/g;
     let m;
     while ((m = re.exec(ctx.codeless)) !== null) {
-      if (!['http', 'https', 'ftp', 'ws', 'wss'].includes(m[1].toLowerCase())) {
-        hits.push(m[0]);
-      }
+      if (!NAVIGABLE.includes(m[1].toLowerCase())) hits.push(m[0]);
     }
     return hits;
   },

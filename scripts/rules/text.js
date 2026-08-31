@@ -34,7 +34,15 @@ const sycophancyOpener = {
   test: phraseRule([
     /(?:^|[.!?]\s+|\n)\s*(certainly|great question|excellent question|absolutely|sure thing|of course)\s*[!,]/gi,
     /\bI['’]d be happy to\b/gi,
-    /(?:^|\n)\s*(sure|certainly|here)['’]?s?,?\s+(here|is|are|what|how)\b/gi,
+    // "Sure, here is…" is chat residue wherever a sentence opens. Only `sure`
+    // takes the sentence-end position; `certainly` there is pattern 1's, and
+    // two patterns on one opener would report it twice.
+    /(?:^|[.!?]['’"”)\]]?\s+|\n\s*\n\s*)(sure)['’]?s?,?\s+(here|is|are|what|how)\b/gi,
+    // Bare "here is" opens a paragraph or it opens nothing. Mid-paragraph it is
+    // ordinary English, and a line break inside a paragraph is a wrap, not a
+    // sentence start — matching one read every indented continuation line as an
+    // opener (config/bin/verify-settings:620).
+    /(?:^|\n\s*\n\s*)(certainly|here)['’]?s?,?\s+(here|is|are|what|how)\b/gi,
     /\b(hope this (?:email |message )?finds you well|as an ai language model)\b/gi,
   ]),
 };
