@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { detect, resolveLevel, kindForPath, SEVERITY, VERDICT_ICON, LEVELS } = require('./detect');
 const { RULES } = require('./rules');
+const { attrTextRuns } = require('./lib/html');
 
 const FIX = path.join(__dirname, '..', 'fixtures');
 const read = (f) => fs.readFileSync(path.join(FIX, f), 'utf8');
@@ -24,6 +25,30 @@ const CLEAN_FIXTURES = ['clean.html', 'clean.md', 'clean.js'];
 function firedIds(file, level = 4) {
   return new Set(run(file, level).findings.map((f) => f.rule));
 }
+
+// ── attribute prose is prose (lessly-landing#387) ──────────────────────
+// Stripping tags with `<[^>]+>` took the tooltip out with the tag. On
+// lessly.com/pricing that hid the whole compare table — 26 values, 324 words,
+// a third of the page's prose — and the gate reported a clean page.
+test('reads prose out of human-readable attributes, and only those', () => {
+  const runs = attrTextRuns(
+    '<a href="/a/very/long/slug-here" class="btn primary" title="The grant reference, named">x</a>' +
+      '<img src="/x.png" alt="A named grant, expiring Friday">' +
+      '<span data-tip="Our recommended tier: a plan.">t</span>' +
+      '<button aria-label="Close">×</button>'
+  );
+  assert.deepStrictEqual(runs, [
+    'The grant reference, named',
+    'A named grant, expiring Friday',
+    'Our recommended tier: a plan.',
+  ]);
+});
+
+test('a rule fires on prose that exists only in an attribute', () => {
+  const page = '<html><body><p>Plans</p><p data-tip="Our recommended tier: a plan.">Scale</p></body></html>';
+  const rules = detect(page, { level: 2, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(rules.includes('meta-label-opener'), `expected meta-label-opener, got: ${rules.join(', ')}`);
+});
 
 // ── RED→GREEN: every rule must fire in at least one slop fixture ──────────
 test('every rule fires in at least one slop fixture', () => {

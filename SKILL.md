@@ -90,8 +90,10 @@ stays stable.
 `purple-blue-hero`, `ai-palette` · `heading-italic`, `heading-period`, `decor-bullet-dot`
 · `radius-monotony`.
 
-**Text** (prose): `sycophancy-opener` (ban) · `negative-parallelism`, `hedge-opener`,
-`world-opener`, `formulaic-closer`, `scope-template` · `vocab-density`,
+**Text** (prose — visible text plus the human-readable attributes `title`, `alt`,
+`placeholder`, `aria-label`, `data-tip` and the meta description): `sycophancy-opener` (ban) · `negative-parallelism`, `hedge-opener`,
+`world-opener`, `formulaic-closer`, `scope-template`, `meta-label-opener` · `vocab-density`,
+`plainness-boast`,
 `empty-transition-density`, `bold-header-list` · `em-dash-density`, `low-burstiness`.
 
 **Comments** (source files): `comment-chaptered` (ban) · `comment-essay` (medium) ·

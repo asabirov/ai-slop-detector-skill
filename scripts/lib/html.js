@@ -22,6 +22,49 @@ function visibleTextRuns(html) {
   return out;
 }
 
+// Prose a reader meets that is not between tags: tooltips, labels, alt text,
+// the meta description. Stripping tags with `<[^>]+>` deletes these along with
+// the tag, so every text rule was blind to them — on lessly.com/pricing that
+// was 274 of the page's 934 words, the whole compare table's prose, sitting
+// inside `data-tip` (lessly-landing#387).
+//
+// Only attributes whose value is written for a person. `href`, `class`, `src`,
+// `id` and friends are addresses and identifiers; reading them as prose would
+// hand every rule a stream of slugs.
+const PROSE_ATTRS = /\b(?:title|alt|placeholder|aria-label|aria-description|aria-placeholder|aria-roledescription|data-tip|data-tooltip|data-title)\s*=\s*"([^"]*)"/gi;
+
+// <meta name="description"> is the one `content=` worth reading — the rest
+// carry viewport strings, verification tokens and URLs.
+const META_DESCRIPTION =
+  /<meta\b[^>]*\bname\s*=\s*"(?:description|og:description|twitter:description)"[^>]*\bcontent\s*=\s*"([^"]*)"/gi;
+
+function decodeEntities(text) {
+  return text
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&(amp|lt|gt|quot|apos|nbsp);/gi, (_, n) => {
+      const map = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+      return map[n.toLowerCase()];
+    });
+}
+
+// One run per human-readable attribute value, longest first is not needed —
+// order follows the document, same as visibleTextRuns.
+function attrTextRuns(html) {
+  const out = [];
+  const body = stripBetween(stripBetween(html, 'style'), 'script');
+  for (const re of [PROSE_ATTRS, META_DESCRIPTION]) {
+    const rx = new RegExp(re.source, re.flags);
+    let m;
+    while ((m = rx.exec(body)) !== null) {
+      const t = decodeEntities(m[1]).replace(/\s+/g, ' ').trim();
+      // A one-word label ("Close", "Menu") is a control name, not prose.
+      if (t && /\s/.test(t)) out.push(t);
+    }
+  }
+  return out;
+}
+
 // Concatenated contents of every <style> block.
 function cssBlocks(html) {
   const blocks = [];
@@ -70,11 +113,12 @@ function looksLikeHtml(source) {
 function plainText(source, isHtml) {
   if (isHtml) {
     const body = stripBetween(stripBetween(source, 'style'), 'script');
-    return body
+    const visible = body
       .replace(/<[^>]+>/g, ' ')
       .replace(/&[a-z]+;/gi, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+    return [visible, ...attrTextRuns(source)].filter(Boolean).join(' ');
   }
   return source
     .replace(/```[\s\S]*?```/g, ' ') // fenced code — never prose
@@ -91,7 +135,8 @@ function plainText(source, isHtml) {
 function proseWithoutCode(source, isHtml) {
   if (isHtml) {
     const body = ['style', 'script', 'code', 'pre'].reduce(stripBetween, source);
-    return body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const visible = body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return [visible, ...attrTextRuns(body)].filter(Boolean).join(' ');
   }
   return plainText(source, false);
 }
@@ -101,7 +146,9 @@ function proseWithoutCode(source, isHtml) {
 // (fenced code removed first so code never counts as prose).
 function paragraphs(source, isHtml) {
   if (isHtml) {
-    return visibleTextRuns(source);
+    // Each attribute value is its own paragraph: a tooltip is a unit of prose a
+    // reader meets on its own, so the density gates should score it that way.
+    return [...visibleTextRuns(source), ...attrTextRuns(source)];
   }
   const noCode = source.replace(/```[\s\S]*?```/g, '\n\n');
   return noCode
@@ -119,6 +166,7 @@ function parse(source) {
     isHtml,
     css,
     runs: visibleTextRuns(source),
+    attrs: isHtml ? attrTextRuns(source) : [],
     styleBodies: styleBodies(source, css),
     cssRules: cssRules(css),
     text: plainText(source, isHtml),
@@ -130,6 +178,7 @@ function parse(source) {
 module.exports = {
   stripBetween,
   visibleTextRuns,
+  attrTextRuns,
   cssBlocks,
   styleBodies,
   cssRules,

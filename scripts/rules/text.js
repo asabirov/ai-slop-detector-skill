@@ -123,6 +123,33 @@ const VOCAB = [
   'bespoke', 'holistic', 'synergy',
 ];
 
+const metaLabelOpener = {
+  id: 'meta-label-opener',
+  level: 2,
+  severity: 'warning',
+  why: 'Copy that announces what it is about to say ("Here\u2019s how it works:", "Our recommended tier:", "Bottom line:") before saying it. The label is scaffolding from the outline the model wrote first, and it restates a heading, a badge or a table column the reader can already see.',
+  fix: 'Delete the label and start on the fact. If the label is the only thing naming the section, it is a heading, not an opener.',
+  test: phraseRule([
+    /(?:^|[.!?]\s+|\n)\s*(?:here['\u2019]s (?:how|what|why)[^.:!?]{0,40}:|the shape of it:|in a nutshell:|bottom line:|in short:|the short version:|quick note:|pro tip:|key takeaway:|tl;?dr:)/gi,
+    // "Our recommended plan:", "The recommended tier:" \u2014 a badge, restated as prose.
+    /\b(?:our|the)\s+(?:recommended|suggested|preferred)\s+(?:tier|plan|option|choice|approach)\s*:/gi,
+  ]),
+};
+
+const plainnessBoast = {
+  id: 'plainness-boast',
+  level: 3,
+  severity: 'warning',
+  why: 'Copy that advertises its own candour \u2014 "straight answers", "no fluff", "plain English", "let\u2019s be honest". Plain writing demonstrates itself; a promise of plainness is the one sentence on the page not doing the thing it promises, and it is a reflex of models asked to sound trustworthy.',
+  fix: 'Cut the promise and let the answer under it stand. If the answer is not plain, fix the answer.',
+  test: phraseRule([
+    /\b(?:straight|honest|no[- ]nonsense|plain[- ]spoken)\s+(?:answers?|talk|pricing)\b/gi,
+    /\bno (?:fluff|jargon|marketing speak|buzzwords|BS)\b/gi,
+    /\bin (?:plain|simple) (?:english|terms|language)\b/gi,
+    /\b(?:let['\u2019]s be honest|to be perfectly honest|simply put|put simply|honestly speaking)\b/gi,
+  ]),
+};
+
 const vocabDensity = {
   id: 'vocab-density',
   level: 3,
@@ -214,6 +241,8 @@ module.exports = [
   worldOpener,
   formulaicCloser,
   scopeTemplate,
+  metaLabelOpener,
+  plainnessBoast,
   vocabDensity,
   emptyTransitionDensity,
   boldHeaderList,

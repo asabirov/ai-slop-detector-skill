@@ -100,11 +100,21 @@ values are stable — reference them in allowlists and PR notes.
 | `world-opener` | 2 | warning | `in today's fast-paced world / digital age` scene-setting. |
 | `formulaic-closer` | 2 | warning | Paragraph opening `In conclusion / In summary / Overall,`. |
 | `scope-template` | 2 | warning | `whether you're a X or a Y` / `from X to Y` enumerating-scope cliché. |
+| `meta-label-opener` | 2 | warning | `Here's how it works:` / `Our recommended tier:` — the outline's label, shipped as copy. |
+| `plainness-boast` | 3 | warning | `straight answers`, `no fluff`, `in plain English` — copy advertising its own candour. |
 | `vocab-density` | 3 | warning | ≥3 inflated terms (robust, seamless, leverage…) clustered in one paragraph. |
 | `empty-transition-density` | 3 | warning | ≥3 sentence-initial `Moreover / Furthermore / Additionally`. |
 | `bold-header-list` | 3 | warning | `**Header:** text` markdown list items — the top formatting tell. |
 | `em-dash-density` | 4 | warning | Em-dashes above human baseline (>2 per 100 words). |
 | `low-burstiness` | 4 | warning | Metronomic sentence length (low variance). |
+
+Prose means prose wherever a reader meets it. The text pack reads the visible text **and**
+the human-readable attributes — `title`, `alt`, `placeholder`, `aria-label`, `data-tip` — plus
+the meta description. It used to read only the first: stripping tags with `<[^>]+>` deletes an
+attribute along with the tag it sits in. On `lessly.com/pricing` that hid 26 values and 324 of
+the page's 934 words — the entire compare table — and the gate called the page clean at
+paranoid while its owner called it slop (lessly-landing#387). Addresses and identifiers
+(`href`, `src`, `class`, `id`) are still not prose, and a one-word value is a control name.
 
 Vocabulary is **density-gated** — flagged only when several inflated terms cluster in one
 paragraph. One "robust" is fine; a pile of them is machine register. This is the single
