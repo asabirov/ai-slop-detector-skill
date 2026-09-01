@@ -65,6 +65,28 @@ node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js src script
 node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js 'src/**/*.js' --json
 ```
 
+### A page's CSS is read from the files it links
+
+Seven visual rules read `ctx.css`, and two of them are level-1 bans. A bundled site keeps
+its CSS in a `<link>`, so reading only `<style>` blocks scored **59 bytes of a page that
+ships 100,339** — and that page passed at every level, paranoid included, while carrying 8
+`mono-noncode` errors nobody could see (lessly-hub/lessly#732).
+
+Linked stylesheets are now resolved from disk. A relative href resolves against the page's
+own directory; a root-relative one (`/_astro/app.css`) resolves against the directory you
+named, or `--root <dir>`. So point it at the built site:
+
+```bash
+slop-detector dist --level 1                      # hrefs inside dist/ resolve
+slop-detector dist/index.html --root dist --level 1
+```
+
+**A stylesheet it cannot open is a finding, not a silence.** `css-unreadable` (medium,
+level 2) fires when a page links CSS the linter could not read, and says so rather than
+scoring zero: *"2 linked stylesheets unread — CSS rules did not run"*. A remote href cannot
+be read at all; fetch it next to the page first. This rule exists because the silent
+version of that answer is indistinguishable from a clean pass, and shipped as one.
+
 Arguments are files, directories (walked) or globs. Each file is routed by its extension:
 `.html`/`.md`/`.txt` to the visual and text packs, source files to the comments pack.
 `--as source|artifact` overrides. Git-ignored files are skipped unless you pass
@@ -86,9 +108,9 @@ every model generation (delve → showcasing → …) while structure ("not just
 stays stable.
 
 **Visual** (markup/CSS): `fake-uri`, `mono-noncode`, `system-font`, `external-link-arrow`
-(bans) · `middot-chain`, `decor-numbering`, `eyebrow-kicker`, `emoji-heading`,
-`purple-blue-hero`, `ai-palette` · `heading-italic`, `heading-period`, `decor-bullet-dot`
-· `radius-monotony`.
+(bans) · `css-unreadable`, `middot-chain`, `decor-numbering`, `eyebrow-kicker`,
+`emoji-heading`, `purple-blue-hero`, `ai-palette` · `heading-italic`, `heading-period`,
+`decor-bullet-dot` · `radius-monotony`.
 
 **Text** (prose — visible text plus the human-readable attributes `title`, `alt`,
 `placeholder`, `aria-label`, `data-tip` and the meta description): `sycophancy-opener` (ban) · `negative-parallelism`, `hedge-opener`,

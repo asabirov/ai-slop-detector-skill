@@ -297,7 +297,30 @@ const radiusMonotony = {
   },
 };
 
+// A page that links CSS the linter could not open is a page whose CSS rules did
+// not run. Seven visual rules read ctx.css, so on a bundled page that silence
+// prints as a clean pass — lessly.com scored pass at every level, including
+// paranoid, while shipping 8 mono-noncode errors in a stylesheet nobody opened
+// (lessly-hub/lessly#732). Medium: the linter is certain it could not see the
+// file, and being unable to look is not the page's defect to fail on.
+const cssUnreadable = {
+  id: 'css-unreadable',
+  level: 2,
+  severity: 'medium',
+  why: 'The page links stylesheets the linter could not read, so every CSS rule scored nothing rather than nothing being there.',
+  fix: 'Run against the built site directory so hrefs resolve, or pass --root <dir>. A remote href cannot be read: fetch it alongside the page first.',
+  test(ctx) {
+    const missing = ctx.unresolvedCss || [];
+    if (missing.length === 0) return [];
+    const shown = missing.slice(0, 3).join(', ');
+    return [
+      `${missing.length} linked stylesheet${missing.length > 1 ? 's' : ''} unread (${shown}${missing.length > 3 ? ', …' : ''}) — CSS rules did not run`,
+    ];
+  },
+};
+
 module.exports = [
+  cssUnreadable,
   fakeUri,
   monoNoncode,
   systemFont,

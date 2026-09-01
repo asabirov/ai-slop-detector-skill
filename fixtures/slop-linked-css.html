@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>A page whose stylesheet the linter cannot open</title>
+    <!-- Both hrefs are deliberately absent from the fixtures directory. A bundled
+         site links its CSS this way, and every CSS-reading rule scores nothing
+         when the file cannot be read — which prints as a clean pass. -->
+    <link rel="stylesheet" href="./built/app.a1b2c3.css" />
+    <link rel="stylesheet" href="https://cdn.example.com/theme.css" />
+  </head>
+  <body>
+    <h1>Quarterly revenue, by region</h1>
+    <p>
+      Revenue rose in three of five regions this quarter. The two that fell had
+      both lost a large account in March, and neither has replaced it yet.
+    </p>
+  </body>
+</html>

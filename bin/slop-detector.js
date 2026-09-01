@@ -25,6 +25,7 @@ const ARTIFACT_EXTS = new Set(['html', 'htm', 'md', 'markdown', 'txt']);
 
 const USAGE =
   'usage: slop-detector <path|dir|glob>... [--level N|name] [--as source|artifact]\n' +
+  '                     [--root <dir>]\n' +
   '                     [--ignore <glob,glob>] [--no-git-ignore] [--json]\n';
 
 // Files git ignores are build output, and linting build output is noise no gate
@@ -115,7 +116,8 @@ function main(argv) {
   const asKind = flagValue('--as');
   const levelArg = flagValue('--level');
   const ignoreArg = flagValue('--ignore');
-  const consumed = new Set([levelArg, asKind, ignoreArg].filter(Boolean));
+  const rootArg = flagValue('--root');
+  const consumed = new Set([levelArg, asKind, ignoreArg, rootArg].filter(Boolean));
   const paths = argv.filter((a) => !a.startsWith('--') && !consumed.has(a));
   const ignores = (ignoreArg ? ignoreArg.split(',') : []).map((g) => globToRegExp(g.trim()));
 
@@ -131,6 +133,18 @@ function main(argv) {
     process.exit(2);
   }
 
+  // Root for a page's root-relative <link href="/assets/x.css">. Defaults to the
+  // directory argument, which is where a built site's own absolute hrefs resolve.
+  const siteRoot =
+    rootArg ||
+    paths.find((p) => {
+      try {
+        return fs.statSync(p).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+
   let files = [...new Set(paths.flatMap(expand))].sort().map((f) => f.replace(/^\.\//, ''));
   if (ignores.length) files = files.filter((f) => !ignores.some((re) => re.test(f)));
   if (!argv.includes('--no-git-ignore')) files = dropGitIgnored(files);
@@ -145,6 +159,8 @@ function main(argv) {
       level,
       kind: asKind || kindForPath(file),
       ext: path.extname(file).replace(/^\./, ''),
+      filePath: file,
+      root: siteRoot,
     });
     results.push({ file, ...rep });
   }

@@ -17,9 +17,12 @@ const run = (f, level) =>
     level,
     kind: kindForPath(f),
     ext: path.extname(f).replace(/^\./, ''),
+    // The CLI passes the path so linked stylesheets resolve; without it the
+    // fixtures would be scored by a different loader than the one that ships.
+    filePath: path.join(FIX, f),
   });
 
-const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop.js'];
+const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop.js', 'slop-linked-css.html'];
 const CLEAN_FIXTURES = ['clean.html', 'clean.md', 'clean.js'];
 
 function firedIds(file, level = 4) {

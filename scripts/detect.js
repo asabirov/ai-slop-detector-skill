@@ -32,8 +32,8 @@ function resolveLevel(value) {
 
 // Run the detector over one file's contents. `kind` selects the packs:
 // 'artifact' for HTML/markdown/prose, 'source' for a code file.
-function detect(source, { level = DEFAULT_LEVEL, kind = 'artifact', ext = 'js' } = {}) {
-  const ctx = kind === 'source' ? parseSource(source, { ext }) : parse(source);
+function detect(source, { level = DEFAULT_LEVEL, kind = 'artifact', ext = 'js', filePath, root } = {}) {
+  const ctx = kind === 'source' ? parseSource(source, { ext }) : parse(source, { filePath, root });
   const findings = [];
   for (const rule of RULES) {
     if (rule.level > level) continue;

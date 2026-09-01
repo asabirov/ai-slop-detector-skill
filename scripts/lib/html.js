@@ -74,6 +74,57 @@ function cssBlocks(html) {
   return blocks.join('\n');
 }
 
+// Every <link rel="stylesheet"> href, in document order.
+function stylesheetLinks(html) {
+  const out = [];
+  const re = /<link\b[^>]*>/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const tag = m[0];
+    if (!/\brel\s*=\s*["']?stylesheet\b/i.test(tag)) continue;
+    const href = /\bhref\s*=\s*["']([^"']+)["']/i.exec(tag);
+    if (href) out.push(href[1]);
+  }
+  return out;
+}
+
+// Read the stylesheets a page links, so CSS rules see what the page actually
+// ships. A bundled site keeps its CSS in a linked file, and reading only
+// <style> blocks scored 59 bytes of a page that ships 100,339 — seven of the
+// visual rules read ctx.css, so on any bundled page they were measuring
+// reachability rather than quality (lessly-hub/lessly#732).
+//
+// Local files only. A network fetch inside a merge gate is a different
+// decision, and one that belongs to whoever runs the gate rather than to this
+// loader; an http(s) href is reported unresolved instead.
+function linkedCss(html, { filePath, root } = {}) {
+  const found = [];
+  const unresolved = [];
+  if (!filePath) return { css: '', found, unresolved: stylesheetLinks(html) };
+
+  const fs = require('fs');
+  const path = require('path');
+  const base = path.dirname(path.resolve(filePath));
+  const siteRoot = root ? path.resolve(root) : base;
+
+  for (const href of stylesheetLinks(html)) {
+    if (/^(?:[a-z]+:)?\/\//i.test(href) || /^data:/i.test(href)) {
+      unresolved.push(href);
+      continue;
+    }
+    const clean = href.split(/[?#]/)[0];
+    const candidate = clean.startsWith('/')
+      ? path.join(siteRoot, clean)
+      : path.resolve(base, clean);
+    try {
+      found.push({ href, path: candidate, css: fs.readFileSync(candidate, 'utf8') });
+    } catch {
+      unresolved.push(href);
+    }
+  }
+  return { css: found.map((f) => f.css).join('\n'), found, unresolved };
+}
+
 // Every declaration block we can see: <style> rules + inline style="" attrs.
 function styleBodies(html, css) {
   const bodies = [];
@@ -157,14 +208,22 @@ function paragraphs(source, isHtml) {
     .filter(Boolean);
 }
 
-// Build a parse context once, hand it to every rule.
-function parse(source) {
+// Build a parse context once, hand it to every rule. `filePath` lets the CSS a
+// page links be read from disk; `root` resolves root-relative hrefs against a
+// built site's directory. Without filePath the linked CSS is reported
+// unresolved rather than silently skipped.
+function parse(source, { filePath, root } = {}) {
   const isHtml = looksLikeHtml(source);
-  const css = isHtml ? cssBlocks(source) : '';
+  const inline = isHtml ? cssBlocks(source) : '';
+  const linked = isHtml ? linkedCss(source, { filePath, root }) : { css: '', found: [], unresolved: [] };
+  const css = [inline, linked.css].filter(Boolean).join('\n');
   return {
     html: source,
     isHtml,
     css,
+    inlineCss: inline,
+    linkedCss: linked.found,
+    unresolvedCss: linked.unresolved,
     runs: visibleTextRuns(source),
     attrs: isHtml ? attrTextRuns(source) : [],
     styleBodies: styleBodies(source, css),
@@ -180,6 +239,8 @@ module.exports = {
   visibleTextRuns,
   attrTextRuns,
   cssBlocks,
+  stylesheetLinks,
+  linkedCss,
   styleBodies,
   cssRules,
   looksLikeHtml,
