@@ -1,6 +1,6 @@
 {
   "name": "@apliteni/slop-detector",
-  "version": "0.0.0-development",
+  "version": "0.0.0",
   "description": "Deterministic AI-slop linter \u2014 visual, text and code-comment rules over HTML, markdown, prose and source files.",
   "license": "MIT",
   "author": "Apliteni",
