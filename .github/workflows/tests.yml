@@ -18,7 +18,11 @@ jobs:
       - name: Run the tests
         run: npm test
       - name: The detector passes its own rules
-        run: npm run lint:self
+        # lint:self is the packaged script and cannot name tools/, which the
+        # plugin's copy does not get. This repo lints tools/ as well.
+        run: |
+          npm run lint:self
+          node bin/slop-detector.js tools --level 4
       # The detector is not run over its own prose. These files quote the
       # patterns it bans, and a code span stops exempting them once an earlier
       # backtick in the file is unbalanced, so SKILL.md scores four level-1

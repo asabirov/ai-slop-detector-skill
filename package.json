@@ -28,7 +28,7 @@
   ],
   "scripts": {
     "test": "node --test --test-timeout=10000",
-    "lint:self": "node bin/slop-detector.js scripts bin tools --level 4"
+    "lint:self": "node bin/slop-detector.js scripts bin --level 4"
   },
   "engines": {
     "node": ">=20"
