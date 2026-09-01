@@ -67,6 +67,12 @@ node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js src script
 node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js 'src/**/*.js' --json
 ```
 
+From a personal checkout linked into `~/.claude/skills/`:
+
+```bash
+node ~/.claude/skills/ai-slop-detector/bin/slop-detector.js <file>
+```
+
 In a repository's CI, from npm, with no copy of the rules checked in:
 
 ```bash
