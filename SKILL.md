@@ -95,6 +95,14 @@ scoring zero: *"2 linked stylesheets unread — CSS rules did not run"*. A remot
 be read at all; fetch it next to the page first. This rule exists because the silent
 version of that answer is indistinguishable from a clean pass, and shipped as one.
 
+**A shared sheet is judged against the page that links it.** One stylesheet serves every
+page on a site, so a selector no element on this page carries is not this page's defect.
+`mono-noncode` checks the selector reaches the markup; `eyebrow-kicker` goes further and
+matches the element itself, because a kicker is defined by sitting above a heading rather
+than by any declaration. Its finding quotes the label and the heading under it
+(*"COMPLY" above "Keep it compliant while it runs"*), so you can act on it without opening
+the CSS.
+
 Arguments are files, directories (walked) or globs. Each file is routed by its extension:
 `.html`/`.md`/`.txt` to the visual and text packs, source files to the comments pack.
 `--as source|artifact` overrides. Git-ignored files are skipped unless you pass

@@ -110,6 +110,39 @@ function selectorApplies(selector, tokens) {
   return true;
 }
 
+// Elements whose next sibling is a heading — the shape of a kicker. Regex, not
+// a DOM: an element, then whitespace or a comment, then an <h1>-<h6>.
+//
+// `eyebrow-kicker` used to read declaration blocks alone, so it reported a CSS
+// signature for any uppercase rule in the sheet. That cleared lessly.com, which
+// carries five kickers, and flagged status.lessly.com, whose only uppercase rule
+// styles the status badge sitting *beside* each <h3> (apliteni#73). A kicker is
+// defined by where it sits, so the rule has to look at the page.
+const LABEL_TAGS = 'p|span|div|small|strong|em|b|a|figcaption';
+
+function labelsAboveHeadings(html) {
+  const body = stripBetween(stripBetween(html, 'style'), 'script');
+  const out = [];
+  const re = new RegExp(
+    `<(${LABEL_TAGS})\\b([^>]*)>([\\s\\S]*?)</\\1>(?:\\s|<!--[\\s\\S]*?-->)*<(h[1-6])\\b[^>]*>([\\s\\S]*?)</\\4>`,
+    'gi'
+  );
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    const attrs = m[2];
+    const cls = (/\bclass\s*=\s*"([^"]*)"/i.exec(attrs) || [, ''])[1].split(/\s+/).filter(Boolean);
+    const style = (/\bstyle\s*=\s*"([^"]*)"/i.exec(attrs) || [, ''])[1];
+    out.push({
+      tag: m[1].toLowerCase(),
+      classes: cls,
+      style,
+      text: decodeEntities(m[3].replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim(),
+      heading: decodeEntities(m[5].replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim(),
+    });
+  }
+  return out;
+}
+
 // Concatenated contents of every <style> block.
 function cssBlocks(html) {
   const blocks = [];
@@ -168,17 +201,6 @@ function linkedCss(html, { filePath, root } = {}) {
     }
   }
   return { css: found.map((f) => f.css).join('\n'), found, unresolved };
-}
-
-// Every declaration block we can see: <style> rules + inline style="" attrs.
-function styleBodies(html, css) {
-  const bodies = [];
-  const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
-  let m;
-  while ((m = ruleRe.exec(css)) !== null) bodies.push(m[2]);
-  const inlineRe = /style="([^"]*)"/gi;
-  while ((m = inlineRe.exec(html)) !== null) bodies.push(m[1]);
-  return bodies;
 }
 
 // (selector, block) pairs from CSS rules.
@@ -272,7 +294,6 @@ function parse(source, { filePath, root } = {}) {
     runs: visibleTextRuns(source),
     attrs: isHtml ? attrTextRuns(source) : [],
     markup: isHtml ? markupTokens(source) : null,
-    styleBodies: styleBodies(source, css),
     cssRules: cssRules(css),
     text: plainText(source, isHtml),
     codeless: proseWithoutCode(source, isHtml),
@@ -286,10 +307,10 @@ module.exports = {
   attrTextRuns,
   markupTokens,
   selectorApplies,
+  labelsAboveHeadings,
   cssBlocks,
   stylesheetLinks,
   linkedCss,
-  styleBodies,
   cssRules,
   looksLikeHtml,
   plainText,

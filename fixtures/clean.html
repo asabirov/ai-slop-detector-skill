@@ -11,6 +11,9 @@
   .card { border-radius: 12px; border: 1px solid #e2e8f0; }
   .avatar { border-radius: 999px; }
   code { font-family: 'Inter Mono', ui-monospace, monospace; }
+  /* A status badge: uppercase, and it sits beside its heading, not above it. */
+  .pill { font-size: 0.6875rem; letter-spacing: 0.02em; text-transform: uppercase; }
+  .component-head { display: flex; justify-content: space-between; align-items: center; }
 </style>
 </head>
 <body>
@@ -20,6 +23,7 @@
   <h2>How it works</h2>
   <p>You invite a teammate to one product. They get exactly that, and nothing
      next to it.</p>
+  <div class="component-head"><h3>Grants API</h3><span class="pill">Operational</span></div>
   <a href="/docs" title="The grant reference, with every field named">Read the docs</a>
 </body>
 </html>

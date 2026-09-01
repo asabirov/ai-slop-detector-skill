@@ -11,7 +11,7 @@
 //
 // Each rule: { id, level, severity, why, fix, test(ctx) -> string[] hits }
 
-const { DECOR_ARROWS, EMOJI, selectorApplies } = require('../lib/html');
+const { DECOR_ARROWS, EMOJI, selectorApplies, labelsAboveHeadings } = require('../lib/html');
 
 const countOcc = (s, sub) => s.split(sub).length - 1;
 
@@ -121,20 +121,63 @@ const decorNumbering = {
   },
 };
 
+// Which classes render their text uppercase, and how wide they track it. Read
+// from (selector, block) pairs rather than blocks alone so a hit can name the
+// element a reader would go and look at.
+function uppercaseClasses(cssRules) {
+  const out = new Map();
+  for (const [selector, body] of cssRules) {
+    if (!/text-transform\s*:\s*uppercase/i.test(body)) continue;
+    const ls = /letter-spacing\s*:\s*([0-9.]*[0-9])\s*(em|rem|px)/i.exec(body);
+    const tracking = ls ? `${ls[1]}${ls[2].toLowerCase()}` : null;
+    for (const part of selector.split(',')) {
+      for (const cls of part.trim().match(/\.[-_a-zA-Z0-9]+/g) || []) {
+        out.set(cls.slice(1), tracking);
+      }
+    }
+  }
+  return out;
+}
+
+// Uppercase in the eye, however it got there: a class, an inline style, or text
+// already typed in capitals. Cyrillic counts — no lowercase letter anywhere and
+// at least one letter present, rather than an A-Z test that only reads Latin.
+const isLiteralCaps = (t) => /\p{L}/u.test(t) && !/\p{Ll}/u.test(t);
+
+// A kicker is a micro-label. Past this it is a standfirst or a paragraph, and
+// dropping it is a different edit than the one this rule asks for.
+const KICKER_MAX_CHARS = 40;
+
 const eyebrowKicker = {
   id: 'eyebrow-kicker',
   level: 2,
   severity: 'warning',
-  why: 'Uppercase, wide-tracked micro-label above a heading that just pre-announces it (WHAT’S IN THE BOX).',
+  why: 'Uppercase micro-label sitting directly above a heading, pre-announcing what the heading already says. The classic example, not something found here: "WHAT’S IN THE BOX" over "What you get on day one".',
   fix: 'Drop the kicker; let the heading lead. Use sentence case for labels.',
+  // Position is the definition, so position is the test: the element renders
+  // uppercase AND the next thing after it is a heading. Nothing here reads
+  // tracking as a gate. .02em looked like the line between status.lessly.com's
+  // badges and lessly.com's kickers, but the phrase in this rule's own `why`
+  // ships at .04em on a real hero — any threshold between them hides the shape
+  // the rule is named after (apliteni#73).
+  //
+  // Matching elements also does what `selectorApplies` does for mono-noncode,
+  // and more strictly: a class no element carries reaches no element here.
   test(ctx) {
-    const hits = new Set();
-    for (const body of ctx.styleBodies) {
-      if (!/text-transform\s*:\s*uppercase/i.test(body)) continue;
-      const ls = /letter-spacing\s*:\s*([0-9.]+)\s*(em|rem|px)/i.exec(body);
-      hits.add(`text-transform:uppercase${ls ? ` + letter-spacing:${ls[1]}${ls[2]}` : ''}`);
+    const upper = uppercaseClasses(ctx.cssRules);
+    const hits = [];
+    for (const el of labelsAboveHeadings(ctx.html)) {
+      if (!el.text || el.text.length > KICKER_MAX_CHARS) continue;
+      const styled = el.classes.find((c) => upper.has(c));
+      const inline = /text-transform\s*:\s*uppercase/i.test(el.style);
+      if (!styled && !inline && !isLiteralCaps(el.text)) continue;
+      const tracking = styled ? upper.get(styled) : null;
+      hits.push(
+        `"${el.text}" above "${el.heading}"` +
+          (styled ? ` (.${styled}${tracking ? `, tracked ${tracking}` : ''})` : '')
+      );
     }
-    return [...hits];
+    return hits;
   },
 };
 

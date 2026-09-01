@@ -95,6 +95,110 @@ test('selectorApplies is conservative — unknown means applied', () => {
   assert.strictEqual(selectorApplies('.anything', null), true);
 });
 
+// ── a kicker is where it sits, not what the sheet declares (apliteni#73) ──
+// The rule read declaration blocks alone, so it reported a CSS signature for any
+// uppercase rule in the sheet. Both pages below are the ones it got wrong.
+
+// status.lessly.com. The page's one uppercase rule styles a status badge that
+// sits beside its <h3>, never above it. An audit followed the finding to the
+// point of writing the fix, which deletes the status from the status page.
+const STATUS_PAGE =
+  '<html><head><style>' +
+  '.pill { font-size: 0.6875rem; letter-spacing: 0.02em; text-transform: uppercase; }' +
+  '.component-head { display:flex; justify-content:space-between; }' +
+  '</style></head><body>' +
+  '<div class="component-head"><h3>API</h3><span class="pill">Operational</span></div>' +
+  '<div class="component-head"><h3>Dashboard</h3><span class="pill">Operational</span></div>' +
+  '</body></html>';
+
+// lessly.com. Five kickers sharing one class, each directly above its <h2>,
+// plus Tailwind's `.uppercase` utility on a button that sits above nothing.
+const KICKER_PAGE =
+  '<html><head><style>' +
+  '.ta-pe { text-transform: uppercase; letter-spacing: .14em; }' +
+  '.uppercase { text-transform: uppercase; }' +
+  '</style></head><body>' +
+  '<section><p class="ta-pe">COMPLY</p><h2>Keep it compliant while it runs</h2></section>' +
+  '<section><p class="ta-pe">MEASURE</p><h2>Feel your product</h2></section>' +
+  '<section><p class="ta-pe">ORGANIZE</p><h2>One account, every product</h2></section>' +
+  '<section><p class="ta-pe">CONNECT</p><h2>Bring the tools you already use</h2></section>' +
+  '<section><p class="ta-pe">AUTOMATE</p><h2>One surface, human or agent</h2></section>' +
+  '<button class="uppercase">Get started</button>' +
+  '</body></html>';
+
+const kickers = (page) =>
+  detect(page, { level: 2, kind: 'artifact', ext: 'html' }).findings.filter(
+    (f) => f.rule === 'eyebrow-kicker'
+  );
+
+test('an uppercase label beside a heading is not a kicker', () => {
+  const hits = kickers(STATUS_PAGE);
+  assert.deepStrictEqual(hits.map((f) => f.span), [], 'the status page carries no kicker');
+});
+
+test('every kicker above a heading is reported, and none of the uppercase that is not', () => {
+  const hits = kickers(KICKER_PAGE);
+  assert.strictEqual(hits.length, 5, `expected 5, got: ${hits.map((f) => f.span).join(' | ')}`);
+  for (const label of ['COMPLY', 'MEASURE', 'ORGANIZE', 'CONNECT', 'AUTOMATE']) {
+    assert.ok(
+      hits.some((f) => f.span.includes(`"${label}"`)),
+      `${label} was not named in any finding`
+    );
+  }
+  // The button is uppercase and sits above nothing.
+  assert.ok(!hits.some((f) => f.span.includes('Get started')), 'a button is not a kicker');
+});
+
+test('a finding quotes the page, never a CSS signature', () => {
+  for (const page of [KICKER_PAGE, read('slop.html')]) {
+    for (const f of kickers(page)) {
+      assert.ok(
+        !/^text-transform/.test(f.span),
+        `a reader cannot act on "${f.span}" — it names no element`
+      );
+      assert.ok(/ above /.test(f.span), `"${f.span}" does not say what it sits above`);
+    }
+  }
+});
+
+// The phrase in this rule's own `why` ships at .04em on a real hero, and
+// status.lessly.com's badge tracks .02em. Any threshold between them hides the
+// shape the rule is named after, so tracking is evidence and never a gate.
+test('a kicker tracked as tight as a badge is still a kicker', () => {
+  const page =
+    '<html><head><style>.kicker { text-transform: uppercase; letter-spacing: .04em }</style>' +
+    '</head><body><section><p class="kicker">What’s in the box</p>' +
+    '<h2>What you get on day one</h2></section></body></html>';
+  const hits = kickers(page);
+  assert.strictEqual(hits.length, 1, `expected the hero kicker, got ${hits.length}`);
+  assert.ok(hits[0].span.includes('What’s in the box'));
+});
+
+test('capitals typed into the markup need no stylesheet to count', () => {
+  const hits = kickers('<html><body><section><p>WHY IT MATTERS</p><h2>Every product, one bill</h2></section></body></html>');
+  assert.strictEqual(hits.length, 1, `expected 1, got ${hits.length}`);
+  assert.ok(hits[0].span.includes('WHY IT MATTERS'));
+});
+
+test('a standfirst above a heading is not a micro-label', () => {
+  const page =
+    '<html><head><style>.lede { text-transform: uppercase }</style></head><body><section>' +
+    '<p class="lede">A long introductory line that runs well past the width of any kicker</p>' +
+    '<h2>Every product, one bill</h2></section></body></html>';
+  assert.deepStrictEqual(kickers(page).map((f) => f.span), []);
+});
+
+// Issue #73: "WHAT'S IN THE BOX" in the `why` string was read as page text.
+test('the rule never presents its own example as something it found', () => {
+  const rule = RULES.find((r) => r.id === 'eyebrow-kicker');
+  if (/WHAT/i.test(rule.why)) {
+    assert.ok(
+      /\bexample\b|\be\.g\./i.test(rule.why),
+      'the example phrase must be marked as one, or it reads as evidence'
+    );
+  }
+});
+
 // ── RED→GREEN: every rule must fire in at least one slop fixture ──────────
 test('every rule fires in at least one slop fixture', () => {
   const covered = new Set();
