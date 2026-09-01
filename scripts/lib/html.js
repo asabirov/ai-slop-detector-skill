@@ -65,6 +65,51 @@ function attrTextRuns(html) {
   return out;
 }
 
+// Which classes, ids and tags the markup actually carries. A stylesheet is
+// shared by every page that links it, so a rule naming a selector no page
+// element matches is not that page's defect. lessly.com's home page failed the
+// level-1 gate on `.font-mono` (markdown code blocks) and `.fig-mono` (numerals
+// inside diagrams): neither appears in its markup, both live in the one
+// stylesheet (lessly-hub/lessly-landing#390).
+function markupTokens(html) {
+  const body = stripBetween(stripBetween(html, 'style'), 'script');
+  const classes = new Set();
+  const ids = new Set();
+  const tags = new Set();
+  let m;
+  const classRe = /\bclass\s*=\s*"([^"]*)"/gi;
+  while ((m = classRe.exec(body)) !== null) {
+    for (const c of m[1].split(/\s+/)) if (c) classes.add(c);
+  }
+  const idRe = /\bid\s*=\s*"([^"]*)"/gi;
+  while ((m = idRe.exec(body)) !== null) if (m[1].trim()) ids.add(m[1].trim());
+  const tagRe = /<([a-z][a-z0-9-]*)\b/gi;
+  while ((m = tagRe.exec(body)) !== null) tags.add(m[1].toLowerCase());
+  return { classes, ids, tags };
+}
+
+// Does this page apply this selector? Conservative on purpose: unknown means
+// yes. A selector naming no class, id or tag we can read (`*`, `:root`, an
+// attribute selector) is treated as applied, so a rule keeps firing wherever
+// this cannot answer.
+function selectorApplies(selector, tokens) {
+  if (!tokens) return true;
+  const clean = selector
+    .replace(/::?[a-z-]+(\([^)]*\))?/gi, ' ') // pseudo-classes and elements
+    .replace(/\[[^\]]*\]/g, ' '); // attribute selectors
+  const classes = clean.match(/\.[-_a-z0-9]+/gi) || [];
+  const ids = clean.match(/#[-_a-z0-9]+/gi) || [];
+  for (const c of classes) if (!tokens.classes.has(c.slice(1))) return false;
+  for (const i of ids) if (!tokens.ids.has(i.slice(1))) return false;
+  // A bare tag name only counts when the selector names nothing else.
+  if (!classes.length && !ids.length) {
+    const tags = clean.match(/(^|[\s>+~])([a-z][a-z0-9-]*)/gi) || [];
+    const named = tags.map((t) => t.trim().replace(/^[>+~]\s*/, '').toLowerCase()).filter(Boolean);
+    if (named.length && named.every((t) => !tokens.tags.has(t))) return false;
+  }
+  return true;
+}
+
 // Concatenated contents of every <style> block.
 function cssBlocks(html) {
   const blocks = [];
@@ -226,6 +271,7 @@ function parse(source, { filePath, root } = {}) {
     unresolvedCss: linked.unresolved,
     runs: visibleTextRuns(source),
     attrs: isHtml ? attrTextRuns(source) : [],
+    markup: isHtml ? markupTokens(source) : null,
     styleBodies: styleBodies(source, css),
     cssRules: cssRules(css),
     text: plainText(source, isHtml),
@@ -238,6 +284,8 @@ module.exports = {
   stripBetween,
   visibleTextRuns,
   attrTextRuns,
+  markupTokens,
+  selectorApplies,
   cssBlocks,
   stylesheetLinks,
   linkedCss,

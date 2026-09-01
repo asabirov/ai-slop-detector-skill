@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { detect, resolveLevel, kindForPath, SEVERITY, VERDICT_ICON, LEVELS } = require('./detect');
 const { RULES } = require('./rules');
-const { attrTextRuns } = require('./lib/html');
+const { attrTextRuns, markupTokens, selectorApplies } = require('./lib/html');
 
 const FIX = path.join(__dirname, '..', 'fixtures');
 const read = (f) => fs.readFileSync(path.join(FIX, f), 'utf8');
@@ -51,6 +51,48 @@ test('a rule fires on prose that exists only in an attribute', () => {
   const page = '<html><body><p>Plans</p><p data-tip="Our recommended tier: a plan.">Scale</p></body></html>';
   const rules = detect(page, { level: 2, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
   assert.ok(rules.includes('meta-label-opener'), `expected meta-label-opener, got: ${rules.join(', ')}`);
+});
+
+// ── a page is judged on the CSS it applies (lessly-hub/lessly-landing#390) ──
+// One stylesheet serves every page that links it. lessly.com's home page failed
+// the level-1 gate on `.font-mono`, which styles code blocks in blog posts, and
+// on `.fig-mono`, which sets numerals inside diagrams. Neither class appears in
+// its markup. Nobody could have fixed that from the home page.
+test('mono on a class the page never uses is not that page\'s defect', () => {
+  const page =
+    '<html><body><style>.font-mono { font-family: Fira Mono, monospace }</style>' +
+    '<p class="lede">A page that ships no code.</p></body></html>';
+  const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(!rules.includes('mono-noncode'), `expected silence, got: ${rules.join(', ')}`);
+});
+
+test('mono on a class the page does use still fails', () => {
+  const page =
+    '<html><body><style>.label { font-family: Fira Mono, monospace }</style>' +
+    '<p class="label">scoped to repo</p></body></html>';
+  const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(rules.includes('mono-noncode'), `expected mono-noncode, got: ${rules.join(', ')}`);
+});
+
+test('selectorApplies is conservative — unknown means applied', () => {
+  const tokens = markupTokens('<html><body><p class="a" id="main"><span></span></p></body></html>');
+  // Named and present.
+  assert.strictEqual(selectorApplies('.a', tokens), true);
+  assert.strictEqual(selectorApplies('#main', tokens), true);
+  assert.strictEqual(selectorApplies('.a span', tokens), true);
+  // Named and absent.
+  assert.strictEqual(selectorApplies('.b', tokens), false);
+  assert.strictEqual(selectorApplies('#other', tokens), false);
+  assert.strictEqual(selectorApplies('.a .b', tokens), false);
+  // Nothing to go on: still judged.
+  assert.strictEqual(selectorApplies('*', tokens), true);
+  assert.strictEqual(selectorApplies(':root', tokens), true);
+  assert.strictEqual(selectorApplies('[data-x]', tokens), true);
+  assert.strictEqual(selectorApplies('p', tokens), true);
+  // A tag the page does not have.
+  assert.strictEqual(selectorApplies('textarea', tokens), false);
+  // No markup to read at all (markdown, plain text).
+  assert.strictEqual(selectorApplies('.anything', null), true);
 });
 
 // ── RED→GREEN: every rule must fire in at least one slop fixture ──────────

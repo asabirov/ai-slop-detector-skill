@@ -11,7 +11,7 @@
 //
 // Each rule: { id, level, severity, why, fix, test(ctx) -> string[] hits }
 
-const { DECOR_ARROWS, EMOJI } = require('../lib/html');
+const { DECOR_ARROWS, EMOJI, selectorApplies } = require('../lib/html');
 
 const countOcc = (s, sub) => s.split(sub).length - 1;
 
@@ -57,6 +57,10 @@ const monoNoncode = {
       const selLines = m[1].trim().split('\n');
       const sel = selLines[selLines.length - 1].trim();
       if (sel.startsWith('@')) continue; // @font-face merely loads a face
+      // A shared stylesheet carries rules for pages this is not. Judging one
+      // page on another's code blocks is how lessly.com's home page failed on
+      // `.font-mono` it never applies (lessly-hub/lessly-landing#390).
+      if (!selectorApplies(sel, ctx.markup)) continue;
       if (!/\b(code|pre|kbd|samp|tt)\b/i.test(sel)) {
         hits.push(`${sel} → ${m[2].trim().slice(0, 40)}`);
       }
