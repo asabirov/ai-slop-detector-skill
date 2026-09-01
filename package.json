@@ -1,19 +1,39 @@
 {
   "name": "@apliteni/slop-detector",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Deterministic AI-slop linter \u2014 visual, text and code-comment rules. Runs from this skill directory; not published.",
+  "version": "0.0.0-development",
+  "description": "Deterministic AI-slop linter \u2014 visual, text and code-comment rules over HTML, markdown, prose and source files.",
   "license": "MIT",
   "author": "Apliteni",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/asabirov/ai-slop-detector-skill.git"
+  },
+  "homepage": "https://github.com/asabirov/ai-slop-detector-skill#readme",
+  "bugs": "https://github.com/asabirov/ai-slop-detector-skill/issues",
+  "keywords": [
+    "lint",
+    "ai-slop",
+    "linter",
+    "static-analysis",
+    "content"
+  ],
   "bin": {
     "slop-detector": "bin/slop-detector.js"
   },
   "main": "scripts/detect.js",
+  "files": [
+    "bin/",
+    "scripts/",
+    "SKILL.md"
+  ],
   "scripts": {
-    "test": "node --test scripts/*.test.js",
-    "lint:self": "node bin/slop-detector.js scripts bin --level 4"
+    "test": "node --test --test-timeout=10000",
+    "lint:self": "node bin/slop-detector.js scripts bin tools --level 4"
   },
   "engines": {
     "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -1,0 +1,76 @@
+name: sync skill into the plugin
+
+# The rules and their documentation live here. This copies them into
+# apliteni/claude-apliteni-plugin, where a Claude Code session reads them, and
+# opens a pull request there. Mirrors lessly-hub/lessly-voice's sync-voice.yml.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - SKILL.md
+      - bin/**
+      - scripts/**
+      - fixtures/**
+      - package.json
+      - docs/ai-slop-detector.md
+      - .github/workflows/sync-plugin.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-plugin
+  cancel-in-progress: true
+
+env:
+  PLUGIN_REPO: apliteni/claude-apliteni-plugin
+  SKILL_DIR: skills/ai-slop-detector
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the detector (source of truth)
+        uses: actions/checkout@v4
+        with:
+          path: detector
+
+      - name: Check out the plugin (sync target)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PLUGIN_REPO }}
+          token: ${{ secrets.PLUGIN_SYNC_TOKEN }}
+          path: plugin
+
+      - name: Copy the skill and the reference into the plugin
+        run: |
+          set -euo pipefail
+          dest="plugin/${SKILL_DIR}"
+          rm -rf "$dest"
+          mkdir -p "$dest"
+          cp -R detector/bin detector/scripts detector/fixtures "$dest/"
+          cp detector/package.json "$dest/package.json"
+          node detector/tools/render-skill.js detector plugin \
+            asabirov/ai-slop-detector-skill
+
+      - name: Open a PR on the plugin if the skill changed
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.PLUGIN_SYNC_TOKEN }}
+          path: plugin
+          branch: sync/ai-slop-detector
+          base: main
+          commit-message: "fix(ai-slop-detector): sync the skill from asabirov/ai-slop-detector-skill"
+          title: "fix(ai-slop-detector): sync the skill from source"
+          body: |
+            Regenerated `${{ env.SKILL_DIR }}` and `docs/ai-slop-detector.md` from
+            `asabirov/ai-slop-detector-skill`.
+
+            Source commit: ${{ github.sha }}
+
+            This PR is generated. Do not hand-edit the skill in this repo; edit it in
+            `asabirov/ai-slop-detector-skill` instead.
+          labels: skill-sync
+          delete-branch: true

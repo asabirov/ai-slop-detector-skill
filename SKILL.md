@@ -59,10 +59,18 @@ present: `fail`, `review`, `warn`, `pass`.
 
 ## Run it
 
+In a session, from the plugin's copy:
+
 ```bash
 node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js <file>                 # level 2 (default)
 node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js src scripts --level 1  # a tree, hard bans only
 node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js 'src/**/*.js' --json
+```
+
+In a repository's CI, from npm, with no copy of the rules checked in:
+
+```bash
+npx @apliteni/slop-detector dist --level 1
 ```
 
 ### A page's CSS is read from the files it links
@@ -92,9 +100,11 @@ Arguments are files, directories (walked) or globs. Each file is routed by its e
 `--as source|artifact` overrides. Git-ignored files are skipped unless you pass
 `--no-git-ignore`, and `--ignore 'vendor/**'` drops more.
 
-The linter lives here and only here. It is not published, so nothing outside a session
-runs it: a repository that wants the rules enforced by CI has to carry a copy, the way
-apliteni-ui carries `brand.generated.css`.
+The rules live in `asabirov/ai-slop-detector-skill` and are published as
+`@apliteni/slop-detector`. This copy inside the plugin is generated from that repo by a
+GitHub Action, so a repository that wants the gate in CI installs the package rather than
+copying the files. Two repositories carried hand-made copies before it was published, and
+one of them had already deleted three files out of its copy.
 
 Exit code `1` on any `error`. `--json` emits `{verdict, level, files[], stats}` for
 chaining, where `stats` counts `errors`, `medium` and `warnings`. Fix every error; treat
@@ -196,7 +206,8 @@ text, paragraphs}`. For the comments pack: `{lines, blocks, commentLines, proseL
 codeLines}`, where each block carries `{start, end, len, prose, dividers, headings, first}`.
 
 Disagree with a rule, or want it re-leveled or removed? The rule set is a shared contract —
-don't fork or silence it locally. Open an issue in this repo (name the rule `id`, show the
+don't fork or silence it locally. Open an issue in `asabirov/ai-slop-detector-skill`
+(name the rule `id`, show the
 case, say what you'd change). Details: `docs/ai-slop-detector.md` § Disagree with a rule.
 
 Before adding a rule, it must earn its place (high signal, cite where the pattern appears

@@ -1,0 +1,25 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # ubuntu, not macos: a private repo bills macOS minutes at ten times the
+    # rate. Move this only if the tests genuinely need a Mac.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run the tests
+        run: npm test
+      - name: The detector passes its own rules
+        run: npm run lint:self
+      # The detector is not run over its own prose. These files quote the
+      # patterns it bans, and a code span stops exempting them once an earlier
+      # backtick in the file is unbalanced, so SKILL.md scores four level-1
+      # errors that every one of those lines passes in isolation.

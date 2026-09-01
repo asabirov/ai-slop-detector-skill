@@ -1,8 +1,12 @@
 # AI Slop Detector
 
-Canonical reference for the `apliteni:ai-slop-detector` skill: the full rule catalogue,
-the danger levels, how to run it, and how to add a rule. The agent-facing entry point is
-`skills/ai-slop-detector/SKILL.md`; this page is the human reference behind it.
+Canonical reference for the `apliteni:ai-slop-detector` skill and for the npm package
+`@apliteni/slop-detector`: the full rule catalogue, the danger levels, how to run it, and
+how to add a rule. The agent-facing entry point is `SKILL.md`; this page is the human
+reference behind it.
+
+Both live in `asabirov/ai-slop-detector-skill`. The copies inside
+`apliteni/claude-apliteni-plugin` are generated from there and must not be edited.
 
 ## What it does
 
@@ -47,10 +51,18 @@ then `pass`.
 
 ## Run it
 
+From npm, which is how a repository's CI runs it:
+
+```bash
+npx @apliteni/slop-detector <file>
+npx @apliteni/slop-detector src scripts --level 1
+npx @apliteni/slop-detector 'src/**/*.js' --json
+```
+
+From the plugin's copy, which is how a Claude Code session runs it:
+
 ```bash
 node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js <file>
-node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js src scripts --level 1
-node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js 'src/**/*.js' --json
 ```
 
 Arguments are files, directories (walked) or globs. Each file is routed by its extension —
@@ -205,18 +217,20 @@ in real AI output — and it must be tested both ways:
    the good page fire, the rule is too aggressive — fix the rule, not the good page.
 
 ```bash
-node --test skills/ai-slop-detector/scripts/*.test.js
+npm test
 ```
 
-The suite runs in CI (`.github/workflows/ci.yml`), so a rule that breaks coverage or trips
-a clean fixture fails the build.
+The suite runs in CI (`.github/workflows/tests.yml`), so a rule that breaks coverage or
+trips a clean fixture fails the build. The plugin runs the same suite against its
+generated copy, which is what catches a bad sync.
 
 ## Disagree with a rule, or want to tune it?
 
 The rule set is a shared contract — everyone's audit stays consistent only if the rules
 stay the same for everyone. So don't fork or silence rules locally. If you think a rule is
-wrong, too aggressive, missing, or should sit at a different level, **open an issue in this
-repo** ([lessly-hub/claude-lessly-plugin](https://github.com/lessly-hub/claude-lessly-plugin/issues/new)):
+wrong, too aggressive, missing, or should sit at a different level, **open an issue in the
+source repo**
+([asabirov/ai-slop-detector-skill](https://github.com/asabirov/ai-slop-detector-skill/issues/new)):
 
 - name the rule `id` (e.g. `heading-period`),
 - show the case it fires on (or misses), and
@@ -239,12 +253,14 @@ The comments pack was added when the same agents that write the copy turned out 
 writing design documents into source files — 33% of one repository's lines were comments,
 and its longest single comment block ran to 117 lines.
 
-The rules live once, in `skills/ai-slop-detector/` of this repository, and they are not
-published anywhere. An agent in a session is the only thing that runs them.
+The rules live once, in `asabirov/ai-slop-detector-skill`, and ship two ways: as the npm
+package `@apliteni/slop-detector`, and as the `apliteni:ai-slop-detector` skill inside
+`apliteni/claude-apliteni-plugin`, whose copy a GitHub Action regenerates.
 
-That is a deliberate limit, and it has a cost worth stating: an `error` here stops a commit
-only because whoever is committing ran the linter and fixed what it said. No build fails on
-its own. A repository that wants the rules enforced without a person in the loop has to
-carry its own copy of `scripts/` and `bin/` — the shape apliteni-ui already uses for
-`brand.generated.css`, where a generated file is synced in and a `--check` script goes red
-when the copy falls behind. Nobody has needed that yet.
+They used to ship only inside the plugin, unpublished, which meant a build could never fail
+on its own: an `error` stopped a commit only because whoever was committing had run the
+linter and fixed what it said. Two repositories worked around that by copying the files.
+`lessly-hub/board.lessly.tech` keeps a byte-identical copy under a hash manifest;
+`lessly-hub/compliance.lessly.tech` keeps a pruned one that deleted `scripts/lib/html.js`,
+`scripts/rules/visual.js` and `scripts/rules/text.js` to get past CodeQL. Both pin plugin
+version `4.0.0`. Installing the package replaces both copies.
