@@ -24,6 +24,7 @@
   "files": [
     "bin/",
     "scripts/",
+    "!scripts/*.test.js",
     "SKILL.md"
   ],
   "scripts": {
