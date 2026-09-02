@@ -1,8 +1,15 @@
 name: release
 
-# A merge to main tags a version and writes the changelog when the commits ask
+# A merge to main tags a version and writes release notes when the commits ask
 # for one. It publishes nothing: the package is private and consumers install
 # straight from this repository, so the tag is what they pin to.
+#
+# Nothing here pushes to main. `main` is protected and requires a pull request,
+# so @semantic-release/git was rejected on every run this workflow ever made and
+# no tag was ever cut. @semantic-release/github creates the tag and the release
+# through the API, which protection does not sit in front of. The cost is that
+# the changelog and the package.json version live on the release page instead of
+# in a committed file.
 
 on:
   push:
@@ -23,20 +30,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Configure git for semantic-release
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin \
-            https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
       - name: Install semantic-release
         run: |
           npm install --no-save \
             semantic-release@24 \
-            @semantic-release/github@11 \
-            @semantic-release/npm@12 \
-            @semantic-release/git@10 \
-            @semantic-release/changelog@6
+            @semantic-release/github@11
       - name: Run semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
