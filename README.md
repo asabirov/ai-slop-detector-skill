@@ -42,6 +42,12 @@ Three rule packs over one engine.
 - **Comments** reads source files. Catches the design document an agent files
   into a code comment because the project gave it nowhere else to write one.
 
+Code is not prose. Fenced blocks and inline code spans come out of a document
+before the rules that judge decoration read it, so a page can quote the pattern
+it explains. Spans are matched the way CommonMark matches them, a run of N
+backticks closing only on a run of N, and the HTML sniff is taken after that
+removal so a markdown file naming `<style>` in backticks is still markdown.
+
 Four levels, each a superset of the one below: `ban`, `recommended` (default),
 `strict`, `paranoid`. Only `error` findings exit non-zero, so level 1 is the
 merge gate and the higher levels are polish.
@@ -74,7 +80,7 @@ node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js <path>
 In this repository:
 
 ```bash
-npm test           # the unit tests and the fixtures
+npm test           # the unit tests, the fixtures, and this repo's own prose
 npm run lint:self  # the detector must pass its own rules
 ```
 

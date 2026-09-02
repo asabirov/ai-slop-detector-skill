@@ -346,10 +346,129 @@ const DECOR_ARROWS = /[↗↖↘↙⬈⤴➚⇗⤢⧉]/;
 const EMOJI = /^(?:[☀-➿]|[←-⇿]|\ud83c[\udc00-\udfff]|\ud83d[\udc00-\udfff]|\ud83e[\udd00-\udfff])/;
 
 // Does this source look like HTML (vs. markdown / plain text)?
+//
+// Taken on the source with its markdown code removed, because a markdown file
+// explaining HTML quotes tags. This skill's own SKILL.md names `<style>`,
+// `<link>` and `<div>` inside code spans, and on the raw text that was enough
+// to classify a markdown document as a web page. Every markdown-only step then
+// went unrun, the code-span exemption with them, and four schemes already
+// sitting in backticks scored level-1 errors (apliteni#78).
 function looksLikeHtml(source) {
   return /<(?:html|body|head|div|p|section|header|footer|h[1-6]|style|script|span|ul|ol|li|a)\b/i.test(
-    source
+    withoutMarkdownCode(source)
   );
+}
+
+// Markdown code, removed the way CommonMark reads it rather than by pairing the
+// first delimiter with the next one.
+//
+// `/`[^`]*`/g` paired every backtick with the one after it, so a single stray
+// backtick shifted the pairing for the rest of the file and every span past it
+// was handed to the rules as prose. The fenced form had the same defect: an odd
+// ``` anywhere paired with the next real fence and silently ate the prose in
+// between, which is the quiet half of the same bug (apliteni#78).
+
+// Offsets of the blank lines in a text, so a candidate span can be told it has
+// run past the end of its paragraph without re-slicing the source each time.
+function blankLineOffsets(text) {
+  const out = [];
+  const re = /\n[ \t]*\n/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    out.push(m.index);
+    re.lastIndex = m.index + 1; // consecutive blank lines each count
+  }
+  return out;
+}
+
+function blankLineBetween(offsets, from, to) {
+  let lo = 0;
+  let hi = offsets.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (offsets[mid] < from) lo = mid + 1;
+    else if (offsets[mid] >= to) hi = mid - 1;
+    else return true;
+  }
+  return false;
+}
+
+// Fenced blocks, matched on whole lines: three or more backticks or tildes open
+// one, and a line of at least as many of the same character closes it. An
+// unclosed fence runs to the end of the document, which is what CommonMark says
+// and what stops a stray fence eating the prose after it.
+function stripFences(text, replacement) {
+  const out = [];
+  let fence = null;
+  for (const line of text.split('\n')) {
+    if (fence) {
+      if (fence.test(line)) fence = null;
+      continue;
+    }
+    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    // A backtick fence's info string cannot itself contain a backtick, so an
+    // inline ```span``` sitting on its own line stays prose.
+    if (open && !(open[1][0] === '`' && open[2].includes('`'))) {
+      const char = open[1][0] === '`' ? '\\`' : '~';
+      fence = new RegExp(`^ {0,3}${char}{${open[1].length},}\\s*$`);
+      out.push(replacement);
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+// Inline code spans. A run of N backticks opens one and only a run of exactly N
+// closes it; a run that finds no partner is literal text, and the run after it
+// is free to open a span of its own.
+function stripCodeSpans(text, replacement) {
+  const runs = [];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '`') continue;
+    let len = 1;
+    while (text[i + len] === '`') len++;
+    runs.push({ start: i, len });
+    i += len - 1;
+  }
+  if (runs.length < 2) return text;
+
+  // One cursor per delimiter length, each only ever moving forward, so matching
+  // stays linear in the number of runs however many of them go unpaired.
+  const byLen = new Map();
+  runs.forEach((r, i) => {
+    if (!byLen.has(r.len)) byLen.set(r.len, []);
+    byLen.get(r.len).push(i);
+  });
+  const cursor = new Map();
+  const blanks = blankLineOffsets(text);
+
+  let out = '';
+  let copied = 0;
+  let k = 0;
+  while (k < runs.length) {
+    const open = runs[k];
+    const peers = byLen.get(open.len);
+    let c = cursor.get(open.len) || 0;
+    while (c < peers.length && peers[c] <= k) c++;
+    cursor.set(open.len, c);
+    const close = c < peers.length ? runs[peers[c]] : null;
+    if (!close || blankLineBetween(blanks, open.start + open.len, close.start)) {
+      k++; // no partner inside this paragraph — the run is literal text
+      continue;
+    }
+    out += text.slice(copied, open.start) + replacement;
+    copied = close.start + close.len;
+    cursor.set(open.len, c + 1);
+    k = peers[c] + 1;
+  }
+  return out + text.slice(copied);
+}
+
+// Markdown with every code span and fenced block gone. The stream the rules
+// that judge decoration read, and the one the HTML sniff is taken on.
+function withoutMarkdownCode(source) {
+  return stripCodeSpans(stripFences(source, ' '), ' ');
 }
 
 // Visible prose as one string. For HTML: strip tags. For markdown/text: strip the
@@ -365,9 +484,7 @@ function plainText(source, isHtml) {
       .trim();
     return [visible, ...attrTextRuns(source)].filter(Boolean).join(' ');
   }
-  return source
-    .replace(/```[\s\S]*?```/g, ' ') // fenced code — never prose
-    .replace(/`[^`]*`/g, ' ') // inline code
+  return withoutMarkdownCode(source)
     .replace(/^\s{0,3}#{1,6}\s+/gm, '') // heading hashes
     .replace(/^\s{0,3}[-*+]\s+/gm, '') // list bullets
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // links → link text
@@ -395,7 +512,7 @@ function paragraphs(source, isHtml) {
     // reader meets on its own, so the density gates should score it that way.
     return [...visibleTextRuns(source), ...attrTextRuns(source)];
   }
-  const noCode = source.replace(/```[\s\S]*?```/g, '\n\n');
+  const noCode = stripFences(source, '\n');
   return noCode
     .split(/\n\s*\n/)
     .map((p) => p.replace(/\s+/g, ' ').trim())
@@ -444,6 +561,9 @@ module.exports = {
   linkedCss,
   cssRules,
   looksLikeHtml,
+  stripFences,
+  stripCodeSpans,
+  withoutMarkdownCode,
   plainText,
   proseWithoutCode,
   paragraphs,

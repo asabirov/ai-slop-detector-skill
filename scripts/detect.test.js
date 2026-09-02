@@ -8,6 +8,7 @@ const { detect, resolveLevel, kindForPath, SEVERITY, VERDICT_ICON, LEVELS } = re
 const { RULES } = require('./rules');
 const {
   attrTextRuns,
+  plainText,
   markupTokens,
   markupElements,
   selectorApplies,
@@ -598,4 +599,107 @@ test('a real opener is still caught wherever a sentence or paragraph starts', ()
     const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
     assert.deepStrictEqual([...new Set(rep.findings.map((f) => f.rule))], ['sycophancy-opener'], doc);
   }
+});
+
+// ── issue #78 · the code-span exemption reached only part of the file ────
+
+test('a stray backtick does not disable the code-span exemption after it', () => {
+  const doc = ['A stray backtick ` here.', '', 'A fake `app://` URI is banned.'].join('\n');
+  const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), []);
+});
+
+test('a code span does not reach across a blank line to swallow prose', () => {
+  const doc = [
+    'A stray backtick ` here.',
+    '',
+    'See lessly://c4/goal for the goal model.',
+    '',
+    'Another stray ` there.',
+  ].join('\n');
+  const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['fake-uri']);
+});
+
+test('a double-backtick span holds a backtick, and closes only on its own length', () => {
+  const doc = 'Write `` `app://` `` to quote it, and app://x stays banned.';
+  const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['fake-uri']);
+});
+
+test('an unclosed fence hides the block that follows it, not the prose before', () => {
+  const doc = ['See lessly://c4/goal first.', '', '```js', 'const u = "app://x";'].join('\n');
+  const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['fake-uri']);
+});
+
+test('markdown that quotes an HTML tag in a code span is still markdown', () => {
+  const doc = [
+    'Reading only `<style>` blocks missed the sheet a page links.',
+    '',
+    'A fake `app://` URI is banned.',
+  ].join('\n');
+  const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), []);
+});
+
+test('a page that really is HTML is still read as HTML', () => {
+  const page = [
+    '<html><head><style>body { font-family: system-ui; }</style></head>',
+    '<body><p>Run `npm test` and `npm run lint` before you push.</p></body></html>',
+  ].join('\n');
+  const rep = detect(page, { level: 1, kind: 'artifact', ext: 'html' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['system-font']);
+});
+
+test('a decorative arrow quoted as a value is not decoration', () => {
+  const doc = 'The `external-link-arrow` rule bans a diagonal `↗` on a link.';
+  const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), []);
+});
+
+test('a decorative arrow on a link is still decoration', () => {
+  const doc = '<p><a href="https://x.test">Open on GitHub ↗</a></p>';
+  const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'html' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['external-link-arrow']);
+});
+
+// This repo's own prose, which is the prose most likely to trip these rules: a
+// rule is explained by quoting what it catches. Found by walking rather than
+// listed, so a document added later is covered without anybody remembering to
+// add it here. `tests.yml` points at this test instead of carrying its own copy
+// of the list.
+const ROOT = path.join(__dirname, '..');
+const shippedProse = () =>
+  [
+    ...fs.readdirSync(ROOT).filter((f) => f.endsWith('.md')),
+    ...fs.readdirSync(path.join(ROOT, 'docs')).filter((f) => f.endsWith('.md')).map((f) => `docs/${f}`),
+  ].sort();
+
+test('every document this repo ships passes its own level-1 gate', () => {
+  const docs = shippedProse();
+  assert.ok(docs.length >= 4, `expected the shipped prose, found ${docs.join(', ')}`);
+  const failed = docs.flatMap((doc) =>
+    detect(fs.readFileSync(path.join(ROOT, doc), 'utf8'), {
+      level: 1,
+      kind: 'artifact',
+      ext: 'md',
+    }).findings.map((f) => `${doc}: ${f.rule}: ${f.span}`)
+  );
+  assert.deepStrictEqual(failed, [], 'a document fails the gate it documents');
+});
+
+// Unpaired backticks are the shape that makes span-matching quadratic: each one
+// is an opener that has to give up somewhere, and a naive search restarts at the
+// head of the candidate list every time. One cursor per delimiter length, moving
+// forward only, keeps it linear. This document takes 19ms here; drop the cursors
+// and the same document takes 1,880ms. The budget sits ~21x above the linear
+// time and ~4.7x under the regression, so it fails on the shape, not on a slow
+// machine.
+test('a document of unpaired backticks does not blow up the code-span scan', () => {
+  const doc = '` ' + Array.from({ length: 120000 }, (_, i) => `word${i} \`\``).join(' ');
+  const started = Date.now();
+  plainText(doc, false);
+  const ms = Date.now() - started;
+  assert.ok(ms < 400, `1.5MB of unpaired backticks took ${ms}ms — the scan is not linear`);
 });

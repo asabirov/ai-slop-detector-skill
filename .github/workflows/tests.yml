@@ -23,7 +23,6 @@ jobs:
         run: |
           npm run lint:self
           node bin/slop-detector.js tools --level 4
-      # The detector is not run over its own prose. These files quote the
-      # patterns it bans, and a code span stops exempting them once an earlier
-      # backtick in the file is unbalanced, so SKILL.md scores four level-1
-      # errors that every one of those lines passes in isolation.
+      # The detector is run over its own prose by the suite above, which walks
+      # every markdown file this repo ships and scores it at level 1. It lives
+      # there rather than here so the list of documents exists once.
