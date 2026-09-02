@@ -10,9 +10,10 @@ concrete fix.
 **Chosen:** one repository that is both the source of the
 `apliteni:ai-slop-detector` skill and the thing a CI job runs, installed straight
 from GitHub with `npx github:asabirov/ai-slop-detector-skill#<tag>`, plus a GitHub
-Action that syncs the skill into `apliteni/claude-apliteni-plugin`. Gives up: a
-rule change lands in two places, the sync can fall behind, and a consumer needs
-network and GitHub reachable from its runner.
+Action that syncs the skill page and the reference doc into
+`apliteni/claude-apliteni-plugin`. Gives up: a documentation change lands in two
+places, the sync can fall behind, and a consumer needs network and GitHub
+reachable from its runner. A rule change lands only here.
 
 **Turned down:** leaving it inside the plugin, where it lived until now. Why not:
 a Claude Code plugin installs into a directory named after its version, so
@@ -88,10 +89,13 @@ There is no npm package. `npx` installs from this repository, so a runner needs
 network and access to GitHub. Pin a tag: unpinned tracks `main`, and a rule that
 tightens will fail a build that passed yesterday.
 
-In a Claude Code session with the `apliteni` plugin installed:
+In a Claude Code session, from this repository cloned where it looks for personal
+skills. The `apliteni` plugin ships a page pointing here and none of the code:
 
 ```bash
-node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js <path>
+git clone https://github.com/asabirov/ai-slop-detector-skill.git \
+  ~/.claude/skills/ai-slop-detector
+node ~/.claude/skills/ai-slop-detector/bin/slop-detector.js <path>
 ```
 
 In this repository:
@@ -115,19 +119,21 @@ clean fixture fire, the rule is wrong, not the fixture.
 
 | Consumer | How it gets the rules |
 | --- | --- |
-| `apliteni/claude-apliteni-plugin` | `skills/ai-slop-detector/`, written by `.github/workflows/sync-plugin.yml` in this repo. Do not edit it there. |
+| `apliteni/claude-apliteni-plugin` | A pointer page at `skills/ai-slop-detector/SKILL.md` and the reference at `docs/ai-slop-detector.md`, both written by `.github/workflows/sync-plugin.yml` in this repo. Not the rules. Do not edit them there. |
 | Any repository's CI | `npx -y github:asabirov/ai-slop-detector-skill#<tag>`, or a dev dependency on the git URL. |
 
-### The switch to the stub
+### Why the plugin gets a pointer
 
-The plugin ships the whole linter today — 19 files, 152K, measured by running the
-sync's own copy step into a temporary directory. It should ship a pointer instead,
-because a plugin installs into a directory named after its version, so nothing
-outside a session can reach the rules that way.
+The plugin shipped the whole linter until
 [apliteni/claude-apliteni-plugin#82](https://github.com/apliteni/claude-apliteni-plugin/issues/82)
-is that removal. It used to be blocked on publishing to npm; dropping npm unblocked
-it, because `npx github:<repo>#<tag>` gives a session and a CI job the same route
-without a registry.
+— 18 files, 164K. A plugin installs into a directory named after its version, so
+nothing outside a Claude Code session could reach the rules that way, and two
+repositories copied the files by hand instead. One of them deleted three rule files
+out of its copy to get past CodeQL.
+
+The removal used to wait on publishing to npm. Dropping npm unblocked it: `npx
+github:<repo>#<tag>` gives a session and a CI job the same route without a registry,
+and `SKILL_PAGE` in `sync-plugin.yml` moves the page and the code together.
 
 The change here is one word. `SKILL_PAGE` in
 `.github/workflows/sync-plugin.yml` goes from `skill` to `stub`, and that single
