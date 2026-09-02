@@ -30,12 +30,12 @@ env:
   PLUGIN_REPO: apliteni/claude-apliteni-plugin
   SKILL_DIR: skills/ai-slop-detector
   # Which page ships as the plugin's SKILL.md, and whether the linter ships beside
-  # it. `skill` is today: the real page, plus bin/, scripts/, fixtures/ and
-  # package.json. `stub` is the install pointer alone, for the day
-  # apliteni/claude-apliteni-plugin#82 stops shipping the source. That day is one
-  # word here — both halves move together, so the plugin cannot end up with a stub
-  # and the code, or the skill page and no code.
-  SKILL_PAGE: skill
+  # it. `stub` is today: the install pointer alone. `skill` is the other setting —
+  # the real page, plus bin/, scripts/, fixtures/ and package.json — which is how
+  # this shipped until apliteni/claude-apliteni-plugin#82. Both halves move on this
+  # one word, so the plugin cannot end up with a stub and the code, or the skill
+  # page and no code.
+  SKILL_PAGE: stub
 
 jobs:
   sync:

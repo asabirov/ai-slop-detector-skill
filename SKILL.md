@@ -59,19 +59,16 @@ present: `fail`, `review`, `warn`, `pass`.
 
 ## Run it
 
-In a session, from the plugin's copy:
+In a session, from this repository cloned into `~/.claude/skills/`:
 
 ```bash
-node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js <file>                 # level 2 (default)
-node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js src scripts --level 1  # a tree, hard bans only
-node $CLAUDE_PLUGIN_ROOT/skills/ai-slop-detector/bin/slop-detector.js 'src/**/*.js' --json
+node ~/.claude/skills/ai-slop-detector/bin/slop-detector.js <file>                 # level 2 (default)
+node ~/.claude/skills/ai-slop-detector/bin/slop-detector.js src scripts --level 1  # a tree, hard bans only
+node ~/.claude/skills/ai-slop-detector/bin/slop-detector.js 'src/**/*.js' --json
 ```
 
-From a personal checkout linked into `~/.claude/skills/`:
-
-```bash
-node ~/.claude/skills/ai-slop-detector/bin/slop-detector.js <file>
-```
+The `apliteni` plugin does not carry the code. It ships a page that says how to get
+it, so `$CLAUDE_PLUGIN_ROOT` has nothing to run.
 
 In a repository's CI, with no copy of the rules checked in:
 
