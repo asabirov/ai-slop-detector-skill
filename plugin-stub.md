@@ -1,6 +1,6 @@
 ---
 name: ai-slop-detector
-description: "Pointer, not the linter. The AI-slop linter no longer ships in this plugin — it lives in asabirov/ai-slop-detector-skill and publishes as @apliteni/slop-detector. Read this to install it or to run it in CI; it cannot score anything itself. Trigger on: ai slop, slop check, slop detector, install the slop detector, how do I run the linter, does this look ai-generated."
+description: "Pointer, not the linter. The AI-slop linter no longer ships in this plugin — it lives in asabirov/ai-slop-detector-skill and runs straight from there. Read this to install it or to run it in CI; it cannot score anything itself. Trigger on: ai slop, slop check, slop detector, install the slop detector, how do I run the linter, does this look ai-generated."
 ---
 
 # AI Slop Detector — not installed here
@@ -32,11 +32,15 @@ Update it with `git pull` in that directory. Nothing here updates it for you.
 
 ## In CI, or once and away
 
-No checkout, no copy of the rules in your repository:
+No checkout, no copy of the rules in your repository. There is no npm package; `npx`
+installs from the repository, so the runner needs network and GitHub:
 
 ```bash
-npx @apliteni/slop-detector <path> --level 1
+npx -y github:asabirov/ai-slop-detector-skill#v1.0.0 <path> --level 1
 ```
+
+Pin the tag. Unpinned tracks `main`, and a rule that tightens fails a build that passed
+yesterday.
 
 Level 1 is the merge gate: hard bans only, exit 1 on any of them. Levels 2 to 4 add
 warnings that never fail a run.

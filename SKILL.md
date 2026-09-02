@@ -73,10 +73,10 @@ From a personal checkout linked into `~/.claude/skills/`:
 node ~/.claude/skills/ai-slop-detector/bin/slop-detector.js <file>
 ```
 
-In a repository's CI, from npm, with no copy of the rules checked in:
+In a repository's CI, with no copy of the rules checked in:
 
 ```bash
-npx @apliteni/slop-detector dist --level 1
+npx -y github:asabirov/ai-slop-detector-skill#v1.0.0 dist --level 1
 ```
 
 ### A page's CSS is read from the files it links
@@ -131,11 +131,12 @@ Arguments are files, directories (walked) or globs. Each file is routed by its e
 `--as source|artifact` overrides. Git-ignored files are skipped unless you pass
 `--no-git-ignore`, and `--ignore 'vendor/**'` drops more.
 
-The rules live in `asabirov/ai-slop-detector-skill` and are published as
-`@apliteni/slop-detector`. This copy inside the plugin is generated from that repo by a
-GitHub Action, so a repository that wants the gate in CI installs the package rather than
-copying the files. Two repositories carried hand-made copies before it was published, and
-one of them had already deleted three files out of its copy.
+The rules live in `asabirov/ai-slop-detector-skill`. This copy inside the plugin is
+generated from that repo by a GitHub Action, so a repository that wants the gate in CI
+runs it from there rather than copying the files. There is no npm package — `npx` reads
+the repository directly, which needs network and a pinned tag. Two repositories carried
+hand-made copies before that route existed, and one had deleted three files out of its
+copy.
 
 Exit code `1` on any `error`. `--json` emits `{verdict, level, files[], stats}` for
 chaining, where `stats` counts `errors`, `medium` and `warnings`. Fix every error; treat

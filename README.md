@@ -7,10 +7,12 @@ concrete fix.
 
 ## The choice this makes
 
-**Chosen:** one repository that is both the npm package `@apliteni/slop-detector`
-and the source of the `apliteni:ai-slop-detector` skill, with a GitHub Action
-that syncs the skill into `apliteni/claude-apliteni-plugin`. Gives up: a rule
-change now lands in two places, and the sync can fall behind.
+**Chosen:** one repository that is both the source of the
+`apliteni:ai-slop-detector` skill and the thing a CI job runs, installed straight
+from GitHub with `npx github:asabirov/ai-slop-detector-skill#<tag>`, plus a GitHub
+Action that syncs the skill into `apliteni/claude-apliteni-plugin`. Gives up: a
+rule change lands in two places, the sync can fall behind, and a consumer needs
+network and GitHub reachable from its runner.
 
 **Turned down:** leaving it inside the plugin, where it lived until now. Why not:
 a Claude Code plugin installs into a directory named after its version, so
@@ -18,9 +20,19 @@ nothing outside a session could ever install the rules. Two repositories had
 already copied the files by hand, and one of them pruned three files out of its
 copy to get past CodeQL.
 
-**Turned down:** a git submodule inside the plugin. Why not: the plugin loader
-clones the repository and does not fetch submodules, so the skill directory
-would arrive empty.
+**Turned down:** publishing to npm as `@apliteni/slop-detector`. Why not: it buys
+a shorter command and costs an npm org, a token in CI, a release job that can fail
+on its own, and a second place the rules exist. `npx github:<repo>#<tag>` runs the
+same bin from the same commit. `package.json` is `private`, so nothing publishes it
+by accident. Decided by Artur on 2026-09-02.
+
+**Turned down:** a git submodule inside the plugin. Why not: it ships the whole
+source repo to every install — 400K and 32 worktree files plus a nested `.git`,
+against 152K and 19 today — while the plugin is trying to ship *less* of the
+linter, not more. Not for the reason first written here: Claude Code's plugin
+loader does clone with `--recurse-submodules --shallow-submodules` and then runs
+`git submodule update --init --recursive --depth`, so a submodule would have
+arrived populated. Measured against `claude` 2.1.236 on 2026-09-02.
 
 **Decided by:** `lessly-hub/compliance.lessly.tech` and
 `lessly-hub/board.lessly.tech` both carry a hand-vendored copy pinned to plugin
@@ -66,10 +78,15 @@ ship yet. See "The switch to the stub" below.
 In a repository's CI, or anywhere with Node 20:
 
 ```bash
-npx @apliteni/slop-detector dist --level 1
-npx @apliteni/slop-detector src scripts --level 1
-npx @apliteni/slop-detector 'src/**/*.js' --json
+REPO=github:asabirov/ai-slop-detector-skill
+npx -y "$REPO#v1.0.0" dist --level 1        # pin a tag in CI
+npx -y "$REPO#v1.0.0" src scripts --level 1
+npx -y "$REPO" 'src/**/*.js' --json         # unpinned tracks main
 ```
+
+There is no npm package. `npx` installs from this repository, so a runner needs
+network and access to GitHub. Pin a tag: unpinned tracks `main`, and a rule that
+tightens will fail a build that passed yesterday.
 
 In a Claude Code session with the `apliteni` plugin installed:
 
@@ -99,7 +116,7 @@ clean fixture fire, the rule is wrong, not the fixture.
 | Consumer | How it gets the rules |
 | --- | --- |
 | `apliteni/claude-apliteni-plugin` | `skills/ai-slop-detector/`, written by `.github/workflows/sync-plugin.yml` in this repo. Do not edit it there. |
-| Any repository's CI | `npx @apliteni/slop-detector`, or a dev dependency on it. |
+| Any repository's CI | `npx -y github:asabirov/ai-slop-detector-skill#<tag>`, or a dev dependency on the git URL. |
 
 ### The switch to the stub
 
@@ -108,17 +125,18 @@ sync's own copy step into a temporary directory. It should ship a pointer instea
 because a plugin installs into a directory named after its version, so nothing
 outside a session can reach the rules that way.
 [apliteni/claude-apliteni-plugin#82](https://github.com/apliteni/claude-apliteni-plugin/issues/82)
-is that removal, and it is blocked until `@apliteni/slop-detector` publishes: until
-then the plugin's copy is the only way a session can run the linter.
+is that removal. It used to be blocked on publishing to npm; dropping npm unblocked
+it, because `npx github:<repo>#<tag>` gives a session and a CI job the same route
+without a registry.
 
-When it unblocks, the change here is one word. `SKILL_PAGE` in
+The change here is one word. `SKILL_PAGE` in
 `.github/workflows/sync-plugin.yml` goes from `skill` to `stub`, and that single
 value picks the page *and* drops `bin/`, `scripts/`, `fixtures/` and `package.json`
 from the copy. Both halves move together, so the plugin cannot end up carrying a
 stub and the code, or the real page and no code. Run it either way to see:
 
 ```bash
-node tools/render-skill.js . /tmp/plugin asabirov/ai-slop-detector-skill stub
+node tools/render-skill.js . /tmp/plugin asabirov/ai-slop-detector-skill "$(git rev-parse HEAD)" stub
 ```
 
 An unrecognised value exits 2 rather than shipping a half-built directory.

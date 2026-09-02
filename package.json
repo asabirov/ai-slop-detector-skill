@@ -1,7 +1,8 @@
 {
   "name": "@apliteni/slop-detector",
   "version": "0.0.0",
-  "description": "Deterministic AI-slop linter \u2014 visual, text and code-comment rules over HTML, markdown, prose and source files.",
+  "private": true,
+  "description": "Deterministic AI-slop linter — visual, text and code-comment rules over HTML, markdown, prose and source files. Not published to npm; run it straight from this repository.",
   "license": "MIT",
   "author": "Apliteni",
   "repository": {
@@ -33,8 +34,5 @@
   },
   "engines": {
     "node": ">=20"
-  },
-  "publishConfig": {
-    "access": "public"
   }
 }

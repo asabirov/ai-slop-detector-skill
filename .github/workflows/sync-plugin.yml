@@ -64,7 +64,7 @@ jobs:
             cp detector/package.json "$dest/package.json"
           fi
           node detector/tools/render-skill.js detector plugin \
-            asabirov/ai-slop-detector-skill "$SKILL_PAGE"
+            asabirov/ai-slop-detector-skill "$GITHUB_SHA" "$SKILL_PAGE"
           echo "shipped $SKILL_PAGE:"
           find "$dest" -maxdepth 1 -mindepth 1 -printf '%f\n' | sort
 

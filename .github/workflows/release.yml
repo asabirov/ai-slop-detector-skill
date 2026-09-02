@@ -1,8 +1,8 @@
 name: release
 
-# A merge to main publishes @apliteni/slop-detector when the commits ask for a
-# version. The sync into the plugin is a separate workflow, so a rule fix
-# reaches CI consumers through npm whether or not the plugin has been released.
+# A merge to main tags a version and writes the changelog when the commits ask
+# for one. It publishes nothing: the package is private and consumers install
+# straight from this repository, so the tag is what they pin to.
 
 on:
   push:
@@ -15,7 +15,6 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,7 +23,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: https://registry.npmjs.org
       - name: Configure git for semantic-release
         run: |
           git config user.name "github-actions[bot]"
@@ -42,5 +40,4 @@ jobs:
       - name: Run semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npx semantic-release
