@@ -46,11 +46,29 @@ jobs:
         with:
           path: detector
 
+      # A GitHub App, not a personal token: it does not expire, it is not tied to
+      # one person's account, and its write reaches exactly one repository. Same
+      # pattern as design-system-to-skill-sync.yml in apliteni/design-system.
+      #
+      # PLUGIN_SYNC_APP_ID / _PRIVATE_KEY currently hold the
+      # `apliteni-ds-to-plugin-sync` App, borrowed because it already has write on
+      # the plugin. That is why sync pull requests are authored by a bot named for
+      # the design system. Giving this sync its own App is a change of these two
+      # values and nothing else.
+      - name: Mint plugin-write token
+        id: app
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547  # v1.12.0
+        with:
+          app-id: ${{ vars.PLUGIN_SYNC_APP_ID }}
+          private-key: ${{ secrets.PLUGIN_SYNC_APP_PRIVATE_KEY }}
+          owner: apliteni
+          repositories: claude-apliteni-plugin
+
       - name: Check out the plugin (sync target)
         uses: actions/checkout@v4
         with:
           repository: ${{ env.PLUGIN_REPO }}
-          token: ${{ secrets.PLUGIN_SYNC_TOKEN }}
+          token: ${{ steps.app.outputs.token }}
           path: plugin
 
       - name: Copy the skill and the reference into the plugin
@@ -71,7 +89,7 @@ jobs:
       - name: Open a PR on the plugin if the skill changed
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.PLUGIN_SYNC_TOKEN }}
+          token: ${{ steps.app.outputs.token }}
           path: plugin
           branch: sync/ai-slop-detector
           base: main
