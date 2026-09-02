@@ -50,11 +50,10 @@ jobs:
       # one person's account, and its write reaches exactly one repository. Same
       # pattern as design-system-to-skill-sync.yml in apliteni/design-system.
       #
-      # PLUGIN_SYNC_APP_ID / _PRIVATE_KEY currently hold the
-      # `apliteni-ds-to-plugin-sync` App, borrowed because it already has write on
-      # the plugin. That is why sync pull requests are authored by a bot named for
-      # the design system. Giving this sync its own App is a change of these two
-      # values and nothing else.
+      # PLUGIN_SYNC_APP_ID / _PRIVATE_KEY hold `slop-detector-to-plugin-sync`
+      # (App 4805314), which exists for this one job: contents and pull_requests
+      # write, no webhook, no events, installed on one repository. Its private key
+      # is in 1Password, vault `Apliteni: Infra`, with the rotation note.
       - name: Mint plugin-write token
         id: app
         uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547  # v1.12.0
