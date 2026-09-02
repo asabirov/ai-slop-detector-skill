@@ -73,7 +73,7 @@ it, so `$CLAUDE_PLUGIN_ROOT` has nothing to run.
 In a repository's CI, with no copy of the rules checked in:
 
 ```bash
-npx -y github:asabirov/ai-slop-detector-skill#v1.0.0 dist --level 1
+npx -y github:asabirov/ai-slop-detector-skill#v2.0.0 dist --level 1
 ```
 
 ### A page's CSS is read from the files it links

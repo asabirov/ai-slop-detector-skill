@@ -80,14 +80,15 @@ In a repository's CI, or anywhere with Node 20:
 
 ```bash
 REPO=github:asabirov/ai-slop-detector-skill
-npx -y "$REPO#v1.0.0" dist --level 1        # pin a tag in CI
-npx -y "$REPO#v1.0.0" src scripts --level 1
+npx -y "$REPO#v2.0.0" dist --level 1        # pin a tag in CI
+npx -y "$REPO#v2.0.0" src scripts --level 1
 npx -y "$REPO" 'src/**/*.js' --json         # unpinned tracks main
 ```
 
 There is no npm package. `npx` installs from this repository, so a runner needs
 network and access to GitHub. Pin a tag: unpinned tracks `main`, and a rule that
-tightens will fail a build that passed yesterday.
+tightens will fail a build that passed yesterday. The tag above is the one that was
+current when this line was written; the newest is on the [releases page](https://github.com/asabirov/ai-slop-detector-skill/releases).
 
 In a Claude Code session, from this repository cloned where it looks for personal
 skills. The `apliteni` plugin ships a page pointing here and none of the code:
