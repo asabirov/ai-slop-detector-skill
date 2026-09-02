@@ -53,13 +53,14 @@ then `pass`.
 
 Straight from the source repository, which is how a repository's CI runs it. There is no
 npm package; `npx` installs from GitHub, so the runner needs network. Pin a tag — unpinned
-tracks `main`, and a rule that tightens fails a build that passed yesterday.
+tracks `main`, and a rule that tightens fails a build that passed yesterday. `v2.0.0` was
+current when this page was generated; the newest is on the [releases page](https://github.com/asabirov/ai-slop-detector-skill/releases).
 
 ```bash
 REPO=github:asabirov/ai-slop-detector-skill
-npx -y "$REPO#v1.0.0" <file>
-npx -y "$REPO#v1.0.0" src scripts --level 1
-npx -y "$REPO#v1.0.0" 'src/**/*.js' --json
+npx -y "$REPO#v2.0.0" <file>
+npx -y "$REPO#v2.0.0" src scripts --level 1
+npx -y "$REPO#v2.0.0" 'src/**/*.js' --json
 ```
 
 From a checkout, which is how a Claude Code session runs it. The plugin carries the

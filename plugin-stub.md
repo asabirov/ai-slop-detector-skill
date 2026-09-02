@@ -36,11 +36,12 @@ No checkout, no copy of the rules in your repository. There is no npm package; `
 installs from the repository, so the runner needs network and GitHub:
 
 ```bash
-npx -y github:asabirov/ai-slop-detector-skill#v1.0.0 <path> --level 1
+npx -y github:asabirov/ai-slop-detector-skill#v2.0.0 <path> --level 1
 ```
 
 Pin the tag. Unpinned tracks `main`, and a rule that tightens fails a build that passed
-yesterday.
+yesterday. `v2.0.0` was current when this page was generated; the newest is on the
+[releases page](https://github.com/asabirov/ai-slop-detector-skill/releases).
 
 Level 1 is the merge gate: hard bans only, exit 1 on any of them. Levels 2 to 4 add
 warnings that never fail a run.
