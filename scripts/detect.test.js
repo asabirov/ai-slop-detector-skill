@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { detect, resolveLevel, kindForPath, SEVERITY, VERDICT_ICON, LEVELS } = require('./detect');
 const { RULES } = require('./rules');
@@ -669,16 +670,38 @@ test('a decorative arrow on a link is still decoration', () => {
 // listed, so a document added later is covered without anybody remembering to
 // add it here. `tests.yml` points at this test instead of carrying its own copy
 // of the list.
+//
+// The walk has to survive being copied. `sync-plugin.yml` ships `scripts/` into
+// the plugin, this suite with it, and what arrives there is `SKILL.md` and the
+// code — no `README.md`, no `docs/`. Reading `docs/` unguarded crashed the
+// plugin's whole suite on a directory that was never going to be there.
 const ROOT = path.join(__dirname, '..');
-const shippedProse = () =>
-  [
-    ...fs.readdirSync(ROOT).filter((f) => f.endsWith('.md')),
-    ...fs.readdirSync(path.join(ROOT, 'docs')).filter((f) => f.endsWith('.md')).map((f) => `docs/${f}`),
+
+function shippedProse(root) {
+  const docs = path.join(root, 'docs');
+  return [
+    ...fs.readdirSync(root).filter((f) => f.endsWith('.md')),
+    ...(fs.existsSync(docs)
+      ? fs.readdirSync(docs).filter((f) => f.endsWith('.md')).map((f) => `docs/${f}`)
+      : []),
   ].sort();
+}
+
+test('the prose walk survives the shape the plugin gets', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slop-copy-'));
+  fs.writeFileSync(path.join(dir, 'SKILL.md'), '# skill\n');
+  fs.mkdirSync(path.join(dir, 'scripts'));
+  assert.deepStrictEqual(shippedProse(dir), ['SKILL.md']);
+});
 
 test('every document this repo ships passes its own level-1 gate', () => {
-  const docs = shippedProse();
-  assert.ok(docs.length >= 4, `expected the shipped prose, found ${docs.join(', ')}`);
+  const docs = shippedProse(ROOT);
+  // `tools/` is in the source repo and never in the generated copy, so it says
+  // which of the two this is and how much prose the walk owes.
+  assert.ok(docs.includes('SKILL.md'), `expected SKILL.md, found ${docs.join(', ')}`);
+  if (fs.existsSync(path.join(ROOT, 'tools'))) {
+    assert.ok(docs.length >= 4, `expected the source repo's prose, found ${docs.join(', ')}`);
+  }
   const failed = docs.flatMap((doc) =>
     detect(fs.readFileSync(path.join(ROOT, doc), 'utf8'), {
       level: 1,
