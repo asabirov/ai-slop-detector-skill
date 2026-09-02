@@ -237,11 +237,21 @@ function selectorApplies(selector, tokens) {
 // defined by where it sits, so the rule has to look at the page.
 const LABEL_TAGS = 'p|span|div|small|strong|em|b|a|figcaption';
 
+// Every `[\s\S]*?` here is bounded, and that is not tidiness. Unbounded, the
+// engine expands each label body to every later closing tag in the document
+// before giving up on a start position: 181KB of short paragraphs went from 8ms
+// to 4,980ms. A kicker's text is capped at KICKER_MAX_CHARS once tags are
+// stripped, so 300 raw characters is already generous for either end.
+const SPAN_MAX = 300;
+const COMMENT_MAX = 500;
+
 function labelsAboveHeadings(html) {
   const body = stripBetween(stripBetween(html, 'style'), 'script');
   const out = [];
   const re = new RegExp(
-    `<(${LABEL_TAGS})\\b([^>]*)>([\\s\\S]*?)</\\1>(?:\\s|<!--[\\s\\S]*?-->)*<(h[1-6])\\b[^>]*>([\\s\\S]*?)</\\4>`,
+    `<(${LABEL_TAGS})\\b([^>]*)>([\\s\\S]{0,${SPAN_MAX}}?)</\\1>` +
+      `\\s*(?:<!--[\\s\\S]{0,${COMMENT_MAX}}?-->\\s*){0,5}` +
+      `<(h[1-6])\\b[^>]*>([\\s\\S]{0,${SPAN_MAX}}?)</\\4>`,
     'gi'
   );
   let m;
