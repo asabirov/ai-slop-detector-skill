@@ -9,22 +9,23 @@ const path = require('node:path');
 const { stamp, render, NOTE, PAGES, targets } = require('./render-skill');
 
 const SLUG = 'owner/repo';
+const REV = '0123456789abcdef0123456789abcdef01234567';
 
 test('the stamp lands under the frontmatter, not above it', () => {
-  const out = stamp('---\nname: x\n---\n\n# Title\n', NOTE(SLUG), true);
+  const out = stamp('---\nname: x\n---\n\n# Title\n', NOTE(SLUG, REV), true);
   assert.ok(out.startsWith('---\nname: x\n---\n'), 'frontmatter must stay first');
-  assert.ok(out.includes('GENERATED from owner/repo'));
+  assert.ok(out.includes(`GENERATED from owner/repo@${REV}`));
   assert.ok(out.indexOf('GENERATED') < out.indexOf('# Title'));
 });
 
 test('a file with no frontmatter takes the stamp at the top', () => {
-  const out = stamp('# Title\n', NOTE(SLUG), false);
-  assert.ok(out.startsWith('<!-- GENERATED from owner/repo'));
+  const out = stamp('# Title\n', NOTE(SLUG, REV), false);
+  assert.ok(out.startsWith(`<!-- GENERATED from owner/repo@${REV}`));
   assert.ok(out.endsWith('# Title\n'));
 });
 
 test('frontmatter is left alone when the file opens without it', () => {
-  const out = stamp('# Title\n', NOTE(SLUG), true);
+  const out = stamp('# Title\n', NOTE(SLUG, REV), true);
   assert.ok(out.startsWith('<!-- GENERATED'));
 });
 
@@ -35,7 +36,7 @@ test('render writes both targets into the plugin tree', () => {
   fs.mkdirSync(path.join(src, 'docs'));
   fs.writeFileSync(path.join(src, 'docs/ai-slop-detector.md'), '# Reference\n');
 
-  const written = render(src, dst, SLUG);
+  const written = render(src, dst, SLUG, REV);
 
   assert.deepStrictEqual(written.map(p => path.relative(dst, p)),
                          targets('skill').map(t => t.to));
@@ -51,7 +52,7 @@ test('whichever page ships, its name matches the directory it lands in', () => {
   // target path rather than repeating it here.
   for (const page of Object.keys(PAGES)) {
     const dst = fs.mkdtempSync(path.join(os.tmpdir(), `slop-${page}-`));
-    const [skillOut] = render(path.join(__dirname, '..'), dst, SLUG, page);
+    const [skillOut] = render(path.join(__dirname, '..'), dst, SLUG, REV, page);
     const dir = path.basename(path.dirname(path.relative(dst, skillOut)));
     const m = /^---\n([\s\S]*?)\n---\n/.exec(fs.readFileSync(skillOut, 'utf8'));
     assert.ok(m, `${page} renders without frontmatter`);
@@ -64,7 +65,7 @@ test('the two pages are different pages, both landing at the same path', () => {
   const src = path.join(__dirname, '..');
   const read = page => {
     const dst = fs.mkdtempSync(path.join(os.tmpdir(), `slop-cmp-${page}-`));
-    const [out] = render(src, dst, SLUG, page);
+    const [out] = render(src, dst, SLUG, REV, page);
     return { rel: path.relative(dst, out), text: fs.readFileSync(out, 'utf8') };
   };
   const skill = read('skill');
@@ -78,6 +79,26 @@ test('the two pages are different pages, both landing at the same path', () => {
 
 test('an unknown page fails loudly instead of shipping nothing', () => {
   const dst = fs.mkdtempSync(path.join(os.tmpdir(), 'slop-bad-'));
-  assert.throws(() => render(path.join(__dirname, '..'), dst, SLUG, 'stubb'),
+  assert.throws(() => render(path.join(__dirname, '..'), dst, SLUG, REV, 'stubb'),
                 /unknown page stubb/);
+});
+
+// The plugin's CI reads the revision out of this line and refuses a pull request
+// that edits a generated file without moving it. A stamp that carries the slug
+// and not the revision passes every assertion above and defeats that check, so
+// the shape the reader depends on is pinned here.
+test('the stamp carries the source revision the plugin checks', () => {
+  const marker = /GENERATED from ([\w.-]+\/[\w.-]+)@([0-9a-f]{40}) /;
+  const m = marker.exec(stamp('---\nname: x\n---\n\nbody\n', NOTE(SLUG, REV), true));
+  assert.ok(m, 'the plugin cannot find a slug@rev to read');
+  assert.strictEqual(m[1], SLUG);
+  assert.strictEqual(m[2], REV);
+});
+
+test('a different revision renders a different stamp', () => {
+  assert.notStrictEqual(NOTE(SLUG, REV), NOTE(SLUG, 'fedcba9876543210fedcba9876543210fedcba98'));
+});
+
+test('render refuses to write without a revision', () => {
+  assert.throws(() => render('/tmp', '/tmp', SLUG, ''), /source revision is required/);
 });

@@ -1,7 +1,7 @@
 # AI Slop Detector
 
-Canonical reference for the `apliteni:ai-slop-detector` skill and for the npm package
-`@apliteni/slop-detector`: the full rule catalogue, the danger levels, how to run it, and
+Canonical reference for the `apliteni:ai-slop-detector` skill and for the linter behind
+it, `asabirov/ai-slop-detector-skill`: the full rule catalogue, the danger levels, how to run it, and
 how to add a rule. The agent-facing entry point is `SKILL.md`; this page is the human
 reference behind it.
 
@@ -51,12 +51,15 @@ then `pass`.
 
 ## Run it
 
-From npm, which is how a repository's CI runs it:
+Straight from the source repository, which is how a repository's CI runs it. There is no
+npm package; `npx` installs from GitHub, so the runner needs network. Pin a tag — unpinned
+tracks `main`, and a rule that tightens fails a build that passed yesterday.
 
 ```bash
-npx @apliteni/slop-detector <file>
-npx @apliteni/slop-detector src scripts --level 1
-npx @apliteni/slop-detector 'src/**/*.js' --json
+REPO=github:asabirov/ai-slop-detector-skill
+npx -y "$REPO#v1.0.0" <file>
+npx -y "$REPO#v1.0.0" src scripts --level 1
+npx -y "$REPO#v1.0.0" 'src/**/*.js' --json
 ```
 
 From the plugin's copy, which is how a Claude Code session runs it:
@@ -258,8 +261,8 @@ The comments pack was added when the same agents that write the copy turned out 
 writing design documents into source files — 33% of one repository's lines were comments,
 and its longest single comment block ran to 117 lines.
 
-The rules live once, in `asabirov/ai-slop-detector-skill`, and ship two ways: as the npm
-package `@apliteni/slop-detector`, and as the `apliteni:ai-slop-detector` skill inside
+The rules live once, in `asabirov/ai-slop-detector-skill`, and reach two places: as
+`npx`, run from that repository, and as the `apliteni:ai-slop-detector` skill inside
 `apliteni/claude-apliteni-plugin`, whose copy a GitHub Action regenerates.
 
 They used to ship only inside the plugin, unpublished, which meant a build could never fail
