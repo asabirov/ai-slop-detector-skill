@@ -9,6 +9,18 @@ function stripBetween(html, tag) {
 }
 
 // Visible text as it roughly renders, one run per element-ish boundary.
+// Tags out, one space in. The space is the whole point: replacing a tag with the
+// empty string lets `<<a>b>` close back up into `<b>`, which is
+// `js/incomplete-multi-character-sanitization` and was raised three times against
+// `scripts/rules/visual.js` (apliteni/claude-apliteni-plugin#79). A space between
+// the halves cannot be reconstructed into a tag by anything that is left.
+//
+// Eight places did this by hand, five with a space and three with the empty
+// string, which is exactly the split CodeQL flagged. One function now.
+function stripTags(html) {
+  return html.replace(/<[^>]+>/g, ' ');
+}
+
 function visibleTextRuns(html) {
   const body = stripBetween(stripBetween(html, 'style'), 'script');
   const runs = body.split(
@@ -16,7 +28,7 @@ function visibleTextRuns(html) {
   );
   const out = [];
   for (const r of runs) {
-    const t = r.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const t = stripTags(r).replace(/\s+/g, ' ').trim();
     if (t) out.push(t);
   }
   return out;
@@ -263,8 +275,8 @@ function labelsAboveHeadings(html) {
       tag: m[1].toLowerCase(),
       classes: cls,
       style,
-      text: decodeEntities(m[3].replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim(),
-      heading: decodeEntities(m[5].replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim(),
+      text: decodeEntities(stripTags(m[3])).replace(/\s+/g, ' ').trim(),
+      heading: decodeEntities(stripTags(m[5])).replace(/\s+/g, ' ').trim(),
     });
   }
   return out;
@@ -331,11 +343,36 @@ function linkedCss(html, { filePath, root } = {}) {
 }
 
 // (selector, block) pairs from CSS rules.
+//
+// Split on the braces rather than matched with `/([^{}]+)\{([^{}]*)\}/g`. That
+// regex is `js/polynomial-redos`: `[^{}]+` has to give up one character at a
+// time at every start position, so a stylesheet carrying a long run with no
+// brace in it costs O(n²). Measured on this machine, brace-free input: 20KB took
+// 6,940ms, 39KB took 26,303ms, and 156KB had not finished in two minutes. CodeQL
+// raised it against `scripts/lib/html.js:50` at plugin 4.0.0, and
+// lessly-hub/compliance.lessly.tech deleted this file out of its copy rather
+// than ship the alert (apliteni/claude-apliteni-plugin#79).
+//
+// The scan below reads each character once. It reproduces what the regex
+// matched, nesting included: inside `@media x { a { b } }` the rule is ` a ` and
+// not `@media x { a `, because `[^{}]+` could not cross the inner brace either.
+// `cssRules.test.js` pins that against the regex over every stylesheet here.
 function cssRules(css) {
   const out = [];
-  const re = /([^{}]+)\{([^{}]*)\}/g;
-  let m;
-  while ((m = re.exec(css)) !== null) out.push([m[1].trim(), m[2]]);
+  const chunks = css.split('}');
+  // Every chunk but the last was closed by the `}` that ended it. The last one
+  // was not, and the regex needed that brace: a truncated stylesheet's final
+  // unterminated rule is not a rule.
+  for (let i = 0; i < chunks.length - 1; i++) {
+    const chunk = chunks[i];
+    const brace = chunk.lastIndexOf('{');
+    if (brace === -1) continue;
+    // The selector is the brace-free run ending at that `{` — everything after
+    // the brace before it, which is where the regex would have started.
+    const selector = chunk.slice(chunk.lastIndexOf('{', brace - 1) + 1, brace);
+    if (!selector) continue; // `[^{}]+` needed at least one character
+    out.push([selector.trim(), chunk.slice(brace + 1)]);
+  }
   return out;
 }
 
@@ -477,8 +514,7 @@ function withoutMarkdownCode(source) {
 function plainText(source, isHtml) {
   if (isHtml) {
     const body = stripBetween(stripBetween(source, 'style'), 'script');
-    const visible = body
-      .replace(/<[^>]+>/g, ' ')
+    const visible = stripTags(body)
       .replace(/&[a-z]+;/gi, ' ')
       .replace(/\s+/g, ' ')
       .trim();
@@ -497,7 +533,7 @@ function plainText(source, isHtml) {
 function proseWithoutCode(source, isHtml) {
   if (isHtml) {
     const body = ['style', 'script', 'code', 'pre'].reduce(stripBetween, source);
-    const visible = body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const visible = stripTags(body).replace(/\s+/g, ' ').trim();
     return [visible, ...attrTextRuns(body)].filter(Boolean).join(' ');
   }
   return plainText(source, false);
@@ -548,6 +584,7 @@ function parse(source, { filePath, root } = {}) {
 
 module.exports = {
   stripBetween,
+  stripTags,
   visibleTextRuns,
   attrTextRuns,
   markupTokens,
