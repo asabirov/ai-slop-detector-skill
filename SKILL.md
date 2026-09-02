@@ -109,6 +109,23 @@ than by any declaration. Its finding quotes the label and the heading under it
 (*"COMPLY" above "Keep it compliant while it runs"*), so you can act on it without opening
 the CSS.
 
+### `mono-noncode` judges the element, not the selector's name
+
+A mono rule is clean when every element its selector lands on is — or sits inside — a
+`<code>`, `<pre>`, `<kbd>`, `<samp>` or `<tt>`. "Or sits inside" because `font-family`
+inherits: mono on an `<input>` wrapped in a `<code>` is the code's own font reaching it.
+
+It used to read the selector's spelling instead, exempting any selector with `code`, `pre`,
+`kbd`, `samp` or `tt` in its text. So `.font-mono`, which lands on nothing but code spans,
+failed on three shipped pages, while `.al-pre` on a plain `<div>` passed. Both backwards.
+
+Spelling survives as the fallback, for a selector the parser cannot resolve to an element
+(`:root`, a sibling combinator, markup it cannot read). A rule that goes quiet when it
+cannot see is worse than one that guesses.
+
+Mono used to line up digits still fails, and should: reach for `font-variant-numeric:
+tabular-nums` instead.
+
 Arguments are files, directories (walked) or globs. Each file is routed by its extension:
 `.html`/`.md`/`.txt` to the visual and text packs, source files to the comments pack.
 `--as source|artifact` overrides. Git-ignored files are skipped unless you pass

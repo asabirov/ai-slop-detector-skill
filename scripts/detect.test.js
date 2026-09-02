@@ -6,7 +6,13 @@ const fs = require('fs');
 const path = require('path');
 const { detect, resolveLevel, kindForPath, SEVERITY, VERDICT_ICON, LEVELS } = require('./detect');
 const { RULES } = require('./rules');
-const { attrTextRuns, markupTokens, selectorApplies } = require('./lib/html');
+const {
+  attrTextRuns,
+  markupTokens,
+  markupElements,
+  selectorApplies,
+  selectorTargets,
+} = require('./lib/html');
 
 const FIX = path.join(__dirname, '..', 'fixtures');
 const read = (f) => fs.readFileSync(path.join(FIX, f), 'utf8');
@@ -72,6 +78,105 @@ test('mono on a class the page does use still fails', () => {
     '<p class="label">scoped to repo</p></body></html>';
   const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
   assert.ok(rules.includes('mono-noncode'), `expected mono-noncode, got: ${rules.join(', ')}`);
+});
+
+// ── mono is judged by what the selector lands on (lessly-landing#405) ──
+// The rule used to read the selector's spelling: any selector with `code`,
+// `pre`, `kbd`, `samp` or `tt` in its text was exempt, every other one failed.
+// So `.font-mono`, which lands on nothing but <code> spans, failed on three
+// shipped pages, and `.al-pre` on a <div> passed. Both are backwards.
+
+test('a mono class that lands only on <code> is clean', () => {
+  const page =
+    '<html><body><style>.font-mono { font-family: Fira Mono, monospace }</style>' +
+    '<p>Set <code class="font-mono">lessly_consent</code> to opt out.</p></body></html>';
+  const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(!rules.includes('mono-noncode'), `expected silence, got: ${rules.join(', ')}`);
+});
+
+test('the same mono class on a <span> still fails', () => {
+  const page =
+    '<html><body><style>.font-mono { font-family: Fira Mono, monospace }</style>' +
+    '<p><span class="font-mono">draft build</span></p></body></html>';
+  const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(rules.includes('mono-noncode'), `expected mono-noncode, got: ${rules.join(', ')}`);
+});
+
+test('mono on an element nested inside <code> is clean — font-family inherits', () => {
+  const page =
+    '<html><body><style>.token { font-family: SF Mono, monospace }</style>' +
+    '<code><input class="token" value="lessly_consent"></code></body></html>';
+  const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(!rules.includes('mono-noncode'), `expected silence, got: ${rules.join(', ')}`);
+});
+
+test('one non-code landing among many code ones is enough to fire', () => {
+  const page =
+    '<html><body><style>.font-mono { font-family: Fira Mono, monospace }</style>' +
+    '<code class="font-mono">a</code><code class="font-mono">b</code>' +
+    '<span class="font-mono">draft · 2026</span></body></html>';
+  const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(rules.includes('mono-noncode'), `expected mono-noncode, got: ${rules.join(', ')}`);
+});
+
+// The hole the spelling check left open: `\bpre\b` matches inside `.al-pre`,
+// so a class named after code but landing on a plain <div> was exempt.
+test('a code-sounding class name on a plain <div> fires', () => {
+  const page =
+    '<html><body><style>.al-pre { font-family: SF Mono, monospace }</style>' +
+    '<div class="al-pre">Deployment ready</div></body></html>';
+  const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(rules.includes('mono-noncode'), `expected mono-noncode, got: ${rules.join(', ')}`);
+});
+
+test('a selector list is judged per selector, not on its last line', () => {
+  // `.meta-label` is the slop. It used to ride in free because the rule read
+  // only the last line of the list and found `.snip`, which is a <code>.
+  const page =
+    '<html><body><style>.meta-label,\n.snip { font-family: SF Mono, monospace }</style>' +
+    '<span class="meta-label">scoped to repo</span><code class="snip">npm i</code></body></html>';
+  const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(rules.includes('mono-noncode'), `expected mono-noncode, got: ${rules.join(', ')}`);
+});
+
+test('one absent class in a list does not excuse its neighbours', () => {
+  // `.never-used` is on no element here. Asking selectorApplies about the whole
+  // list answered "does not apply" and took the real `.meta-label` with it.
+  const page =
+    '<html><body><style>.meta-label, .never-used { font-family: SF Mono, monospace }</style>' +
+    '<span class="meta-label">scoped to repo</span></body></html>';
+  const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(rules.includes('mono-noncode'), `expected mono-noncode, got: ${rules.join(', ')}`);
+});
+
+test('a selector that resolves to no element falls back to its spelling', () => {
+  // `:root` names no element this parser can point at. The fallback is the old
+  // spelling check, so the rule guesses rather than going quiet.
+  const noisy =
+    '<html><body><style>:root { font-family: SF Mono, monospace }</style><p>Text</p></body></html>';
+  const quiet =
+    '<html><body><style>:root code { font-family: SF Mono, monospace }</style><p>Text</p></body></html>';
+  const rules = (p) => detect(p, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(rules(noisy).includes('mono-noncode'), 'expected mono-noncode on :root');
+  assert.ok(!rules(quiet).includes('mono-noncode'), 'expected silence on a selector spelled for code');
+});
+
+test('selectorTargets resolves a selector to the elements it lands on', () => {
+  const els = markupElements(
+    '<html><body><pre class="block"><code><span class="tok">x</span></code></pre>' +
+      '<div class="block">y</div></body></html>'
+  );
+  const tags = (sel) => (selectorTargets(sel, els) || []).map((e) => e.tag);
+  assert.deepStrictEqual(tags('.block'), ['pre', 'div']);
+  assert.deepStrictEqual(tags('.tok'), ['span']);
+  assert.deepStrictEqual(tags('pre .tok'), ['span']);
+  // Nested inside <code>, so mono on it is inherited mono on code.
+  assert.strictEqual(selectorTargets('.tok', els)[0].inCode, true);
+  assert.strictEqual(selectorTargets('.block', els)[1].inCode, false);
+  // Nothing to point at: the caller must fall back rather than judge.
+  assert.strictEqual(selectorTargets(':root', els), null);
+  assert.strictEqual(selectorTargets('.absent', els), null);
+  assert.strictEqual(selectorTargets('.tok', null), null);
 });
 
 test('selectorApplies is conservative — unknown means applied', () => {

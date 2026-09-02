@@ -11,7 +11,7 @@
 //
 // Each rule: { id, level, severity, why, fix, test(ctx) -> string[] hits }
 
-const { DECOR_ARROWS, EMOJI, selectorApplies, labelsAboveHeadings } = require('../lib/html');
+const { DECOR_ARROWS, EMOJI, selectorApplies, selectorTargets, labelsAboveHeadings } = require('../lib/html');
 
 const countOcc = (s, sub) => s.split(sub).length - 1;
 
@@ -43,26 +43,57 @@ const fakeUri = {
   },
 };
 
+// Spelling, not landing — the fallback for a selector we cannot resolve to an
+// element. It reads `code`, `pre`, `kbd`, `samp` or `tt` anywhere in the
+// selector text, so `.al-pre` reads as code to it. That is why it is the
+// fallback and not the rule: a guess is only better than going quiet.
+const SPELLED_FOR_CODE = /\b(code|pre|kbd|samp|tt)\b/i;
+
 const monoNoncode = {
   id: 'mono-noncode',
   level: 1,
   severity: 'error',
-  why: 'Monospace font on prose or a label — fake-terminal decoration. Real code gets mono; a metadata line does not.',
-  fix: 'Use the brand sans. If you want a label to stand out, weight or size it — do not costume it as code.',
+  why: 'Monospace font on an element that is not code — fake-terminal decoration. Real code gets mono; a metadata line does not.',
+  fix: 'Use the brand sans, or put the content in a <code>/<pre> if it really is code. If you want a label to stand out, weight or size it — do not costume it as code. Aligned digits want font-variant-numeric: tabular-nums, not a mono stack.',
+  // Judged by what the selector lands on, not how it is spelled. The old
+  // spelling check exempted anything with `code`/`pre`/`kbd`/`samp`/`tt` in its
+  // text, so `.font-mono` — which lands on nothing but <code> spans — failed on
+  // three shipped pages while `.al-pre` on a <div> passed
+  // (lessly-hub/lessly-landing).
   test(ctx) {
     const hits = [];
     const re = /([^{}]+)\{[^{}]*font-family\s*:\s*([^;}]*mono[^;}]*)/gi;
     let m;
     while ((m = re.exec(ctx.css)) !== null) {
-      const selLines = m[1].trim().split('\n');
-      const sel = selLines[selLines.length - 1].trim();
-      if (sel.startsWith('@')) continue; // @font-face merely loads a face
-      // A shared stylesheet carries rules for pages this is not. Judging one
-      // page on another's code blocks is how lessly.com's home page failed on
-      // `.font-mono` it never applies (lessly-hub/lessly-landing#390).
-      if (!selectorApplies(sel, ctx.markup)) continue;
-      if (!/\b(code|pre|kbd|samp|tt)\b/i.test(sel)) {
-        hits.push(`${sel} → ${m[2].trim().slice(0, 40)}`);
+      // Every selector in the list, not just the last line of it. Reading one
+      // line meant `.label,\n.snip {` was judged only on `.snip`, so a mono
+      // label rode in free behind a legitimate code class.
+      const list = m[1].replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\s+/g, ' ').trim();
+      if (list.startsWith('@')) continue; // @font-face merely loads a face
+      for (const part of list.split(',')) {
+        const sel = part.trim();
+        if (!sel) continue;
+        // A shared stylesheet carries rules for pages this is not. Judging one
+        // page on another's code blocks is how lessly.com's home page failed on
+        // `.font-mono` it never applies (lessly-hub/lessly-landing#390). Asked
+        // per selector, so one absent class cannot excuse its neighbours.
+        if (!selectorApplies(sel, ctx.markup)) continue;
+
+        const targets = selectorTargets(sel, ctx.elements);
+        if (targets) {
+          // Primary branch: we know every element this lands on. `inCode` covers
+          // the element being code and the element being inside code, because
+          // font-family inherits — mono on an <input> inside a <code> is the
+          // code's font reaching it.
+          if (targets.every((el) => el.inCode)) continue;
+          const off = targets.find((el) => !el.inCode);
+          hits.push(`${sel} → <${off.tag}> · ${m[2].trim().slice(0, 40)}`);
+          continue;
+        }
+        // Fallback: no markup to read, or a selector this parser cannot point at
+        // an element (`:root`, a sibling combinator, a class no element carries).
+        // Guess from the spelling rather than go quiet.
+        if (!SPELLED_FOR_CODE.test(sel)) hits.push(`${sel} → ${m[2].trim().slice(0, 40)}`);
       }
     }
     return hits;
