@@ -87,10 +87,10 @@ values are stable — reference them in allowlists and PR notes.
 
 | id | Level | Severity | Tell |
 |----|-------|----------|------|
-| `fake-uri` | 1 | error | Fake protocol URI (`lessly://c4/goal`) — links to nothing. |
+| `fake-uri` | 1 | error | Fake protocol URI (`lessly://c4/goal`) — links to nothing. Skips code. |
 | `mono-noncode` | 1 | error | Monospace font on prose or a label — fake-terminal decoration. |
 | `system-font` | 1 | error | `system-ui` / `-apple-system` as the first family — no typeface chosen. |
-| `external-link-arrow` | 1 | error | Diagonal `↗` open-in-new-tab arrow on a link — decorative cosplay. |
+| `external-link-arrow` | 1 | error | Diagonal `↗` open-in-new-tab arrow on a link — decorative cosplay. Skips code. |
 | `middot-chain` | 2 | warning | `a · b · c` metadata chain — templated polish. |
 | `decor-numbering` | 2 | warning | `01 — label` eyebrow where the number indexes nothing. |
 | `eyebrow-kicker` | 2 | warning | Uppercase wide-tracked micro-label pre-announcing a heading. |
@@ -179,13 +179,18 @@ home for anything the issue does not cover. The comment keeps what the code cann
 Deleting it instead is the one wrong answer — a `comment-essay` usually holds something
 real, and silencing the rule by cutting the text throws that away.
 
-## The detector fires on its own documentation
+## The detector reads its own documentation
 
-Run it over `SKILL.md` or this page and it reports `fake-uri`, `negative-parallelism`,
-`world-opener` and the rest. Every one of those is a rule quoting the pattern it catches,
-which is why CI lints `scripts/` and `bin/` and leaves the prose alone. Do not "fix" these
-by deleting the examples — a catalogue that cannot name what it catches is worth less than
-a clean run.
+Every markdown file this repo ships is scored at level 1 by the test suite, and passes. A
+catalogue explains a rule by quoting what it catches, so put the example in a code span or
+a fenced block: `fake-uri` and `external-link-arrow` do not read there. That is the whole
+exemption, and it is per span, so a stray backtick earlier in the file no longer shifts it
+(apliteni#78).
+
+Above level 1 these documents still warn — `negative-parallelism` and `world-opener` fire
+on the sentences that name those patterns, in prose where quoting them would read as
+pedantry. Warnings exit 0. Do not "fix" either kind by deleting the example: a catalogue
+that cannot name what it catches is worth less than a clean run.
 
 ## Deliberate exceptions
 

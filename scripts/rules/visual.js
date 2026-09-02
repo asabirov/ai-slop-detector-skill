@@ -121,8 +121,18 @@ const externalLinkArrow = {
   severity: 'error',
   why: 'Diagonal "↗" open-in-new-tab arrow tacked onto a link — decorative external-link cosplay. A link already reads as a link.',
   fix: 'Drop the glyph. Plain directional →←↑↓ (flows, deltas) are fine.',
+  // Reads ctx.codeless for the same reason fake-uri does: inside a code span the
+  // glyph is the value under discussion, not ornament on a link. Reading ctx.runs
+  // failed this skill's own reference on the row that documents this rule
+  // (apliteni#78).
   test(ctx) {
-    return ctx.runs.filter((t) => DECOR_ARROWS.test(t)).map((t) => t.slice(0, 60));
+    const hits = [];
+    const re = new RegExp(DECOR_ARROWS.source, 'g');
+    let m;
+    while ((m = re.exec(ctx.codeless)) !== null) {
+      hits.push(ctx.codeless.slice(Math.max(0, m.index - 30), m.index + 30).trim());
+    }
+    return hits;
   },
 };
 

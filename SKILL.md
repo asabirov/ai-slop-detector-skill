@@ -1,6 +1,6 @@
 ---
 name: ai-slop-detector
-description: "Use after generating or editing ANY artifact a human will read — HTML page, mockup, landing, deck, dashboard, markdown doc, lifecycle email, product-UI copy — AND after writing or editing source code, to catch AI 'slop': the visual machine-tells (fake protocol URIs, monospace-as-decoration, system-font defaults, purple-blue and cream-terracotta palettes, emoji headings, middot chains, decorative numbering, external-link ↗ arrows), the text tells (not-just-X-but-Y, 'in today's fast-paced world', hedge openers, sycophancy residue, inflated-vocabulary density, em-dash overuse, metronomic sentences), and the code-comment tells (essay-length comment blocks, chaptered comments with dividers, prose density above one line per two lines of code). Deterministic, runnable, four levels of strictness. Complements voice (text register) and design (constructive). Trigger on: ai slop, slop check, remove ai slop, visual slop, text slop, comment slop, verbose comments, slop detector, does this look ai-generated, machine-generated look, before publishing a page or mockup or deck, before committing code, launch copy audit, on-brand check."
+description: "Use after generating or editing ANY artifact a human will read — HTML page, mockup, landing, deck, dashboard, markdown doc, lifecycle email, product-UI copy — AND after writing or editing source code, to catch AI 'slop': the visual machine-tells (fake protocol URIs, monospace-as-decoration, system-font defaults, purple-blue and cream-terracotta palettes, emoji headings, middot chains, decorative numbering, external-link `↗` arrows), the text tells (not-just-X-but-Y, 'in today's fast-paced world', hedge openers, sycophancy residue, inflated-vocabulary density, em-dash overuse, metronomic sentences), and the code-comment tells (essay-length comment blocks, chaptered comments with dividers, prose density above one line per two lines of code). Deterministic, runnable, four levels of strictness. Complements voice (text register) and design (constructive). Trigger on: ai slop, slop check, remove ai slop, visual slop, text slop, comment slop, verbose comments, slop detector, does this look ai-generated, machine-generated look, before publishing a page or mockup or deck, before committing code, launch copy audit, on-brand check."
 added: 2026-07-28
 ---
 
@@ -195,9 +195,11 @@ rule by weakening the artifact to dodge it; fix the rule if it's wrong (see belo
 URI or a system-font default in a shipped surface, and none for a comment with chapters —
 a thing with chapters is a document, and a document has a home where it can be reviewed.
 
-`fake-uri` reads prose only. A real scheme quoted as a technical value — `neo4j://`,
-`postgres://`, `s3://` — passes inside a code span or a fenced block, which is where a
-document that means it puts it (issue #64). The rule is after ornament, and ornament does
+`fake-uri` and `external-link-arrow` read prose only. A real scheme or a glyph quoted as
+a technical value — `neo4j://`, `postgres://`, `s3://`, `↗` — passes inside a code span or
+a fenced block, which is where a document that means it puts it (issue #64). The exemption
+is per span: a run of N backticks closes only on a run of N, so a stray backtick earlier in
+the file leaves the spans after it alone (apliteni#78). The rule is after ornament, and ornament does
 not live in a code block. In prose the rule allows the schemes a reader's browser resolves
 — `http`, `https`, `ftp`, `ws`, `wss`, `file` — because its charge is that the URI links to
 nothing, and `file:///Users/x/a.png` opens the file (RFC 8089, issue #631).
