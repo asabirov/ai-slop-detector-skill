@@ -1,0 +1,38 @@
+name: codeql
+
+# The five alerts this repo owes an answer to were raised by somebody else's
+# scanner. lessly-hub/compliance.lessly.tech vendored these files on 2026-08-24,
+# CodeQL flagged five, and rather than dismiss them that repository deleted three
+# of ours to get past its required check (apliteni/claude-apliteni-plugin#79).
+# Running the same analysis here is what stops the next one being their discovery
+# to make.
+#
+# The default query suite, not security-extended: the default is what raised the
+# five, and a wider suite would answer a question nobody has asked yet.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Queries move under a codebase that is not changing. Monday, early.
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:javascript-typescript
