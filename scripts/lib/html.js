@@ -88,6 +88,123 @@ function markupTokens(html) {
   return { classes, ids, tags };
 }
 
+// Elements whose font is code's font by right: mono on them, or on anything
+// they contain, is typography doing its job rather than costume.
+const CODE_TAGS = new Set(['code', 'pre', 'kbd', 'samp', 'tt']);
+
+const VOID_TAGS = new Set([
+  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+  'link', 'meta', 'param', 'source', 'track', 'wbr',
+]);
+
+// Every element the page carries, each with the tag chain above it. Still a
+// regex, not a DOM — but a stack of open tags is enough to answer the one
+// question the mono rule needs: what does this selector land on, and does that
+// element sit inside a <code>. `inCode` is true for the code elements
+// themselves and for everything nested in one, because font-family inherits:
+// <code><input></code> puts mono on the input, legitimately.
+//
+// Mis-nested markup (an unclosed <code>) inflates the chain. That errs toward
+// calling something code, which is the quiet direction; a page whose <code>
+// never closes has a bigger problem than this rule.
+function markupElements(html) {
+  const body = stripBetween(stripBetween(html, 'style'), 'script').replace(/<!--[\s\S]*?-->/g, ' ');
+  const out = [];
+  const stack = []; // open elements, innermost last
+  const re = /<(\/?)([a-z][a-z0-9-]*)((?:"[^"]*"|'[^']*'|[^>'"])*)>/gi;
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    const [, closing, rawTag, attrs] = m;
+    const tag = rawTag.toLowerCase();
+    if (closing) {
+      // Pop to the matching open tag; ignore a stray close.
+      for (let i = stack.length - 1; i >= 0; i--) {
+        if (out[stack[i]].tag === tag) {
+          stack.length = i;
+          break;
+        }
+      }
+      continue;
+    }
+    const classAttr = /\bclass\s*=\s*"([^"]*)"/i.exec(attrs);
+    const idAttr = /\bid\s*=\s*"([^"]*)"/i.exec(attrs);
+    const parent = stack.length ? stack[stack.length - 1] : -1;
+    const el = {
+      tag,
+      classes: new Set((classAttr ? classAttr[1].trim().split(/\s+/) : []).filter(Boolean)),
+      id: idAttr ? idAttr[1].trim() : null,
+      parent,
+      inCode: CODE_TAGS.has(tag) || (parent >= 0 && out[parent].inCode),
+    };
+    out.push(el);
+    if (!VOID_TAGS.has(tag) && !/\/\s*$/.test(attrs)) stack.push(out.length - 1);
+  }
+  return out;
+}
+
+// One compound of a selector — `div.a#b` — reduced to what we can check.
+function parseCompound(part) {
+  const tag = /^[a-z][a-z0-9-]*/i.exec(part);
+  return {
+    tag: tag ? tag[0].toLowerCase() : null,
+    classes: (part.match(/\.[-_a-z0-9]+/gi) || []).map((c) => c.slice(1)),
+    id: (/#([-_a-z0-9]+)/i.exec(part) || [])[1] || null,
+  };
+}
+
+function compoundMatches(c, el) {
+  if (c.tag && c.tag !== '*' && c.tag !== el.tag) return false;
+  for (const cls of c.classes) if (!el.classes.has(cls)) return false;
+  if (c.id && c.id !== el.id) return false;
+  return true;
+}
+
+// Which elements does this selector land on? Returns null — not [] — when the
+// selector cannot be resolved: it names nothing this parser can point at
+// (`*`, `:root`, a bare attribute selector), or it matches no element on the
+// page. Null means "cannot see", and the caller must fall back rather than
+// treat silence as a verdict.
+//
+// Combinators are all read as "descendant". `>` is a descendant, so that is
+// only loose; `+` and `~` are not, so a sibling selector resolves to fewer
+// elements than it really matches, or to none at all — and none means the
+// caller falls back. Erring toward too few keeps this from inventing hits.
+function selectorTargets(selector, elements) {
+  if (!elements || !elements.length) return null;
+  const hits = [];
+  const seen = new Set();
+  let resolvable = false;
+
+  for (const one of selector.split(',')) {
+    const clean = one
+      .replace(/::?[a-z-]+(\([^)]*\))?/gi, ' ') // pseudo-classes and elements
+      .replace(/\[[^\]]*\]/g, ' ') // attribute selectors
+      .replace(/[>+~]/g, ' ')
+      .trim();
+    if (!clean) continue;
+    const compounds = clean.split(/\s+/).map(parseCompound);
+    const key = compounds[compounds.length - 1];
+    if (!key.tag && !key.classes.length && !key.id) continue; // nothing to point at
+    resolvable = true;
+    const ancestors = compounds.slice(0, -1);
+
+    for (let i = 0; i < elements.length; i++) {
+      if (!compoundMatches(key, elements[i])) continue;
+      // Walk up once, consuming the ancestor compounds innermost-first.
+      let need = ancestors.length - 1;
+      for (let p = elements[i].parent; p >= 0 && need >= 0; p = elements[p].parent) {
+        if (compoundMatches(ancestors[need], elements[p])) need--;
+      }
+      if (need >= 0) continue;
+      if (seen.has(i)) continue;
+      seen.add(i);
+      hits.push(elements[i]);
+    }
+  }
+  if (!resolvable || !hits.length) return null;
+  return hits;
+}
+
 // Does this page apply this selector? Conservative on purpose: unknown means
 // yes. A selector naming no class, id or tag we can read (`*`, `:root`, an
 // attribute selector) is treated as applied, so a rule keeps firing wherever
@@ -294,6 +411,7 @@ function parse(source, { filePath, root } = {}) {
     runs: visibleTextRuns(source),
     attrs: isHtml ? attrTextRuns(source) : [],
     markup: isHtml ? markupTokens(source) : null,
+    elements: isHtml ? markupElements(source) : null,
     cssRules: cssRules(css),
     text: plainText(source, isHtml),
     codeless: proseWithoutCode(source, isHtml),
@@ -306,8 +424,11 @@ module.exports = {
   visibleTextRuns,
   attrTextRuns,
   markupTokens,
+  markupElements,
   selectorApplies,
   labelsAboveHeadings,
+  selectorTargets,
+  CODE_TAGS,
   cssBlocks,
   stylesheetLinks,
   linkedCss,
