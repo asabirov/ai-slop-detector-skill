@@ -50,6 +50,11 @@ merge gate and the higher levels are polish.
 `SKILL.md` is the agent-facing entry point, and it is the file the sync Action
 copies into the plugin.
 
+`plugin-stub.md` is the page that replaces it there once the plugin stops
+shipping the linter's source — an install pointer that says where the real one
+is, and says in its own description that it cannot lint anything. It does not
+ship yet. See "The switch to the stub" below.
+
 ## Running it
 
 In a repository's CI, or anywhere with Node 20:
@@ -89,3 +94,25 @@ clean fixture fire, the rule is wrong, not the fixture.
 | --- | --- |
 | `apliteni/claude-apliteni-plugin` | `skills/ai-slop-detector/`, written by `.github/workflows/sync-plugin.yml` in this repo. Do not edit it there. |
 | Any repository's CI | `npx @apliteni/slop-detector`, or a dev dependency on it. |
+
+### The switch to the stub
+
+The plugin ships the whole linter today — 19 files, 152K, measured by running the
+sync's own copy step into a temporary directory. It should ship a pointer instead,
+because a plugin installs into a directory named after its version, so nothing
+outside a session can reach the rules that way.
+[apliteni/claude-apliteni-plugin#82](https://github.com/apliteni/claude-apliteni-plugin/issues/82)
+is that removal, and it is blocked until `@apliteni/slop-detector` publishes: until
+then the plugin's copy is the only way a session can run the linter.
+
+When it unblocks, the change here is one word. `SKILL_PAGE` in
+`.github/workflows/sync-plugin.yml` goes from `skill` to `stub`, and that single
+value picks the page *and* drops `bin/`, `scripts/`, `fixtures/` and `package.json`
+from the copy. Both halves move together, so the plugin cannot end up carrying a
+stub and the code, or the real page and no code. Run it either way to see:
+
+```bash
+node tools/render-skill.js . /tmp/plugin asabirov/ai-slop-detector-skill stub
+```
+
+An unrecognised value exits 2 rather than shipping a half-built directory.

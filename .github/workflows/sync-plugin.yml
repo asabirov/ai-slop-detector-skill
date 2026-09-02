@@ -9,6 +9,8 @@ on:
     branches: [main]
     paths:
       - SKILL.md
+      - plugin-stub.md
+      - tools/**
       - bin/**
       - scripts/**
       - fixtures/**
@@ -27,6 +29,13 @@ concurrency:
 env:
   PLUGIN_REPO: apliteni/claude-apliteni-plugin
   SKILL_DIR: skills/ai-slop-detector
+  # Which page ships as the plugin's SKILL.md, and whether the linter ships beside
+  # it. `skill` is today: the real page, plus bin/, scripts/, fixtures/ and
+  # package.json. `stub` is the install pointer alone, for the day
+  # apliteni/claude-apliteni-plugin#82 stops shipping the source. That day is one
+  # word here — both halves move together, so the plugin cannot end up with a stub
+  # and the code, or the skill page and no code.
+  SKILL_PAGE: skill
 
 jobs:
   sync:
@@ -50,10 +59,14 @@ jobs:
           dest="plugin/${SKILL_DIR}"
           rm -rf "$dest"
           mkdir -p "$dest"
-          cp -R detector/bin detector/scripts detector/fixtures "$dest/"
-          cp detector/package.json "$dest/package.json"
+          if [ "$SKILL_PAGE" = skill ]; then
+            cp -R detector/bin detector/scripts detector/fixtures "$dest/"
+            cp detector/package.json "$dest/package.json"
+          fi
           node detector/tools/render-skill.js detector plugin \
-            asabirov/ai-slop-detector-skill
+            asabirov/ai-slop-detector-skill "$SKILL_PAGE"
+          echo "shipped $SKILL_PAGE:"
+          find "$dest" -maxdepth 1 -mindepth 1 -printf '%f\n' | sort
 
       - name: Open a PR on the plugin if the skill changed
         uses: peter-evans/create-pull-request@v6
