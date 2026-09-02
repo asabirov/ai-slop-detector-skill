@@ -304,6 +304,20 @@ test('the rule never presents its own example as something it found', () => {
   }
 });
 
+// ── the kicker scan must stay linear in page size ────────────────────────
+// Unbounded, `([\s\S]*?)</\1>` expands each label body to every later closing
+// tag in the document before giving up on a start position. Bounded, this page
+// takes 25-27ms; the regex that shipped in 4.1.8 takes 5,207ms on the same
+// machine. The budget sits between them at ~38x the bounded time and ~5x under
+// the regression, so it fails on the quadratic shape and not on a slow machine.
+test('a large page of short paragraphs does not blow up the kicker scan', () => {
+  const page = '<html><body>' + ('<p>a</p>' + ' '.repeat(50)).repeat(6400) + '</body></html>';
+  const started = Date.now();
+  detect(page, { level: 2, kind: 'artifact', ext: 'html' });
+  const ms = Date.now() - started;
+  assert.ok(ms < 1000, `363KB of paragraphs took ${ms}ms — the scan is not linear`);
+});
+
 // ── RED→GREEN: every rule must fire in at least one slop fixture ──────────
 test('every rule fires in at least one slop fixture', () => {
   const covered = new Set();
