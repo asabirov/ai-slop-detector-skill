@@ -11,7 +11,14 @@
 //
 // Each rule: { id, level, severity, why, fix, test(ctx) -> string[] hits }
 
-const { DECOR_ARROWS, EMOJI, selectorApplies, selectorTargets, labelsAboveHeadings } = require('../lib/html');
+const {
+  DECOR_ARROWS,
+  EMOJI,
+  stripTags,
+  selectorApplies,
+  selectorTargets,
+  labelsAboveHeadings,
+} = require('../lib/html');
 
 const countOcc = (s, sub) => s.split(sub).length - 1;
 
@@ -233,7 +240,7 @@ const emojiHeading = {
     const re = /<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi;
     let m;
     while ((m = re.exec(ctx.html)) !== null) {
-      const inner = m[1].replace(/<[^>]+>/g, '').trim();
+      const inner = stripTags(m[1]).replace(/\s+/g, ' ').trim();
       if (inner && EMOJI.test(inner)) hits.push(inner.slice(0, 40));
     }
     return hits;
@@ -288,7 +295,7 @@ const headingItalic = {
     while ((m = re.exec(ctx.html)) !== null) {
       const inner = m[2];
       if (/<(i|em)\b/i.test(inner) || /font-style\s*:\s*italic/i.test(inner)) {
-        hits.add(inner.replace(/<[^>]+>/g, '').trim().slice(0, 40));
+        hits.add(stripTags(inner).replace(/\s+/g, ' ').trim().slice(0, 40));
       }
     }
     return [...hits];
@@ -306,7 +313,7 @@ const headingPeriod = {
     const re = /<h[12]\b[^>]*>([\s\S]*?)<\/h[12]>/gi;
     let m;
     while ((m = re.exec(ctx.html)) !== null) {
-      const inner = m[1].replace(/<[^>]+>/g, '').trim();
+      const inner = stripTags(m[1]).replace(/\s+/g, ' ').trim();
       if (
         inner.endsWith('.') &&
         !inner.endsWith('...') &&

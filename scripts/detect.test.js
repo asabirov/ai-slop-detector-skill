@@ -9,7 +9,9 @@ const { detect, resolveLevel, kindForPath, SEVERITY, VERDICT_ICON, LEVELS } = re
 const { RULES } = require('./rules');
 const {
   attrTextRuns,
+  cssRules,
   plainText,
+  stripTags,
   markupTokens,
   markupElements,
   selectorApplies,
@@ -715,14 +717,79 @@ test('every document this repo ships passes its own level-1 gate', () => {
 // Unpaired backticks are the shape that makes span-matching quadratic: each one
 // is an opener that has to give up somewhere, and a naive search restarts at the
 // head of the candidate list every time. One cursor per delimiter length, moving
-// forward only, keeps it linear. This document takes 19ms here; drop the cursors
-// and the same document takes 1,880ms. The budget sits ~21x above the linear
-// time and ~4.7x under the regression, so it fails on the shape, not on a slow
-// machine.
+// forward only, keeps it linear.
+//
+// 3.1MB of them: 19ms linear on an idle machine, 293-600ms on the one this was
+// last measured on, which was carrying a load average of 413. Drop the cursors
+// and the same input takes 107,785ms there and ~7,500ms idle. The budget sits
+// eight times above the loaded linear time and comfortably under the regression
+// at either load, so it fails on the shape and not on a busy machine.
 test('a document of unpaired backticks does not blow up the code-span scan', () => {
-  const doc = '` ' + Array.from({ length: 120000 }, (_, i) => `word${i} \`\``).join(' ');
+  const doc = '` ' + Array.from({ length: 240000 }, (_, i) => `word${i} \`\``).join(' ');
   const started = Date.now();
   plainText(doc, false);
   const ms = Date.now() - started;
-  assert.ok(ms < 400, `1.5MB of unpaired backticks took ${ms}ms — the scan is not linear`);
+  assert.ok(ms < 5000, `3.1MB of unpaired backticks took ${ms}ms — the scan is not linear`);
+});
+
+// ── apliteni#79 · what CodeQL found, and what it cost somebody ───────────
+//
+// Four alerts on main, all high: three `js/incomplete-multi-character-sanitization`
+// in rules/visual.js and one `js/polynomial-redos` in lib/html.js. The fifth the
+// issue reports went with the function that held it.
+
+test('cssRules reads every stylesheet here exactly as the regex did', () => {
+  const asRegex = (css) => {
+    const out = [];
+    const re = /([^{}]+)\{([^{}]*)\}/g;
+    let m;
+    while ((m = re.exec(css)) !== null) out.push([m[1].trim(), m[2]]);
+    return out;
+  };
+  const cases = [
+    ...fs.readdirSync(FIX).filter((f) => f.endsWith('.css') || f.endsWith('.html'))
+      .map((f) => read(f)),
+    'a{b}',
+    'a{b}c{d}',
+    '@media (min-width: 40em) { .a { color: red } }',
+    '@supports (d:g) { @media x { a { b: c } } }',
+    '{}',
+    '{b}',
+    'a{}',
+    'no braces at all',
+    'a{b',
+    'b}c{d}',
+    '.a,\n.b {\n  color: red;\n}\n.c { color: blue }',
+    'a { b: url("}") }',
+  ];
+  for (const css of cases) {
+    assert.deepStrictEqual(cssRules(css), asRegex(css), JSON.stringify(css.slice(0, 60)));
+  }
+});
+
+// The regex it replaced is `js/polynomial-redos`: `[^{}]+` gives up one character
+// at a time at every start position. Brace-free input, measured on this machine:
+// 20KB took 6,940ms and 39KB took 26,303ms, growing as the square. 156KB had not
+// returned after two minutes, which is why the guard uses it.
+test('a stylesheet with no braces in it does not hang the CSS scan', () => {
+  const started = Date.now();
+  cssRules('a'.repeat(160 * 1024));
+  const ms = Date.now() - started;
+  assert.ok(ms < 1000, `156KB of brace-free CSS took ${ms}ms — the scan is not linear`);
+});
+
+// `js/incomplete-multi-character-sanitization`. Removing a tag to the empty
+// string lets the characters either side close back up into a tag that was never
+// in the source; a space between them cannot.
+test('stripping a tag cannot build a new one out of what is left', () => {
+  assert.ok(!/<[a-z]/i.test(stripTags('<<a>script>alert(1)<<a>/script>')));
+  assert.strictEqual(stripTags('<b>x</b>').replace(/\s+/g, ' ').trim(), 'x');
+});
+
+test('a heading rule still reads the words and not the markup', () => {
+  const page = '<html><body><h1>\u{1F680} Ship <em>it</em>.</h1></body></html>';
+  const rules = detect(page, { level: 3, kind: 'artifact', ext: 'html' }).findings;
+  const ids = new Set(rules.map((f) => f.rule));
+  assert.ok(ids.has('emoji-heading'), `expected emoji-heading, got ${[...ids].join(', ')}`);
+  assert.ok(ids.has('heading-italic'), `expected heading-italic, got ${[...ids].join(', ')}`);
 });
