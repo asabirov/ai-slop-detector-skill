@@ -673,10 +673,6 @@ test('a decorative arrow on a link is still decoration', () => {
 // add it here. `tests.yml` points at this test instead of carrying its own copy
 // of the list.
 //
-// The walk has to survive being copied. `sync-plugin.yml` ships `scripts/` into
-// the plugin, this suite with it, and what arrives there is `SKILL.md` and the
-// code — no `README.md`, no `docs/`. Reading `docs/` unguarded crashed the
-// plugin's whole suite on a directory that was never going to be there.
 const ROOT = path.join(__dirname, '..');
 
 function shippedProse(root) {
@@ -689,21 +685,10 @@ function shippedProse(root) {
   ].sort();
 }
 
-test('the prose walk survives the shape the plugin gets', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slop-copy-'));
-  fs.writeFileSync(path.join(dir, 'SKILL.md'), '# skill\n');
-  fs.mkdirSync(path.join(dir, 'scripts'));
-  assert.deepStrictEqual(shippedProse(dir), ['SKILL.md']);
-});
-
 test('every document this repo ships passes its own level-1 gate', () => {
   const docs = shippedProse(ROOT);
-  // `tools/` is in the source repo and never in the generated copy, so it says
-  // which of the two this is and how much prose the walk owes.
   assert.ok(docs.includes('SKILL.md'), `expected SKILL.md, found ${docs.join(', ')}`);
-  if (fs.existsSync(path.join(ROOT, 'tools'))) {
-    assert.ok(docs.length >= 4, `expected the source repo's prose, found ${docs.join(', ')}`);
-  }
+  assert.ok(docs.includes('docs/ai-slop-detector.md'), 'expected the bundled CLI reference');
   const failed = docs.flatMap((doc) =>
     detect(fs.readFileSync(path.join(ROOT, doc), 'utf8'), {
       level: 1,

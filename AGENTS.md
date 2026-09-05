@@ -42,15 +42,6 @@ It says what this does today, and it opens by naming the choice this design
 makes, the alternatives it turned down, and the fact that decided between them.
 A change is finished when that file matches what shipped.
 
-## The plugin's copy is generated
-
-`skills/ai-slop-detector/SKILL.md` and `docs/ai-slop-detector.md` in
-`apliteni/claude-apliteni-plugin` are written by `.github/workflows/sync-plugin.yml`
-in this repo. The plugin gets those two pages and none of the code, so the page it
-gets is `plugin-stub.md` rather than `SKILL.md` — `SKILL_PAGE` in that workflow picks
-which, and moves the code with it. An edit made there is overwritten by the next sync
-and is invisible here. Change it here.
-
 ## A rule change is tested both ways
 
 A new or changed rule needs a triggering case in a slop fixture, and every
