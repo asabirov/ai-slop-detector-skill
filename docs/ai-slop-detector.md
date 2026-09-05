@@ -1,12 +1,12 @@
 # AI Slop Detector
 
-Canonical reference for the `apliteni:ai-slop-detector` skill and for the linter behind
-it, `asabirov/ai-slop-detector-skill`: the full rule catalogue, the danger levels, how to run it, and
-how to add a rule. The agent-facing entry point is `SKILL.md`; this page is the human
-reference behind it.
+Reference for the optional deterministic CLI in `asabirov/ai-slop-detector-skill`.
+For editorial review, follow `SKILL.md`. The CLI retains opinionated rules and
+severities for compatibility with existing CI gates; its findings are not universal
+judgments about good writing or design. The workflow advice below applies when
+using that CLI, not to every editorial pass.
 
-Both live in `asabirov/ai-slop-detector-skill`. The copies inside
-`apliteni/claude-apliteni-plugin` are generated from there and must not be edited.
+The plugin's copy of this reference is generated from this repository.
 
 ## What it does
 
@@ -32,8 +32,8 @@ surface matters.
 
 | Level | Name | What it adds | Use for |
 |-------|------|--------------|---------|
-| 1 | `ban` | Hard bans — always slop. All `error`. | The merge gate. Non-negotiable. |
-| 2 | `recommended` | + strong, high-precision structural and phrase tells (`medium`, `warning`). | Default. Every artifact, every iteration. |
+| 1 | `ban` | Existing blocking rules. All `error`. | Required CI gates. |
+| 2 | `recommended` | + strong, high-precision structural and phrase tells (`medium`, `warning`). | Default for a requested CLI scan. |
 | 3 | `strict` | + opinionated stylistic tells and density-gated vocabulary. | Landing, launch post, hero surfaces. |
 | 4 | `paranoid` | + statistical rules that may false-positive. | Deep pre-launch audit. |
 
@@ -41,10 +41,10 @@ There are three severities and two outcomes. `error` findings fail the run (exit
 `medium` and `warning` findings never do (exit `0`). Level 1 is all errors, so it is the
 block; levels 2–4 add the rest, so they are the polish.
 
-`medium` sits between the two because a rule can be certain about what it found and still
-not be worth blocking a merge over. A warning invites you to disagree; a medium does not,
-it just isn't the gate. A rule whose text says the content is unreviewable and whose
-severity says *ship it anyway* was the specific defect this tier fixes — see issue #59.
+`medium` and `warning` findings need contextual review. A pattern match establishes
+what the rule detected, not whether its suggested edit helps the reader. Keep
+necessary technical detail and intentional style. Required CI errors remain
+blocking; report a rule conflict instead of bypassing the gate.
 
 The verdict names the loudest thing present: `fail`, then `review` (a medium), then `warn`,
 then `pass`.
@@ -84,6 +84,22 @@ is the same engine over many.
 
 `--level` accepts a number (`1`–`4`) or a name (`ban`, `recommended`, `strict`,
 `paranoid`). `--json` emits `{ verdict, level, files[], stats }` for chaining.
+
+### Built HTML and linked CSS
+
+Relative stylesheet links resolve against the HTML file. Root-relative links
+resolve against the directory argument or `--root`. For a built page:
+
+```bash
+node <skill-dir>/bin/slop-detector.js dist/index.html --root dist --no-git-ignore --json
+```
+
+Use `--no-git-ignore` when build output is ignored. Explicitly named directories
+can be scanned, but nested build/vendor directories and minified files are skipped.
+A missing or remote stylesheet produces `css-unreadable` at level 2 and above;
+level 1 does not report that coverage gap. Report unread CSS as incomplete coverage,
+not proof that the page is clean. Inspect or obtain missing assets when the task
+requires a complete visual check.
 
 ## Rule catalogue
 
@@ -178,14 +194,10 @@ the whole signal; vocabulary adds noise.
 Languages: `//` and `/* */` (JS/TS, Go, Rust, Java, C-family, SCSS), `#` (Python, shell,
 YAML, TOML, Ruby), and CSS block comments.
 
-**The fix is always the same.** Move the rationale to where the decision was argued — the
-issue — and leave a one-line pointer where it was: `// why: #197`. The issue already holds
-the measurement, the alternatives and the back-and-forth, dated and attributed, so a
-decision record kept beside it is a second copy maintained by hand. Project docs are the
-home for anything the issue does not cover. The comment keeps what the code cannot say.
-
-Deleting it instead is the one wrong answer — a `comment-essay` usually holds something
-real, and silencing the rule by cutting the text throws that away.
+Review what the comment contributes before following the CLI's suggested move.
+Keep constraints needed to maintain the adjacent code. Move broader decision
+history to an issue or project docs only when that improves its usefulness, and
+leave a pointer. Preserve the information in either case.
 
 ## The detector reads its own documentation
 

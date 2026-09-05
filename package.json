@@ -26,7 +26,8 @@
     "bin/",
     "scripts/",
     "!scripts/*.test.js",
-    "SKILL.md"
+    "SKILL.md",
+    "docs/ai-slop-detector.md"
   ],
   "scripts": {
     "test": "node --test --test-timeout=10000",

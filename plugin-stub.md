@@ -21,8 +21,9 @@ git clone https://github.com/asabirov/ai-slop-detector-skill.git \
   ~/.claude/skills/ai-slop-detector
 ```
 
-The skill loads as `ai-slop-detector`, and its `SKILL.md` is the real one: the rule
-catalogue, the four levels, and how to add a rule. Run it from there:
+The skill loads as `ai-slop-detector`, and its `SKILL.md` is the real one: a focused editorial
+pass with five core rules. The CLI is optional for editorial work; run it when
+requested or required by the repository:
 
 ```bash
 node ~/.claude/skills/ai-slop-detector/bin/slop-detector.js <path> --level 2
