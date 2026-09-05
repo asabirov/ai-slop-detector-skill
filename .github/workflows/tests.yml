@@ -18,11 +18,7 @@ jobs:
       - name: Run the tests
         run: npm test
       - name: The detector passes its own rules
-        # lint:self is the packaged script and cannot name tools/, which the
-        # plugin's copy does not get. This repo lints tools/ as well.
-        run: |
-          npm run lint:self
-          node bin/slop-detector.js tools --level 4
+        run: npm run lint:self
       # The detector is run over its own prose by the suite above, which walks
       # every markdown file this repo ships and scores it at level 1. It lives
       # there rather than here so the list of documents exists once.

@@ -8,8 +8,7 @@ its existing rule packs and CI contract. Mandatory scans after every edit and
 unconditional style bans were rejected for the skill: necessary safety comments
 and intentional native UI fonts should survive an editorial review.
 
-The personal skill is installed from this repository. The plugin ships an
-installation pointer. Keeping the detector here also lets CI pin the same source.
+Install the personal skill from this repository. CI can pin the same source.
 
 ## Using the skill
 
@@ -47,7 +46,7 @@ Four levels, each a superset of the one below: `ban`, `recommended` (default),
 merge gate and the higher levels are polish.
 
 `docs/ai-slop-detector.md` documents the optional CLI. `SKILL.md` is the personal
-skill entrypoint. The sync Action copies `plugin-stub.md` into the plugin.
+skill entrypoint.
 
 ## Running it
 
@@ -66,7 +65,7 @@ tightens will fail a build that passed yesterday. The tag above is the one that 
 current when this line was written; the newest is on the [releases page](https://github.com/asabirov/ai-slop-detector-skill/releases).
 
 In a Claude Code session, from this repository cloned where it looks for personal
-skills. The `apliteni` plugin ships a page pointing here and none of the code:
+skills:
 
 ```bash
 git clone https://github.com/asabirov/ai-slop-detector-skill.git \
@@ -90,35 +89,3 @@ showing the case, and saying what you would change.
 A rule change is tested both ways: a triggering case goes into a slop fixture,
 and every `fixtures/clean.*` must stay silent at paranoid. If a new rule makes a
 clean fixture fire, the rule is wrong, not the fixture.
-
-## Where the copies are
-
-| Consumer | How it gets the rules |
-| --- | --- |
-| `apliteni/claude-apliteni-plugin` | A pointer page at `skills/ai-slop-detector/SKILL.md` and the reference at `docs/ai-slop-detector.md`, both written by `.github/workflows/sync-plugin.yml` in this repo. Not the rules. Do not edit them there. |
-| Any repository's CI | `npx -y github:asabirov/ai-slop-detector-skill#<tag>`, or a dev dependency on the git URL. |
-
-### Why the plugin gets a pointer
-
-The plugin shipped the whole linter until
-[apliteni/claude-apliteni-plugin#82](https://github.com/apliteni/claude-apliteni-plugin/issues/82)
-— 18 files, 164K. A plugin installs into a directory named after its version, so
-nothing outside a Claude Code session could reach the rules that way, and two
-repositories copied the files by hand instead. One of them deleted three rule files
-out of its copy to get past CodeQL.
-
-The removal used to wait on publishing to npm. Dropping npm unblocked it: `npx
-github:<repo>#<tag>` gives a session and a CI job the same route without a registry,
-and `SKILL_PAGE` in `sync-plugin.yml` moves the page and the code together.
-
-The change here is one word. `SKILL_PAGE` in
-`.github/workflows/sync-plugin.yml` goes from `skill` to `stub`, and that single
-value picks the page *and* drops `bin/`, `scripts/`, `fixtures/` and `package.json`
-from the copy. Both halves move together, so the plugin cannot end up carrying a
-stub and the code, or the real page and no code. Run it either way to see:
-
-```bash
-node tools/render-skill.js . /tmp/plugin asabirov/ai-slop-detector-skill "$(git rev-parse HEAD)" stub
-```
-
-An unrecognised value exits 2 rather than shipping a half-built directory.
