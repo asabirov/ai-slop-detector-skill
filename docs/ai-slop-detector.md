@@ -242,8 +242,7 @@ npm test
 ```
 
 The suite runs in CI (`.github/workflows/tests.yml`), so a rule that breaks coverage or
-trips a clean fixture fails the build. The plugin runs the same suite against its
-generated copy, which is what catches a bad sync.
+trips a clean fixture fails the build.
 
 ## Disagree with a rule, or want to tune it?
 
