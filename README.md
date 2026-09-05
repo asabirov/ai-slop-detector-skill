@@ -1,45 +1,26 @@
 # ai-slop-detector
 
-A deterministic linter for AI slop: the decorative machine-tells that read as
-generated even when the content is right. It scores HTML, markdown, plain text
-and source files, at four levels of strictness, and every finding names a
-concrete fix.
+A focused editorial skill with an optional deterministic linter for HTML,
+markdown, plain text, and source comments.
 
-## The choice this makes
+The skill uses five rules and one pass over the requested surface. The CLI keeps
+its existing rule packs and CI contract. Mandatory scans after every edit and
+unconditional style bans were rejected for the skill: necessary safety comments
+and intentional native UI fonts should survive an editorial review.
 
-**Chosen:** one repository that is both the source of the
-`apliteni:ai-slop-detector` skill and the thing a CI job runs, installed straight
-from GitHub with `npx github:asabirov/ai-slop-detector-skill#<tag>`, plus a GitHub
-Action that syncs the skill page and the reference doc into
-`apliteni/claude-apliteni-plugin`. Gives up: a documentation change lands in two
-places, the sync can fall behind, and a consumer needs network and GitHub
-reachable from its runner. A rule change lands only here.
+The personal skill is installed from this repository. The plugin ships an
+installation pointer. Keeping the detector here also lets CI pin the same source.
 
-**Turned down:** leaving it inside the plugin, where it lived until now. Why not:
-a Claude Code plugin installs into a directory named after its version, so
-nothing outside a session could ever install the rules. Two repositories had
-already copied the files by hand, and one of them pruned three files out of its
-copy to get past CodeQL.
+## Using the skill
 
-**Turned down:** publishing to npm as `@apliteni/slop-detector`. Why not: it buys
-a shorter command and costs an npm org, a token in CI, a release job that can fail
-on its own, and a second place the rules exist. `npx github:<repo>#<tag>` runs the
-same bin from the same commit. `package.json` is `private`, so nothing publishes it
-by accident. Decided by Artur on 2026-09-02.
+Ask for a slop review or an edit of the artifact. The skill preserves meaning,
+voice, and useful technical detail. It reports concrete reader problems and
+checks its corrections before stopping. It does not automatically run a command,
+install dependencies, or review untouched files.
 
-**Turned down:** a git submodule inside the plugin. Why not: it ships the whole
-source repo to every install — 400K and 32 worktree files plus a nested `.git`,
-against 152K and 19 today — while the plugin is trying to ship *less* of the
-linter, not more. Not for the reason first written here: Claude Code's plugin
-loader does clone with `--recurse-submodules --shallow-submodules` and then runs
-`git submodule update --init --recursive --depth`, so a submodule would have
-arrived populated. Measured against `claude` 2.1.236 on 2026-09-02.
-
-**Decided by:** `lessly-hub/compliance.lessly.tech` and
-`lessly-hub/board.lessly.tech` both carry a hand-vendored copy pinned to plugin
-version `4.0.0`, and the compliance copy deleted `scripts/lib/html.js`,
-`scripts/rules/visual.js` and `scripts/rules/text.js`. Two copies of a shared
-rule set had already diverged before anyone published anything.
+Read `SKILL.md` for the editorial workflow. Use the CLI below when requested,
+required by the repository, or useful for a batch scan. CLI findings retain their
+existing severities; editorial judgment does not waive an existing CI gate.
 
 ## What it does today
 
@@ -65,14 +46,8 @@ Four levels, each a superset of the one below: `ban`, `recommended` (default),
 `strict`, `paranoid`. Only `error` findings exit non-zero, so level 1 is the
 merge gate and the higher levels are polish.
 
-`docs/ai-slop-detector.md` is the full rule catalogue and the human reference.
-`SKILL.md` is the agent-facing entry point, and it is the file the sync Action
-copies into the plugin.
-
-`plugin-stub.md` is the page that replaces it there once the plugin stops
-shipping the linter's source — an install pointer that says where the real one
-is, and says in its own description that it cannot lint anything. It does not
-ship yet. See "The switch to the stub" below.
+`docs/ai-slop-detector.md` documents the optional CLI. `SKILL.md` is the personal
+skill entrypoint. The sync Action copies `plugin-stub.md` into the plugin.
 
 ## Running it
 
