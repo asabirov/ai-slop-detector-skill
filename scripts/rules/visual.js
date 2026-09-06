@@ -69,7 +69,12 @@ const monoNoncode = {
   // (lessly-hub/lessly-landing).
   test(ctx) {
     const hits = [];
-    const re = /([^{}]+)\{[^{}]*font-family\s*:\s*([^;}]*mono[^;}]*)/gi;
+    // `(?<![\w-])` is the left edge of the property. Without it the *name*
+    // `--default-mono-font-family` — a Tailwind v4 theme token — read as a
+    // font-family declaration on :root, and every Tailwind v4 site failed
+    // level 1 with nothing it could do about it (#9). A custom property
+    // declares a value; only the real property applies one.
+    const re = /([^{}]+)\{[^{}]*(?<![\w-])font-family\s*:\s*([^;}]*mono[^;}]*)/gi;
     let m;
     while ((m = re.exec(ctx.css)) !== null) {
       // Every selector in the list, not just the last line of it. Reading one
