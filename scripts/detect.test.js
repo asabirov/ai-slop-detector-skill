@@ -165,6 +165,42 @@ test('a selector that resolves to no element falls back to its spelling', () => 
   assert.ok(!rules(quiet).includes('mono-noncode'), 'expected silence on a selector spelled for code');
 });
 
+// A custom property declares a value; it does not apply one. Tailwind v4 emits
+// `--default-mono-font-family`, whose *name* contains `font-family`, so a rule
+// with no left boundary read the theme block as a font applied to :root and
+// failed every Tailwind v4 site at level 1 (asabirov/ai-slop-detector-skill#9).
+
+test('a custom property whose name contains font-family is not a font-family declaration', () => {
+  const page =
+    '<html><body><style>:root, :host { --font-mono: "Fira Mono", monospace;' +
+    ' --default-mono-font-family: var(--font-mono) }</style>' +
+    '<p>Run <code>npm test</code> first.</p></body></html>';
+  const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(!rules.includes('mono-noncode'), `expected silence, got: ${rules.join(', ')}`);
+});
+
+test('a non-ASCII ident character is part of the boundary too', () => {
+  // `\\w` is ASCII, so a boundary of `[\\w-]` alone left the same hole open one
+  // character over: an ident may legally hold non-ASCII, and `--<CJK>font-family`
+  // is still a custom property name rather than a declaration.
+  const cjk = String.fromCharCode(0x5b57);
+  const page =
+    `<html><body><style>:root { --${cjk}font-family: var(--font-mono) }</style>` +
+    '<p>Text</p></body></html>';
+  const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(!rules.includes('mono-noncode'), `expected silence, got: ${rules.join(', ')}`);
+});
+
+test('the real property still fires when it is the one on :root', () => {
+  // The boundary must not buy silence for an actual declaration. Same theme
+  // block, same var, but applied rather than merely named.
+  const page =
+    '<html><body><style>:root { --font-mono: "Fira Mono", monospace;' +
+    ' font-family: var(--font-mono) }</style><p>Text</p></body></html>';
+  const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(rules.includes('mono-noncode'), `expected mono-noncode, got: ${rules.join(', ')}`);
+});
+
 test('selectorTargets resolves a selector to the elements it lands on', () => {
   const els = markupElements(
     '<html><body><pre class="block"><code><span class="tok">x</span></code></pre>' +

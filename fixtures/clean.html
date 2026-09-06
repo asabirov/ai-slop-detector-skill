@@ -5,6 +5,10 @@
 <html>
 <head>
 <style>
+  /* A build tool's theme block. These name a mono stack; they do not apply one,
+     and the page below sets mono on <code> only. */
+  :root, :host { --font-mono: 'Inter Mono', ui-monospace, monospace;
+                 --default-mono-font-family: var(--font-mono); }
   @font-face { font-family: 'Inter'; src: url('/fonts/inter.woff2') format('woff2'); }
   body { font-family: 'Inter', Arial, sans-serif; color: #0f172a; background: #ffffff; }
   .btn { border-radius: 8px; background: #0d9488; color: #ffffff; }
