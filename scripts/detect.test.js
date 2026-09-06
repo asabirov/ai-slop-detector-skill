@@ -179,6 +179,18 @@ test('a custom property whose name contains font-family is not a font-family dec
   assert.ok(!rules.includes('mono-noncode'), `expected silence, got: ${rules.join(', ')}`);
 });
 
+test('a non-ASCII ident character is part of the boundary too', () => {
+  // `\\w` is ASCII, so a boundary of `[\\w-]` alone left the same hole open one
+  // character over: an ident may legally hold non-ASCII, and `--<CJK>font-family`
+  // is still a custom property name rather than a declaration.
+  const cjk = String.fromCharCode(0x5b57);
+  const page =
+    `<html><body><style>:root { --${cjk}font-family: var(--font-mono) }</style>` +
+    '<p>Text</p></body></html>';
+  const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(!rules.includes('mono-noncode'), `expected silence, got: ${rules.join(', ')}`);
+});
+
 test('the real property still fires when it is the one on :root', () => {
   // The boundary must not buy silence for an actual declaration. Same theme
   // block, same var, but applied rather than merely named.
