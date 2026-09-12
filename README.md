@@ -34,6 +34,10 @@ Three rule packs over one engine.
   clustered inflated vocabulary.
 - **Comments** reads source files. Catches the design document an agent files
   into a code comment because the project gave it nowhere else to write one.
+  `comment-chaptered` joins blocks separated by exactly one blank line, with
+  no code between them: 8+ comment lines and a heading or interior divider
+  still fail level 1. Blank separators do not count toward length; individual
+  block frames stay exempt. Essay and ratio measurements are unchanged.
 
 Code is not prose. Fenced blocks and inline code spans come out of a document
 before the rules that judge decoration read it, so a page can quote the pattern

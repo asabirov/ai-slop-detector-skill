@@ -11,6 +11,8 @@
 // Each rule: { id, level, severity, why, fix, test(ctx) -> string[] hits }
 // ctx here is the SOURCE context (scripts/lib/source.js), not the HTML one.
 
+const { chapterDocuments } = require('../lib/source');
+
 const ELSEWHERE =
   'Move the rationale to where the decision was argued — the issue, or the project docs — and leave a one-line pointer: `// why: #197`.';
 
@@ -29,9 +31,9 @@ const commentChaptered = {
     'A comment with dividers or shouted section headings has chapters, and a thing with chapters is a document. Length alone misses this one: a 10-line comment split into titled sections is still an ADR wearing a comment.',
   fix: ELSEWHERE + ' Keep dividers for separating code, not for sectioning prose.',
   test: (ctx) =>
-    ctx.blocks
+    chapterDocuments(ctx)
       .filter((b) => b.len >= 8 && (b.dividers >= 1 || b.headings >= 1))
-      .map((b) => label(b, b.dividers ? `${b.dividers} divider(s) in a ${b.len}-line block` : `${b.headings} section heading(s)`)),
+      .map((b) => label(b, b.dividers ? `${b.dividers} divider(s) in a ${b.len}-line document` : `${b.headings} section heading(s)`)),
 };
 
 // ── level 2 · recommended ────────────────────────────────────────────────

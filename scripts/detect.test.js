@@ -458,8 +458,54 @@ test('comment-essay covers 12 prose lines and up, in one band', () => {
 // ── length is no longer a merge gate; chaptering still is ────────────────
 test('at level 1 the comments pack gates on chaptering, never on length', () => {
   const rep = detect(read('slop.js'), { level: 1, kind: 'source', ext: 'js' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['comment-chaptered', 'comment-chaptered']);
+  assert.strictEqual(rep.verdict, 'fail');
+});
+
+test('blank-line-separated chapters reproduce marketplace issue 18', () => {
+  const src = [
+    '// WHAT THIS DOES',
+    '// Three lines of prose.',
+    '// Three more.',
+    '',
+    '// WHY IT IS HERE',
+    '// Three lines of prose.',
+    '// Three more.',
+    '',
+    '// WHAT TO DO INSTEAD',
+    '// Three lines of prose.',
+    '// Three more.',
+  ].join('\n');
+  const rep = detect(src, { level: 1, kind: 'source', ext: 'js' });
   assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['comment-chaptered']);
   assert.strictEqual(rep.verdict, 'fail');
+});
+
+test('chapter runs preserve thresholds, code boundaries, frames and other rules', () => {
+  const { parseSource } = require('./lib/source');
+  const chaptered = RULES.find((r) => r.id === 'comment-chaptered');
+  const essay = RULES.find((r) => r.id === 'comment-essay');
+  const ratio = RULES.find((r) => r.id === 'comment-ratio');
+  const section = ['// WHAT THIS DOES', '// A useful prose line.', '// Another prose line.', '// One more prose line.'].join('\n');
+  const joined = `${section}\n \t\n${section}`;
+  assert.strictEqual(chaptered.test(parseSource(joined)).length, 1);
+  assert.strictEqual(chaptered.test(parseSource(joined.replace('// One more prose line.\n', ''))).length, 0);
+  for (const gap of ['\n\n\n', '\nconst x = 1;\n']) {
+    assert.deepStrictEqual(chaptered.test(parseSource(section + gap + section)), []);
+  }
+  for (const [ext, src] of [['py', joined.replaceAll('//', '#')],
+    ['css', joined.replaceAll('// ', '/* ').split('\n').map((line) => line.startsWith('/*') ? line + ' */' : line).join('\n')]]) {
+    assert.strictEqual(chaptered.test(parseSource(src, { ext })).length, 1);
+  }
+  const frame = '// --------------------\n// A framed note.\n// --------------------';
+  const prose = Array(6).fill('// A useful prose line.').join('\n');
+  assert.deepStrictEqual(chaptered.test(parseSource(`${prose}\n\n${frame}\n\n${prose}`)), []);
+  const ctx = parseSource(`${prose}\n\n${prose}\n${'const x = 1;\n'.repeat(20)}`);
+  const before = JSON.stringify(ctx);
+  chaptered.test(ctx);
+  assert.strictEqual(JSON.stringify(ctx), before);
+  assert.deepStrictEqual(essay.test(ctx), []);
+  assert.deepStrictEqual(ratio.test(ctx), ['12 prose lines to 20 code lines (0.60:1)']);
 });
 
 // ── packs stay on their own side of the routing ──────────────────────────

@@ -111,6 +111,25 @@ function parseSource(text, { ext = 'js' } = {}) {
   return { kind: 'source', ext, lines, blocks, commentLines, proseLines, codeLines };
 }
 
+// Only chaptering joins blocks; blank lines still end blocks for other rules.
+function chapterDocuments(ctx) {
+  const runs = [];
+  for (const block of ctx.blocks) {
+    const previous = runs[runs.length - 1];
+    if (previous && block.start === previous.end + 2 &&
+        !ctx.lines[previous.end].trim()) {
+      previous.end = block.end;
+      previous.len += block.len;
+      previous.headings += block.headings;
+      // A frame on an individual block stays a frame after joining.
+      previous.dividers += block.dividers;
+    } else {
+      runs.push({ ...block });
+    }
+  }
+  return runs;
+}
+
 // Measure one block. `prose` is what the rules count: lines carrying sentences,
 // with API tag lines and dividers excluded so a documented signature is not
 // mistaken for an essay.
@@ -151,4 +170,4 @@ function finish(block) {
   };
 }
 
-module.exports = { parseSource, syntaxFor, SOURCE_EXTS, DIVIDER, isCapsHeading };
+module.exports = { chapterDocuments, parseSource, syntaxFor, SOURCE_EXTS, DIVIDER, isCapsHeading };
