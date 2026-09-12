@@ -458,8 +458,91 @@ test('comment-essay covers 12 prose lines and up, in one band', () => {
 // ── length is no longer a merge gate; chaptering still is ────────────────
 test('at level 1 the comments pack gates on chaptering, never on length', () => {
   const rep = detect(read('slop.js'), { level: 1, kind: 'source', ext: 'js' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['comment-chaptered', 'comment-chaptered']);
+  assert.strictEqual(rep.verdict, 'fail');
+});
+
+test('blank-line-separated chapters reproduce marketplace issue 18', () => {
+  const src = [
+    '// WHAT THIS DOES',
+    '// Three lines of prose.',
+    '// Three more.',
+    '',
+    '// WHY IT IS HERE',
+    '// Three lines of prose.',
+    '// Three more.',
+    '',
+    '// WHAT TO DO INSTEAD',
+    '// Three lines of prose.',
+    '// Three more.',
+  ].join('\n');
+  const rep = detect(src, { level: 1, kind: 'source', ext: 'js' });
   assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['comment-chaptered']);
   assert.strictEqual(rep.verdict, 'fail');
+});
+
+test('a license followed by one titled note stays silent at level 1', () => {
+  const license = [
+    'Copyright (c) 2026 Example contributors.',
+    'Permission is hereby granted, free of charge, to any person obtaining',
+    'a copy of this software and associated documentation files, to deal',
+    'in the Software without restriction, including without limitation',
+    'the rights to use, copy, modify, merge, publish, distribute, sublicense,',
+    'and/or sell copies of the Software, and to permit persons to whom',
+    'the Software is furnished to do so, subject to the following conditions:',
+  ];
+  for (const ext of ['js', 'py', 'css']) {
+    const comment = (line) => ext === 'css' ? `/* ${line} */` : `${ext === 'py' ? '#' : '//'} ${line}`;
+    for (const title of ['CONFIG', 'CONFIG FOR CLIENT']) {
+      const src = [...license.map(comment), '', comment(title), comment('Read settings from the environment.')].join('\n');
+      const rep = detect(src, { level: 1, kind: 'source', ext });
+      assert.deepStrictEqual(rep.findings, [], `${ext}: ${title}`);
+    }
+  }
+});
+
+test('two sections separated by one blank line still fail level 1', () => {
+  const section = ['// WHAT THIS DOES', '// Read settings from disk.', '// Apply the configured defaults.', '// Return the resulting settings.'];
+  const src = [...section, '', ...section].join('\n');
+  const rep = detect(src, { level: 1, kind: 'source', ext: 'js' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['comment-chaptered']);
+  assert.strictEqual(rep.verdict, 'fail');
+});
+
+test('joining a short note cannot silence an independently chaptered block', () => {
+  const block = ['// WHAT THIS DOES', ...Array(33).fill('// Read settings from the environment.')].join('\n');
+  const note = Array(3).fill('// Apply the configured defaults.').join('\n');
+  for (const src of [block, `${block}\n\n${note}`, `${note}\n\n${block}`]) {
+    const rep = detect(src, { level: 1, kind: 'source', ext: 'js' });
+    assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['comment-chaptered']);
+  }
+});
+
+test('chapter runs preserve thresholds, code boundaries, frames and other rules', () => {
+  const { parseSource } = require('./lib/source');
+  const chaptered = RULES.find((r) => r.id === 'comment-chaptered');
+  const essay = RULES.find((r) => r.id === 'comment-essay');
+  const ratio = RULES.find((r) => r.id === 'comment-ratio');
+  const section = ['// WHAT THIS DOES', '// A useful prose line.', '// Another prose line.', '// One more prose line.'].join('\n');
+  const joined = `${section}\n \t\n${section}`;
+  assert.strictEqual(chaptered.test(parseSource(joined)).length, 1);
+  assert.strictEqual(chaptered.test(parseSource(joined.replace('// One more prose line.\n', ''))).length, 0);
+  for (const gap of ['\n\n\n', '\nconst x = 1;\n']) {
+    assert.deepStrictEqual(chaptered.test(parseSource(section + gap + section)), []);
+  }
+  for (const [ext, src] of [['py', joined.replaceAll('//', '#')],
+    ['css', joined.replaceAll('// ', '/* ').split('\n').map((line) => line.startsWith('/*') ? line + ' */' : line).join('\n')]]) {
+    assert.strictEqual(chaptered.test(parseSource(src, { ext })).length, 1);
+  }
+  const frame = '// --------------------\n// A framed note.\n// --------------------';
+  const prose = Array(6).fill('// A useful prose line.').join('\n');
+  assert.deepStrictEqual(chaptered.test(parseSource(`${prose}\n\n${frame}\n\n${prose}`)), []);
+  const ctx = parseSource(`${prose}\n\n${prose}\n${'const x = 1;\n'.repeat(20)}`);
+  const before = JSON.stringify(ctx);
+  chaptered.test(ctx);
+  assert.strictEqual(JSON.stringify(ctx), before);
+  assert.deepStrictEqual(essay.test(ctx), []);
+  assert.deepStrictEqual(ratio.test(ctx), ['12 prose lines to 20 code lines (0.60:1)']);
 });
 
 // ── packs stay on their own side of the routing ──────────────────────────

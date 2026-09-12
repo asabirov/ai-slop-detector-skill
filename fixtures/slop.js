@@ -81,3 +81,16 @@ export function normalize(list) {
 export function refuse(list) {
   return list.filter((r) => !CLAMP_PROPS.includes(r));
 }
+
+// WHAT THIS DOES
+// Three lines of prose.
+// Three more.
+
+// WHY IT IS HERE
+// Three lines of prose.
+// Three more.
+
+// WHAT TO DO INSTEAD
+// Three lines of prose.
+// Three more.
+export const SEPARATED_CHAPTERS = true;

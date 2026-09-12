@@ -160,9 +160,20 @@ no reviewer, and it starts going stale the moment the code around it moves.
 
 | id | Level | Severity | Tell |
 |----|-------|----------|------|
-| `comment-chaptered` | 1 | error | A block of 8+ lines split by an interior divider or a shouted section heading. |
+| `comment-chaptered` | 1 | error | 8+ comment lines with one heading or interior divider in a single block, or two in total across joined blocks. |
 | `comment-essay` | 2 | medium | One block carrying 12+ prose lines. |
 | `comment-ratio` | 2 | warning | More than one prose line per two lines of code (files of 20+ code lines). |
+
+For `comment-chaptered` only, blocks separated by exactly one blank line
+(including whitespace-only lines) form one document. Code or two or more blank
+lines end the run. Separator lines do not count toward the 8-line floor, and
+headings and interior dividers are counted across the blocks. A single block
+of 8+ lines requires at least one signal and keeps firing inside a joined run;
+qualification through joining requires at least two signals.
+One title in a joined run is a label; two chapter signals make chapters.
+Dividers framing an individual block remain frames; joining does not turn them
+into chapters.
+`comment-essay` still measures individual blocks, and `comment-ratio` is unchanged.
 
 **Length is `medium`, and chaptering is the only ban.** Chaptering is a shape: a comment
 either has an interior divider or it does not, so a gate can be certain about it. Length is
