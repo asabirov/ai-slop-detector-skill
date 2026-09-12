@@ -32,7 +32,10 @@ const commentChaptered = {
   fix: ELSEWHERE + ' Keep dividers for separating code, not for sectioning prose.',
   test: (ctx) =>
     chapterDocuments(ctx)
-      .filter((b) => b.len >= 8 && (b.dividers >= 1 || b.headings >= 1))
+      // One title in a joined run is a label; two chapter signals make chapters.
+      // Joining must also preserve any block that already qualifies on its own.
+      .filter((b) => b.len >= 8 && (b.dividers + b.headings >= 2 ||
+        b.blocks.some((block) => block.len >= 8 && block.dividers + block.headings >= 1)))
       .map((b) => label(b, b.dividers ? `${b.dividers} divider(s) in a ${b.len}-line document` : `${b.headings} section heading(s)`)),
 };
 

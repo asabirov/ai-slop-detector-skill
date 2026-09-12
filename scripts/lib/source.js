@@ -120,11 +120,12 @@ function chapterDocuments(ctx) {
         !ctx.lines[previous.end].trim()) {
       previous.end = block.end;
       previous.len += block.len;
+      previous.blocks.push(block);
       previous.headings += block.headings;
       // A frame on an individual block stays a frame after joining.
       previous.dividers += block.dividers;
     } else {
-      runs.push({ ...block });
+      runs.push({ ...block, blocks: [block] });
     }
   }
   return runs;
