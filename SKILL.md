@@ -1,6 +1,6 @@
 ---
 name: ai-slop-detector
-description: "Use when reviewing or polishing prose, UI, or code comments for generic AI phrasing, empty claims, or decorative clutter, and before presenting a finished artifact with those symptoms."
+description: "Check a finished artifact before delivering it and report what to fix: empty claims, stock phrasing, decorative clutter, narrated code comments. Covers prose, UI and code. Use when asked to check for AI slop. Reports findings; does not rewrite for readability (humanize)."
 ---
 
 # AI Slop Detector
