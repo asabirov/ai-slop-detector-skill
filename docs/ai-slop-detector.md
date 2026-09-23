@@ -70,7 +70,8 @@ node ~/.claude/skills/ai-slop-detector/bin/slop-detector.js <file>
 ```
 
 Arguments are files, directories (walked) or globs. Each file is routed by its extension —
-`.html`/`.md`/`.txt` to the visual and text packs, source files to the comments pack — and
+`.html`/`.md`/`.txt` to the visual and text packs, source files to the comments pack.
+CSS and component files also receive visual checks, without prose scoring. The option
 `--as source|artifact` overrides that. Git-ignored files are skipped (`--no-git-ignore` to
 stop that), and `--ignore 'vendor/**,*.gen.js'` drops more: a gate that reports findings in
 build output is a gate nobody can act on.
@@ -80,6 +81,19 @@ is the same engine over many.
 
 `--level` accepts a number (`1`–`4`) or a name (`ban`, `recommended`, `strict`,
 `paranoid`). `--json` emits `{ verdict, level, files[], stats }` for chaining.
+
+### Static UI coverage
+
+Visual rules also read standalone `.css`, quoted `style` attributes, and literal
+`class` / `className` attributes in HTML, JSX, TSX, Vue, Svelte, and Astro.
+Supported Tailwind utilities cover gradients and color stops, text clipping,
+backdrop blur, radii, typography, alignment, borders, and bounce animation.
+Selected arbitrary values (radius, shadow, easing, blur, size, background) are
+read directly. Conditional variants, computed class expressions, custom utility
+configuration, JSX style objects, and CSS variable resolution need generated CSS.
+Color utilities at shades 300–700 use representative palette hues. Other shade
+values are left unresolved so pale backgrounds do not count as saturated accents.
+The scanner does not implement cascade, layout, or contrast calculations.
 
 ### Built HTML and linked CSS
 
@@ -109,7 +123,6 @@ values are stable — reference them in allowlists and PR notes.
 |----|-------|----------|------|
 | `fake-uri` | 1 | error | Fake protocol URI (`lessly://c4/goal`) — links to nothing. Skips code. |
 | `mono-noncode` | 1 | error | Monospace font on prose or a label — fake-terminal decoration. |
-| `system-font` | 1 | error | `system-ui` / `-apple-system` as the first family — no typeface chosen. |
 | `external-link-arrow` | 1 | error | Diagonal `↗` open-in-new-tab arrow on a link — decorative cosplay. Skips code. |
 | `middot-chain` | 2 | warning | `a · b · c` metadata chain — templated polish. |
 | `decor-numbering` | 2 | warning | `01 — label` eyebrow where the number indexes nothing. |
@@ -121,6 +134,35 @@ values are stable — reference them in allowlists and PR notes.
 | `heading-period` | 3 | warning | Short display heading ending in a lone period (`Ship it.`). |
 | `decor-bullet-dot` | 3 | warning | Empty colored round element prefixing a label — encodes nothing. |
 | `radius-monotony` | 4 | warning | One `border-radius` on every surface — templated sameness. |
+
+| `gradient-text` | 2 | warning | Gradient clipped into text is decorative emphasis. |
+| `ai-gradient` | 2 | warning | Pink, violet and purple gradient combinations are a common generated UI default. |
+| `glow-shadow` | 2 | warning | A colored zero-offset shadow creates a decorative halo. |
+| `glassmorphism` | 2 | warning | Backdrop blur is a common decorative glass effect. |
+| `nested-cards` | 2 | warning | Cards inside cards add redundant containers. |
+| `bounce-easing` | 2 | warning | Bounce or elastic motion adds ornamental overshoot. |
+| `accent-bar` | 3 | warning | A colored side stripe decorates a container boundary. |
+| `pill-radius` | 3 | warning | Pill-shaped buttons or cards can become a default shape without a purpose. |
+| `big-number-stat` | 3 | warning | Oversized numeric stats can substitute a hero template for useful evidence. |
+| `emoji-icon` | 2 | warning | An isolated emoji stands in for a designed icon. |
+| `family-ceiling` | 4 | warning | More than three primary font families can fragment a type system. |
+| `stock-display-face` | 4 | warning | Inter or Space Grotesk as a display face is a common default worth reviewing. |
+| `mono-uppercase-label` | 3 | warning | Tracked uppercase monospace labels imitate terminal chrome. |
+| `accent-budget` | 4 | warning | Several unrelated accent colors can obscure emphasis. |
+| `hairline-grid` | 4 | warning | Repeated hairline boxes in a grid can make every item look like the same card. |
+| `double-edge` | 4 | warning | Repeated boxes separate themselves with both a border and a fill. |
+| `button-drift` | 4 | warning | Several unrelated button sizes or radii weaken control consistency. |
+| `everything-centred` | 4 | warning | Centering most of a page weakens the alignment hierarchy. |
+| `stock-palette` | 4 | warning | Near-black with acid green, or cream with terracotta and serif type, are common generated palettes. |
+
+New UI checks are warnings. Aggregate checks use conservative thresholds: more
+than three primary font families, at least three distinct accents, three
+hairline-bordered grid items, five border-plus-fill rules, or three button sizes
+or radii. Centering warns on a document root or four elements covering at least
+a third of the page, unless left/start/justify alignment exists. Display-face
+checks only inspect explicit headings or type at least 48px; choosing Inter for
+body text is allowed. Structural counts resolve simple tag, class, and ID
+selectors; complex selectors and inherited styles need rendered review.
 
 ### Text pack — prose
 
@@ -225,12 +267,13 @@ A false positive that nags is itself slop. Warnings are defaults to follow-or-ju
 gates. When a warning fires on a genuinely deliberate choice, record the reason in the PR
 (never in the artifact) and move on. If a rule is simply wrong, fix the rule — see below.
 
-`error`-level bans have no deliberate-use case. There is no good reason for a fake `app://`
-URI or a `system-ui` default in a shipped Lessly surface.
+Native UI fonts are valid choices. The brand-specific `system-font` rule was
+removed; all remaining IDs and exit codes are unchanged. `mono-noncode` permits
+numeric content in table cells, including descendant spans.
 
 ## Extending it
 
-Rules live in `scripts/rules/visual.js` and `scripts/rules/text.js`. Adding one is a
+Rules live in `scripts/rules/visual.js`, `scripts/rules/ui.js`, and `scripts/rules/text.js`. Adding one is a
 one-line push into the pack; nothing in `detect.js` changes. A rule is:
 
 ```js
@@ -252,8 +295,9 @@ in real AI output — and it must be tested both ways:
 npm test
 ```
 
-The suite runs in CI (`.github/workflows/tests.yml`), so a rule that breaks coverage or
-trips a clean fixture fails the build.
+Run the suite locally and paste its full output in the PR, together with
+`npm run lint:self`. CI does not run unit tests; it keeps self-lint, CodeQL,
+and release automation.
 
 ## Disagree with a rule, or want to tune it?
 

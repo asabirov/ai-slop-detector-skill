@@ -24,7 +24,7 @@ const SEVERITIES = ['error', 'medium', 'warning'];
 const withKind = (kind) => (rule) => ({ ...rule, kind });
 
 const RULES = [
-  ...visual.map(withKind('artifact')),
+  ...visual.map((rule) => ({ ...rule, kind: 'artifact', pack: 'visual' })),
   ...text.map(withKind('artifact')),
   ...comments.map(withKind('source')),
 ];

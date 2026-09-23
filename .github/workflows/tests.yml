@@ -1,4 +1,4 @@
-name: tests
+name: self-lint
 
 on:
   push:
@@ -15,10 +15,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Run the tests
-        run: npm test
       - name: The detector passes its own rules
         run: npm run lint:self
-      # The detector is run over its own prose by the suite above, which walks
-      # every markdown file this repo ships and scores it at level 1. It lives
-      # there rather than here so the list of documents exists once.

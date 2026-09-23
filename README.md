@@ -4,7 +4,7 @@ A focused editorial skill with an optional deterministic linter for HTML,
 markdown, plain text, and source comments.
 
 The skill uses five rules and one pass over the requested surface. The CLI keeps
-its existing rule packs and CI contract. Mandatory scans after every edit and
+shared rule packs and stable exit codes. Mandatory scans after every edit and
 unconditional style bans were rejected for the skill: necessary safety comments
 and intentional native UI fonts should survive an editorial review.
 
@@ -27,7 +27,9 @@ Three rule packs over one engine.
 
 - **Visual** reads markup and the CSS a page applies, including stylesheets it
   links from disk. Catches fake protocol URIs, monospace used as decoration,
-  system-font defaults, emoji headings, the purple-blue hero.
+  emoji headings, gradients, glow shadows, glass surfaces, nested cards,
+  oversized stats, motion and repeated layout defaults. Native font stacks and
+  numeric table data are allowed.
 - **Text** reads visible prose plus the attributes a person actually reads
   (`title`, `alt`, `placeholder`, `aria-label`, `data-tip`, the meta
   description). Catches "not just X, but Y", hedge openers, sycophancy residue,
@@ -86,6 +88,16 @@ In this repository:
 npm test           # the unit tests, the fixtures, and this repo's own prose
 npm run lint:self  # the detector must pass its own rules
 ```
+
+Tests run locally, not in CI. Paste the full `npm test` output and self-lint
+result into the PR. CI retains self-lint, release, and CodeQL workflows.
+
+The UI rules use static markup and declaration heuristics rather than a browser
+or CSS engine: no runtime dependencies, fast batch scans, and no computed-style
+claims. They read standalone CSS, inline styles, and literal Tailwind classes in
+HTML, JSX, TSX, Vue, Svelte, and Astro. Dynamic classes, Tailwind configuration,
+CSS cascade resolution, and contrast checks need a rendered review. See the
+[CLI reference](docs/ai-slop-detector.md) for coverage and thresholds.
 
 ## Changing a rule
 

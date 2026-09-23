@@ -60,8 +60,8 @@ With Node 20 or newer, resolve the command relative to this skill directory:
 node <skill-dir>/bin/slop-detector.js <file> --json
 ```
 
-The CLI retains its existing rules and exit codes, including opinionated style
-errors. It can disagree with editorial judgment. Preserve required CI checks;
+The CLI keeps stable exit codes and shared UI rules, including opinionated style
+findings. Native font stacks and numeric table data are allowed. It can disagree with editorial judgment. Preserve required CI checks;
 report a rule conflict instead of weakening the artifact or bypassing the gate.
 For batch scanning, CSS coverage, exit codes, or rule development, read the bundled
 [CLI reference](docs/ai-slop-detector.md) only when needed.

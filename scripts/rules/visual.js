@@ -56,12 +56,14 @@ const fakeUri = {
 // fallback and not the rule: a guess is only better than going quiet.
 const SPELLED_FOR_CODE = /\b(code|pre|kbd|samp|tt)\b/i;
 
+const monoAllowed = (el) => el.inCode || (el.inTable && el.numericData && el.hasDigit);
+
 const monoNoncode = {
   id: 'mono-noncode',
   level: 1,
   severity: 'error',
   why: 'Monospace font on an element that is not code — fake-terminal decoration. Real code gets mono; a metadata line does not.',
-  fix: 'Use the brand sans, or put the content in a <code>/<pre> if it really is code. If you want a label to stand out, weight or size it — do not costume it as code. Aligned digits want font-variant-numeric: tabular-nums, not a mono stack.',
+  fix: 'Use a readable proportional font, or put the content in a <code>/<pre> if it really is code. If you want a label to stand out, weight or size it — do not costume it as code. Numeric table data may use monospace or font-variant-numeric: tabular-nums.',
   // Judged by what the selector lands on, not how it is spelled. The old
   // spelling check exempted anything with `code`/`pre`/`kbd`/`samp`/`tt` in its
   // text, so `.font-mono` — which lands on nothing but <code> spans — failed on
@@ -76,9 +78,10 @@ const monoNoncode = {
     // declares a value; only the real property applies one. The non-ASCII
     // range is part of the boundary because an ident may hold one and `\w`
     // is ASCII; without it `--<CJK>font-family` reopens the same hole.
-    const re = /([^{}]+)\{[^{}]*(?<![\w\-\u0080-\uFFFF])font-family\s*:\s*([^;}]*mono[^;}]*)/gi;
-    let m;
-    while ((m = re.exec(ctx.css)) !== null) {
+    for (const [selector, body] of ctx.cssRules) {
+      const family = /(?:^|;)\s*font-family\s*:\s*([^;}]*mono[^;}]*)/i.exec(body);
+      if (!family) continue;
+      const m = [null, selector, family[1]];
       // Every selector in the list, not just the last line of it. Reading one
       // line meant `.label,\n.snip {` was judged only on `.snip`, so a mono
       // label rode in free behind a legitimate code class.
@@ -93,14 +96,15 @@ const monoNoncode = {
         // per selector, so one absent class cannot excuse its neighbours.
         if (!selectorApplies(sel, ctx.markup)) continue;
 
-        const targets = selectorTargets(sel, ctx.elements);
+        const inlineIndex = /^\.__slop_inline_(\d+)$/.exec(sel);
+        const targets = inlineIndex ? [ctx.elements[Number(inlineIndex[1])]] : selectorTargets(sel, ctx.elements);
         if (targets) {
           // Primary branch: we know every element this lands on. `inCode` covers
           // the element being code and the element being inside code, because
           // font-family inherits — mono on an <input> inside a <code> is the
           // code's font reaching it.
-          if (targets.every((el) => el.inCode)) continue;
-          const off = targets.find((el) => !el.inCode);
+          if (targets.every(monoAllowed)) continue;
+          const off = targets.find((el) => !monoAllowed(el));
           hits.push(`${sel} → <${off.tag}> · ${m[2].trim().slice(0, 40)}`);
           continue;
         }
@@ -110,21 +114,6 @@ const monoNoncode = {
         if (!SPELLED_FOR_CODE.test(sel)) hits.push(`${sel} → ${m[2].trim().slice(0, 40)}`);
       }
     }
-    return hits;
-  },
-};
-
-const systemFont = {
-  id: 'system-font',
-  level: 1,
-  severity: 'error',
-  why: 'system-ui / -apple-system as the first font family — "no typeface was chosen". The page inherits whatever the OS hands it.',
-  fix: 'Embed the brand face (Inter) via @font-face and lead the stack with it.',
-  test(ctx) {
-    const hits = [];
-    const re = /font-family\s*:\s*(system-ui|-apple-system)\b/gi;
-    let m;
-    while ((m = re.exec(ctx.css)) !== null) hits.push(m[0]);
     return hits;
   },
 };
@@ -266,7 +255,7 @@ const purpleBlueHero = {
     let m;
     while ((m = re.exec(ctx.css)) !== null) {
       const g = m[0].toLowerCase();
-      const purple = /#[89ab][0-9a-f]{2}[cf][0-9a-f]|purple|violet|indigo|#7c3aed|#6d28d9/.test(g);
+      const purple = /#[89ab][0-9a-f]{2}[cf][0-9a-f]|purple|violet|indigo|#7c3aed|#6d28d9|#9333ea|#a855f7|#8b5cf6|#6366f1/.test(g);
       const blue = /blue|#[0-6][0-9a-f]{2}[ef][0-9a-f]|#2563eb|#3b82f6/.test(g);
       if (purple && blue) hits.push(g.slice(0, 50));
     }
@@ -425,7 +414,6 @@ module.exports = [
   cssUnreadable,
   fakeUri,
   monoNoncode,
-  systemFont,
   externalLinkArrow,
   middotChain,
   decorNumbering,
@@ -437,4 +425,5 @@ module.exports = [
   headingPeriod,
   decorBulletDot,
   radiusMonotony,
+  ...require('./ui'),
 ];
