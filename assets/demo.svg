@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="381" viewBox="0 0 1080 381" role="img" aria-labelledby="title">
+<title id="title">Actual CLI output: a chatbot greeting fails; clean prose passes.</title>
+<rect width="1080" height="381" fill="#101820"/>
+<text x="24" y="32" fill="#9cddc4" font-family="monospace" font-size="18" xml:space="preserve">$ node bin/slop-detector.js fixtures/slop.md --level 1</text>
+<text x="24" y="55" fill="#f0f3f5" font-family="monospace" font-size="18" xml:space="preserve">fixtures/slop.md</text>
+<text x="24" y="78" fill="#f0f3f5" font-family="monospace" font-size="18" xml:space="preserve"></text>
+<text x="24" y="101" fill="#f0f3f5" font-family="monospace" font-size="18" xml:space="preserve">  ✗ [sycophancy-opener] Certainly!</text>
+<text x="24" y="124" fill="#f0f3f5" font-family="monospace" font-size="18" xml:space="preserve">      RLHF chat residue (&quot;Certainly!&quot;, &quot;Great question!&quot;, &quot;I’d be happy to…&quot;) that</text>
+<text x="24" y="147" fill="#f0f3f5" font-family="monospace" font-size="18" xml:space="preserve">      survived from a chatbot into published copy. Near-diagnostic.</text>
+<text x="24" y="170" fill="#f0f3f5" font-family="monospace" font-size="18" xml:space="preserve">      fix: Delete the opener. Start with the point.</text>
+<text x="24" y="193" fill="#f0f3f5" font-family="monospace" font-size="18" xml:space="preserve"></text>
+<text x="24" y="216" fill="#f0f3f5" font-family="monospace" font-size="18" xml:space="preserve">✗ FAIL  [level ban]  1 file(s), 1 error(s), 0 medium, 0 warning(s)</text>
+<text x="24" y="239" fill="#f0f3f5" font-family="monospace" font-size="18" xml:space="preserve">Exit code: 1</text>
+<text x="24" y="262" fill="#f0f3f5" font-family="monospace" font-size="18" xml:space="preserve"></text>
+<text x="24" y="285" fill="#9cddc4" font-family="monospace" font-size="18" xml:space="preserve">$ node bin/slop-detector.js fixtures/clean.md --level 1</text>
+<text x="24" y="308" fill="#f0f3f5" font-family="monospace" font-size="18" xml:space="preserve">✓ PASS  [level ban]  1 file(s), 0 error(s), 0 medium, 0 warning(s)</text>
+<text x="24" y="331" fill="#f0f3f5" font-family="monospace" font-size="18" xml:space="preserve">Exit code: 0</text>
+<text x="24" y="354" fill="#f0f3f5" font-family="monospace" font-size="18" xml:space="preserve"></text>
+</svg>
