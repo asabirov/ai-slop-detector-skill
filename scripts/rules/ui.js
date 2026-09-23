@@ -1,6 +1,5 @@
 'use strict';
 
-// Static UI heuristics adapted from Impeccable and design-review-skill; see NOTICE.
 // A cached declaration pass keeps each rule from reparsing the same stylesheet.
 const cache = new WeakMap();
 const STATE = /:(?:hover|focus|active|disabled|visited|checked)\b/i;
