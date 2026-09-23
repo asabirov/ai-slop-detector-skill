@@ -125,7 +125,10 @@ function markupElements(html) {
   const stack = []; // open elements, innermost last
   const re = /<(\/?)([a-z][a-z0-9-]*)((?:"[^"]*"|'[^']*'|[^>'"])*)>/gi;
   let m;
+  let previousEnd = 0;
   while ((m = re.exec(body)) !== null) {
+    if (stack.length) out[stack[stack.length - 1]].text += body.slice(previousEnd, m.index);
+    previousEnd = re.lastIndex;
     const [, closing, rawTag, attrs] = m;
     const tag = rawTag.toLowerCase();
     if (closing) {
@@ -138,18 +141,36 @@ function markupElements(html) {
       }
       continue;
     }
-    const classAttr = /\bclass\s*=\s*"([^"]*)"/i.exec(attrs);
+    const classAttr = /(?:^|\s)(?:class|className)\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
+    const classValue = classAttr ? (classAttr[1] ?? classAttr[2]) : '';
+    const styleAttr = /(?:^|\s)style\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
     const idAttr = /\bid\s*=\s*"([^"]*)"/i.exec(attrs);
     const parent = stack.length ? stack[stack.length - 1] : -1;
     const el = {
       tag,
-      classes: new Set((classAttr ? classAttr[1].trim().split(/\s+/) : []).filter(Boolean)),
+      classes: new Set(classValue.trim().split(/\s+/).filter(Boolean)),
       id: idAttr ? idAttr[1].trim() : null,
       parent,
+      text: '',
+      style: styleAttr ? decodeEntities(styleAttr[1] ?? styleAttr[2]) : '',
+      inTable: tag === 'td' || tag === 'th' || (parent >= 0 && out[parent].inTable),
       inCode: CODE_TAGS.has(tag) || (parent >= 0 && out[parent].inCode),
     };
     out.push(el);
     if (!VOID_TAGS.has(tag) && !/\/\s*$/.test(attrs)) stack.push(out.length - 1);
+  }
+  if (stack.length) out[stack[stack.length - 1]].text += body.slice(previousEnd);
+  for (const el of out) {
+    el.text = decodeEntities(el.text);
+    el.numericData = /^[\s\d.,+−–—%$€£¥()/: -]*$/.test(el.text);
+    el.hasDigit = /\d/.test(el.text);
+  }
+  for (let i = out.length - 1; i >= 0; i--) {
+    const el = out[i];
+    if (el.parent >= 0) {
+      out[el.parent].numericData &&= el.numericData;
+      out[el.parent].hasDigit ||= el.hasDigit;
+    }
   }
   return out;
 }
@@ -559,11 +580,16 @@ function paragraphs(source, isHtml) {
 // page links be read from disk; `root` resolves root-relative hrefs against a
 // built site's directory. Without filePath the linked CSS is reported
 // unresolved rather than silently skipped.
-function parse(source, { filePath, root } = {}) {
-  const isHtml = looksLikeHtml(source);
+function parse(source, { filePath, root, ext } = {}) {
+  const isCss = ext === 'css' || (filePath && /\.css$/i.test(filePath));
+  const isHtml = !isCss && (['html', 'htm', 'jsx', 'tsx', 'vue', 'svelte', 'astro'].includes(ext) || looksLikeHtml(source));
+  const elements = isHtml ? markupElements(source) : null;
+  const utilities = elements ? require('./utilities').elementCss(elements) : '';
   const inline = isHtml ? cssBlocks(source) : '';
   const linked = isHtml ? linkedCss(source, { filePath, root }) : { css: '', found: [], unresolved: [] };
-  const css = [inline, linked.css].filter(Boolean).join('\n');
+  const css = [isCss ? source : '', inline, linked.css, utilities].filter(Boolean).join('\n');
+  const markup = isHtml ? markupTokens(source) : null;
+  if (markup) for (const el of elements) for (const c of el.classes) markup.classes.add(c);
   return {
     html: source,
     isHtml,
@@ -573,8 +599,8 @@ function parse(source, { filePath, root } = {}) {
     unresolvedCss: linked.unresolved,
     runs: visibleTextRuns(source),
     attrs: isHtml ? attrTextRuns(source) : [],
-    markup: isHtml ? markupTokens(source) : null,
-    elements: isHtml ? markupElements(source) : null,
+    markup,
+    elements,
     cssRules: cssRules(css),
     text: plainText(source, isHtml),
     codeless: proseWithoutCode(source, isHtml),

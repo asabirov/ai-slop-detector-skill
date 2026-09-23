@@ -32,7 +32,7 @@ const run = (f, level) =>
     filePath: path.join(FIX, f),
   });
 
-const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop.js', 'slop-linked-css.html'];
+const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop.js', 'slop-linked-css.html', ...fs.readdirSync(FIX).filter((f) => f.startsWith('slop-ui-'))];
 const CLEAN_FIXTURES = ['clean.html', 'clean.md', 'clean.js'];
 
 function firedIds(file, level = 4) {
@@ -771,7 +771,8 @@ test('a page that really is HTML is still read as HTML', () => {
     '<body><p>Run `npm test` and `npm run lint` before you push.</p></body></html>',
   ].join('\n');
   const rep = detect(page, { level: 1, kind: 'artifact', ext: 'html' });
-  assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['system-font']);
+  assert.deepStrictEqual(rep.findings, []);
+  assert.equal(require('./lib/html').parse(page).isHtml, true);
 });
 
 test('a decorative arrow quoted as a value is not decoration', () => {

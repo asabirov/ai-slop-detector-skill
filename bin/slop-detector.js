@@ -21,7 +21,7 @@ const SKIP_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', 'coverage', 'vendor',
   '.next', '.nuxt', '.venv', '__pycache__', 'storybook-static',
 ]);
-const ARTIFACT_EXTS = new Set(['html', 'htm', 'md', 'markdown', 'txt']);
+const ARTIFACT_EXTS = new Set(['html', 'htm', 'md', 'markdown', 'txt', 'css', 'vue', 'svelte', 'astro']);
 
 const USAGE =
   'usage: slop-detector <path|dir|glob>... [--level N|name] [--as source|artifact]\n' +

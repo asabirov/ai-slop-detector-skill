@@ -33,14 +33,19 @@ function resolveLevel(value) {
 // Run the detector over one file's contents. `kind` selects the packs:
 // 'artifact' for HTML/markdown/prose, 'source' for a code file.
 function detect(source, { level = DEFAULT_LEVEL, kind = 'artifact', ext = 'js', filePath, root } = {}) {
-  const ctx = kind === 'source' ? parseSource(source, { ext }) : parse(source, { filePath, root });
+  const component = ['jsx', 'tsx', 'vue', 'svelte', 'astro'].includes(ext);
+  const visualOnly = ext === 'css' || component;
+  const ctx = kind === 'source' ? parseSource(source, { ext }) : parse(source, { filePath, root, ext });
+  const uiCtx = visualOnly && kind === 'source' ? parse(source, { filePath, root, ext }) : ctx;
   const findings = [];
   for (const rule of RULES) {
     if (rule.level > level) continue;
-    if (rule.kind !== kind) continue;
+    const visual = rule.pack === 'visual';
+    if (rule.kind !== kind && !(visualOnly && visual)) continue;
+    if (visualOnly && rule.kind === 'artifact' && !visual) continue;
     let hits;
     try {
-      hits = rule.test(ctx) || [];
+      hits = rule.test(visual ? uiCtx : ctx) || [];
     } catch (err) {
       hits = [`rule crashed: ${err.message}`];
     }
