@@ -1,25 +1,48 @@
 # ai-slop-detector
 
-A focused editorial skill with an optional deterministic linter for HTML,
-markdown, plain text, and source comments.
+An agent skill and optional command-line linter that help developers review prose, interfaces, and code comments for empty claims and distracting presentation.
 
-The skill uses five rules and one pass over the requested surface. The CLI keeps
-shared rule packs and stable exit codes. Mandatory scans after every edit and
-unconditional style bans were rejected for the skill: necessary safety comments
-and intentional native UI fonts should survive an editorial review.
+This project combines editorial judgment with deterministic checks. It does not require scans after every edit or ban certain styles unconditionally: necessary safety comments and intentional native UI fonts should remain acceptable during review.
 
-Install the personal skill from this repository. CI can pin the same source.
+![CLI demo: a chatbot greeting fails the ban level; clean prose passes with exit code zero](assets/demo.svg)
+
+The image shows actual output from the synthetic fixtures below. Regenerate it
+with `python3 docs/render-demo.py > assets/demo.svg` (Python 3 and Node required).
+
+## Quick start
+
+Requires Node.js 20+ and Git. No dependency installation is needed for a local scan.
+
+```bash
+git clone https://github.com/asabirov/ai-slop-detector-skill.git
+cd ai-slop-detector-skill
+node bin/slop-detector.js fixtures/slop.md --level 1
+node bin/slop-detector.js fixtures/clean.md --level 1
+```
+
+The first scan reports `sycophancy-opener` and exits **1**. That failure is expected:
+it catches a chatbot greeting in the sample. The second scan reports `PASS` and
+exits **0**. Replace the fixture path with a file or directory to scan your work.
+
+The CLI is **not published to npm**. The public registry returned 404 for
+`@apliteni/slop-detector` on 2026-09-23. Run from this clone or use the GitHub-based
+`npx` commands below.
+
+## Why it exists
+
+AI-assisted drafts can keep chatbot greetings, vague claims, and comments that simply describe the code. The skill identifies specific problems in a finished artifact. The optional CLI finds repeatable patterns across files and provides stable exit codes for CI. Neither tool can prove who wrote the work.
 
 ## Using the skill
 
-Ask for a slop review or an edit of the artifact. The skill preserves meaning,
-voice, and useful technical detail. It reports concrete reader problems and
-checks its corrections before stopping. It does not automatically run a command,
-install dependencies, or review untouched files.
+Ask your agent to “check this README for AI slop” after making the skill available
+in its skill directory. The skill makes one focused pass and reports the passage,
+the reader's problem and a specific correction. It preserves useful technical
+detail and does not rewrite for readability; use a separate editing pass for that.
 
-Read `SKILL.md` for the editorial workflow. Use the CLI below when requested,
-required by the repository, or useful for a batch scan. CLI findings retain their
-existing severities; editorial judgment does not waive an existing CI gate.
+Read [SKILL.md](SKILL.md) for the workflow. The skill does not automatically run a
+command, install dependencies or review untouched files. Use the CLI when
+requested, required by the repository or useful for a batch scan. Editorial
+judgment does not waive an existing CI gate.
 
 ## What it does today
 
@@ -54,8 +77,8 @@ Four levels, each a superset of the one below: `ban`, `recommended` (default),
 `strict`, `paranoid`. Only `error` findings exit non-zero, so level 1 is the
 merge gate and the higher levels are polish.
 
-`docs/ai-slop-detector.md` documents the optional CLI. `SKILL.md` is the personal
-skill entrypoint.
+[The CLI reference](docs/ai-slop-detector.md) documents coverage and thresholds.
+[SKILL.md](SKILL.md) is the personal skill entrypoint.
 
 ## Running it
 
@@ -108,3 +131,7 @@ showing the case, and saying what you would change.
 A rule change is tested both ways: a triggering case goes into a slop fixture,
 and every `fixtures/clean.*` must stay silent at paranoid. If a new rule makes a
 clean fixture fire, the rule is wrong, not the fixture.
+
+## License
+
+[MIT](LICENSE).
