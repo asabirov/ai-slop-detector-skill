@@ -44,6 +44,12 @@ command, install dependencies or review untouched files. Use the CLI when
 requested, required by the repository or useful for a batch scan. Editorial
 judgment does not waive an existing CI gate.
 
+The editorial UI review flags boxed selection in dropdowns: an accent-filled
+selected row with a matching rounded border competing with the search field’s
+focus outline. It recommends a quiet selection cue while preserving visible
+keyboard focus. This is rendered-context guidance in the skill, not a new CLI
+rule; static declarations alone cannot establish which control has focus.
+
 ## What it does today
 
 Three rule packs over one engine.
