@@ -1,9 +1,0 @@
-UI rule ideas are adapted from Impeccable by Paul Bakaus and contributors.
-Source: https://github.com/pbakaus/impeccable
-License: Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
-
-References: src/crates/live/assets/antipatterns.json and
-src/skill/reference/craft-floor.md. These informed the gradient text, palette,
-glow, glassmorphism, nested card, motion, accent border, pill, stat, and emoji
-icon checks. This repository implements its own dependency-free static checks;
-it does not bundle the Impeccable binary or its source code.
