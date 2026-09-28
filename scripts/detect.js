@@ -62,7 +62,7 @@ function detect(source, { level = DEFAULT_LEVEL, kind = 'artifact', ext = 'js', 
   }
   return {
     verdict: verdictFor(findings), level: LEVELS[level - 1], findings, stats: tally(findings),
-    visualRulesSkipped: kind === 'source' && !visualOnly,
+    visualRulesSkipped: kind === 'source' && ['js', 'mjs', 'cjs', 'ts', 'mts', 'cts'].includes(ext),
   };
 }
 
@@ -112,7 +112,6 @@ function report(rep) {
     lines.push('');
   }
   if (rep.verdict === 'pass') lines.push('  No slop patterns found at this level.');
-  if (rep.visualRulesSkipped) lines.push(`  ${visualSkipNotice(1)}`);
   return lines.join('\n');
 }
 
@@ -150,6 +149,7 @@ function main(argv) {
     ext: path.extname(file).replace(/^\./, ''),
   });
   process.stdout.write((asJson ? JSON.stringify(rep, null, 2) : report(rep)) + '\n');
+  if (!asJson && rep.visualRulesSkipped) process.stdout.write(visualSkipNotice(1) + '\n');
   // exitCode, not exit(): process.exit() drops output still draining into a pipe.
   process.exitCode = rep.verdict === 'fail' ? 1 : 0;
 }

@@ -180,7 +180,6 @@ function main(argv) {
           level: LEVELS[level - 1],
           files: results,
           stats: { files: files.length, errors, medium, warnings },
-          ...(skipped ? { notice: visualSkipNotice(skipped) } : {}),
         },
         null,
         2
@@ -191,7 +190,7 @@ function main(argv) {
     for (const r of results) {
       if (!r.findings.length) continue;
       out.push(`\n${r.file}`);
-      out.push(report({ ...r, visualRulesSkipped: false }).split('\n').slice(1).join('\n'));
+      out.push(report(r).split('\n').slice(1).join('\n'));
     }
     out.push(
       `${VERDICT_ICON[verdict]} ${verdict.toUpperCase()}  [level ${LEVELS[level - 1]}]  ` +

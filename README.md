@@ -124,9 +124,10 @@ npm run lint:self  # the detector must pass its own rules
 Tests run locally, not in CI. Paste the full `npm test` output and self-lint
 result into the PR. CI retains self-lint, release, and CodeQL workflows.
 
-Source files such as `.ts` and `.js` skip visual rules by default. Text and JSON
-output report how many files skipped them, including in mixed scans. Rerun UI
-copy with `--as artifact` to include those checks; code is then read as prose,
+JavaScript and TypeScript source files skip visual rules by default. Text output
+reports how many files skipped them, including in mixed scans; JSON marks each
+file with `visualRulesSkipped`. Rerun UI copy with `--as artifact` to include
+those checks; code is then read as prose,
 which can produce false positives. CSS and component files such as `.tsx`
 already receive visual checks and do not get the skip notice.
 

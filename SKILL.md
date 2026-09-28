@@ -1,6 +1,6 @@
 ---
 name: ai-slop-detector
-description: "Use before delivering written work for people: PR bodies, issues, UI copy, documents, and code comments, even without an explicit request. Also use when asked to check for AI slop. Report empty claims, stock phrasing, and decorative clutter; not a readability rewrite (humanize)."
+description: "Use before delivering a finished PR body, issue, UI copy, document or code comment, even unasked. Not for chat replies."
 ---
 
 # AI Slop Detector
