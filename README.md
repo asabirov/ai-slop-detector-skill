@@ -39,6 +39,13 @@ in its skill directory. The skill makes one focused pass and reports the passage
 the reader's problem and a specific correction. It preserves useful technical
 detail and does not rewrite for readability; use a separate editing pass for that.
 
+The editorial UI checks cover headline full stops, middot separators, repeated
+qualification badges and unhelpful implementation captions in rendered pages
+and interface copy files. They preserve necessary disclosures and useful user
+information. Component style mismatches need a rendered comparison and can be
+routed to design-review. These are agent review instructions, not additional
+CLI rules.
+
 Read [SKILL.md](SKILL.md) for the workflow. The skill does not automatically run a
 command, install dependencies or review untouched files. Use the CLI when
 requested, required by the repository or useful for a batch scan. Editorial
