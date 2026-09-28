@@ -39,6 +39,9 @@ in its skill directory. The skill makes one focused pass and reports the passage
 the reader's problem and a specific correction. It preserves useful technical
 detail and does not rewrite for readability; use a separate editing pass for that.
 
+UI review includes lists grouped by mixed kinds of category. This is an editorial
+check in the skill, not a deterministic CLI rule.
+
 Read [SKILL.md](SKILL.md) for the workflow. The skill does not automatically run a
 command, install dependencies or review untouched files. Use the CLI when
 requested, required by the repository or useful for a batch scan. Editorial
