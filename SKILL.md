@@ -1,6 +1,6 @@
 ---
 name: ai-slop-detector
-description: "Check a finished artifact before delivering it and report what to fix: empty claims, stock phrasing, decorative clutter, narrated code comments. Covers prose, UI and code. Use when asked to check for AI slop. Reports findings; does not rewrite for readability (humanize)."
+description: "Use before delivering written work for people: PR bodies, issues, UI copy, documents, and code comments, even without an explicit request. Also use when asked to check for AI slop. Report empty claims, stock phrasing, and decorative clutter; not a readability rewrite (humanize)."
 ---
 
 # AI Slop Detector
@@ -44,6 +44,8 @@ With Node 20 or newer, resolve the command relative to this skill directory:
 ```bash
 node <skill-dir>/bin/slop-detector.js <file> --json
 ```
+
+When scanning UI source, a skipped-visual-rules notice means the copy was not checked. Rerun with `--as artifact` to include it; this also treats code as prose, so check findings in context. CSS and component files already receive visual checks.
 
 The CLI keeps stable exit codes and shared UI rules, including opinionated style findings. Native font stacks and numeric table data are allowed. It can disagree with editorial judgment. Preserve required CI checks; report a rule conflict instead of weakening the artifact or bypassing the gate.
 

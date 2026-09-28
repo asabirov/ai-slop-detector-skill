@@ -60,7 +60,10 @@ function detect(source, { level = DEFAULT_LEVEL, kind = 'artifact', ext = 'js', 
       });
     }
   }
-  return { verdict: verdictFor(findings), level: LEVELS[level - 1], findings, stats: tally(findings) };
+  return {
+    verdict: verdictFor(findings), level: LEVELS[level - 1], findings, stats: tally(findings),
+    visualRulesSkipped: kind === 'source' && !visualOnly,
+  };
 }
 
 // Three severities, two outcomes. `error` fails the run; `medium` and `warning`
@@ -90,6 +93,10 @@ function verdictFor(findings) {
   return loudest ? SEVERITY[loudest].verdict : 'pass';
 }
 
+function visualSkipNotice(count) {
+  return `Visual rules skipped for ${count} file(s); rerun with bin/slop-detector.js --as artifact to check UI copy.`;
+}
+
 function report(rep) {
   const lines = [];
   lines.push(
@@ -105,6 +112,7 @@ function report(rep) {
     lines.push('');
   }
   if (rep.verdict === 'pass') lines.push('  No slop patterns found at this level.');
+  if (rep.visualRulesSkipped) lines.push(`  ${visualSkipNotice(1)}`);
   return lines.join('\n');
 }
 
@@ -149,6 +157,6 @@ function main(argv) {
 if (require.main === module) main(process.argv.slice(2));
 
 module.exports = {
-  detect, report, resolveLevel, kindForPath, verdictFor,
+  detect, report, resolveLevel, kindForPath, verdictFor, visualSkipNotice,
   SEVERITY, VERDICT_ICON, LEVELS, DEFAULT_LEVEL,
 };

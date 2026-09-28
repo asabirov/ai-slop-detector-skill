@@ -34,9 +34,11 @@ AI-assisted drafts can keep chatbot greetings, vague claims, and comments that s
 
 ## Using the skill
 
-Ask your agent to “check this README for AI slop” after making the skill available
-in its skill directory. The skill makes one focused pass and reports the passage,
-the reader's problem and a specific correction. It preserves useful technical
+Make the skill available in your agent's skill directory. Its description asks
+the agent to review PR bodies, issues, UI copy, documents, and code comments
+before delivery, without waiting for an explicit request. You can also ask it
+to “check this README for AI slop”. The skill makes one focused pass and reports
+the passage, the reader's problem and a specific correction. It preserves useful technical
 detail and does not rewrite for readability; use a separate editing pass for that.
 
 The editorial UI checks cover headline full stops, middot separators, repeated
@@ -121,6 +123,12 @@ npm run lint:self  # the detector must pass its own rules
 
 Tests run locally, not in CI. Paste the full `npm test` output and self-lint
 result into the PR. CI retains self-lint, release, and CodeQL workflows.
+
+Source files such as `.ts` and `.js` skip visual rules by default. Text and JSON
+output report how many files skipped them, including in mixed scans. Rerun UI
+copy with `--as artifact` to include those checks; code is then read as prose,
+which can produce false positives. CSS and component files such as `.tsx`
+already receive visual checks and do not get the skip notice.
 
 The UI rules use static markup and declaration heuristics rather than a browser
 or CSS engine: no runtime dependencies, fast batch scans, and no computed-style
