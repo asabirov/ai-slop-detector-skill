@@ -37,12 +37,12 @@ Apply these checks to rendered pages and copy files, using labels and surroundin
 
 ## Fresh-reader check for marketing copy
 
-Use this check when reviewing marketing lines whose problem or product promise may be unclear.
+Run this when asked to test marketing lines, or when a line's problem or product promise seems unclear. It is the one check that needs another agent or a person.
 
-1. Record the author's stated problem and concrete product behavior as ground truth. If either is missing, request it; do not infer it from the slogan.
+1. Get the author's stated problem and what the product concretely does. If either is missing, ask; do not infer it from the copy.
 2. Give a fresh reader (a person or an agent with no prior product context) only the exact copy being checked, without the ground truth, explanation or suggested answer. Ask: “What problem is this? What exactly does the product do about it? Do you believe it, and why? What is vague, confusing or hype?” Keep each candidate in a separate fresh context.
-3. Compare the answers with the ground truth. Pass only when the reader correctly states both the problem and the product's response, and finds no hype, overclaim, unexplained jargon or gap between them. Scope questions such as “which login methods?” do not fail otherwise clear copy; record them for the rest of the page to answer. Reader belief alone does not verify a product claim.
-4. Report each exact line, the reader's answers, pass/fail and the specific mismatch or objection. If fresh context or ground truth is unavailable, report the check as incomplete. After an authorized revision, check the changed copy with another fresh reader.
+3. Compare with the author's facts. A line passes when the reader correctly states the problem and what the product does, and finds no hype, overclaim, unexplained jargon or gap between them. Scope questions such as “which login methods?” do not fail a line; note them for the rest of the page.
+4. Report each line, the reader's answers, pass or fail, and why. Without a fresh reader or ground truth, report the check as incomplete.
 
 ## Optional CLI
 
