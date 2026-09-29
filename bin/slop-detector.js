@@ -14,7 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const {
-  detect, report, resolveLevel, kindForPath, verdictFor, VERDICT_ICON, LEVELS,
+  detect, report, resolveLevel, kindForPath, verdictFor, visualSkipNotice, VERDICT_ICON, LEVELS,
 } = require('../scripts/detect');
 
 const SKIP_DIRS = new Set([
@@ -165,6 +165,7 @@ function main(argv) {
     results.push({ file, ...rep });
   }
 
+  const skipped = results.filter((r) => r.visualRulesSkipped).length;
   const total = (key) => results.reduce((n, r) => n + r.stats[key], 0);
   const errors = total('errors');
   const medium = total('medium');
@@ -195,6 +196,7 @@ function main(argv) {
       `${VERDICT_ICON[verdict]} ${verdict.toUpperCase()}  [level ${LEVELS[level - 1]}]  ` +
         `${files.length} file(s), ${errors} error(s), ${medium} medium, ${warnings} warning(s)`
     );
+    if (skipped) out.push(visualSkipNotice(skipped));
     process.stdout.write(out.join('\n') + '\n');
   }
 

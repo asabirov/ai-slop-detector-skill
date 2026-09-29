@@ -60,7 +60,10 @@ function detect(source, { level = DEFAULT_LEVEL, kind = 'artifact', ext = 'js', 
       });
     }
   }
-  return { verdict: verdictFor(findings), level: LEVELS[level - 1], findings, stats: tally(findings) };
+  return {
+    verdict: verdictFor(findings), level: LEVELS[level - 1], findings, stats: tally(findings),
+    visualRulesSkipped: kind === 'source' && ['js', 'mjs', 'cjs', 'ts', 'mts', 'cts'].includes(ext),
+  };
 }
 
 // Three severities, two outcomes. `error` fails the run; `medium` and `warning`
@@ -88,6 +91,10 @@ function tally(findings) {
 function verdictFor(findings) {
   const loudest = SEVERITIES.find((s) => findings.some((f) => f.severity === s));
   return loudest ? SEVERITY[loudest].verdict : 'pass';
+}
+
+function visualSkipNotice(count) {
+  return `Visual rules skipped for ${count} file(s); rerun with bin/slop-detector.js --as artifact to check UI copy.`;
 }
 
 function report(rep) {
@@ -142,6 +149,7 @@ function main(argv) {
     ext: path.extname(file).replace(/^\./, ''),
   });
   process.stdout.write((asJson ? JSON.stringify(rep, null, 2) : report(rep)) + '\n');
+  if (!asJson && rep.visualRulesSkipped) process.stdout.write(visualSkipNotice(1) + '\n');
   // exitCode, not exit(): process.exit() drops output still draining into a pipe.
   process.exitCode = rep.verdict === 'fail' ? 1 : 0;
 }
@@ -149,6 +157,6 @@ function main(argv) {
 if (require.main === module) main(process.argv.slice(2));
 
 module.exports = {
-  detect, report, resolveLevel, kindForPath, verdictFor,
+  detect, report, resolveLevel, kindForPath, verdictFor, visualSkipNotice,
   SEVERITY, VERDICT_ICON, LEVELS, DEFAULT_LEVEL,
 };
