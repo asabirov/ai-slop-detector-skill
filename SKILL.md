@@ -35,6 +35,15 @@ Apply these checks to rendered pages and copy files, using labels and surroundin
 - **Implementation captions.** Flag captions that explain plumbing without helping a user decide, such as “Loads from the video host after you press play”. Remove them, or state a relevant consequence in plain language. Keep useful privacy, consent, accessibility and operational information where the user needs it.
 - **Style consistency.** Check each distinct component against the surrounding rendered page, including workflow strips and diagrams. Flag unexplained changes in typography, color, spacing or component treatment; align them with the existing system. A useful diagram can still clash: flag a workflow strip with ornate borders and a new typeface on an otherwise plain page. Keep its content and align its styling; a different content type alone does not justify the mismatch. Preserve intentional functional distinctions supported by context; route uncertain cases to design-review with the component and surrounding view. Copy alone cannot establish a visual mismatch.
 
+## Fresh-reader check for marketing copy
+
+Use this check when reviewing marketing lines whose problem or product promise may be unclear.
+
+1. Record the author's stated problem and concrete product behavior as ground truth. If either is missing, request it; do not infer it from the slogan.
+2. Give a fresh reader (a person or an agent with no prior product context) only the exact copy being checked, without the ground truth, explanation or suggested answer. Ask: “What problem is this? What exactly does the product do about it? Do you believe it, and why? What is vague, confusing or hype?” Keep each candidate in a separate fresh context.
+3. Compare the answers with the ground truth. Pass only when the reader correctly states both the problem and the product's response, and finds no hype, overclaim, unexplained jargon or gap between them. Scope questions such as “which login methods?” do not fail otherwise clear copy; record them for the rest of the page to answer. Reader belief alone does not verify a product claim.
+4. Report each exact line, the reader's answers, pass/fail and the specific mismatch or objection. If fresh context or ground truth is unavailable, report the check as incomplete. After an authorized revision, check the changed copy with another fresh reader.
+
 ## Optional CLI
 
 Use the bundled detector when requested, required by the repository, or justified by many files. A normal editorial pass needs no CLI, network, installation, or additional agent.

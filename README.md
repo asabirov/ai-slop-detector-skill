@@ -48,6 +48,12 @@ information. Component style mismatches need a rendered comparison and can be
 routed to design-review. These are agent review instructions, not additional
 CLI rules.
 
+For unclear marketing lines, the skill can run a fresh-reader check: a reader
+sees only the copy, then explains the problem and what the product does.
+The report compares those answers with the author's stated facts and records
+specific objections. Ordinary scope questions can remain for the page to answer.
+This requires a fresh reader and product facts; the CLI does not perform it.
+
 Read [SKILL.md](SKILL.md) for the workflow. The skill does not automatically run a
 command, install dependencies or review untouched files. Use the CLI when
 requested, required by the repository or useful for a batch scan. Editorial
