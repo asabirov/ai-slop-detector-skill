@@ -3,6 +3,7 @@
 ## Run the tests of what you changed
 
 ```bash
+npm run verify     # both of the below, and the one script CI runs
 npm test           # unit tests and fixtures
 npm run lint:self  # the detector must pass its own rules
 ```

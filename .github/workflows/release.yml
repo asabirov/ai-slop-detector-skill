@@ -103,14 +103,16 @@ jobs:
 
           The commit is a \`docs:\` one, so merging it cuts no release and no further pull request follows.
 
-          The \`test\` status on this branch was reported by the release run that opened it, from the same command tests.yml runs. GitHub starts no \`pull_request\` workflow for a pull request opened with GITHUB_TOKEN, and it does not count a \`workflow_dispatch\` check towards a required one."
+          The \`test\` status on this branch was reported by the release run that opened it, from the same \`npm run verify\` script tests.yml runs. GitHub starts no \`pull_request\` workflow for a pull request opened with GITHUB_TOKEN, and it does not count a \`workflow_dispatch\` check towards a required one."
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       # GitHub starts no `pull_request` run for a pull request opened with
       # GITHUB_TOKEN, and it counts a check from a `workflow_dispatch` run
       # towards no required check, so `test` would never arrive and the owner
-      # could never merge. This runs the command tests.yml's `test` job runs and
-      # reports the result as a commit status of that name, which does count.
+      # could never merge. This runs `npm run verify`, the one script tests.yml's
+      # `test` job runs, and reports the result as a commit status of that name,
+      # which does count. Both call the script rather than spelling out its
+      # commands, so the status cannot come to mean less than the check.
       # Always, not only when this run created the branch: a run that opened the
       # pull request and then failed here would otherwise leave it with no
       # status and no later run would add one. The checkout is on the branch
@@ -121,9 +123,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SHA: ${{ steps.branch.outputs.sha }}
         run: |
-          if npm run lint:self; then state=success; else state=failure; fi
+          if npm run verify; then state=success; else state=failure; fi
           gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$SHA" \
             -f state="$state" \
             -f context=test \
-            -f description='the detector passes its own rules' \
+            -f description='the unit tests pass and the detector passes its own rules' \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
