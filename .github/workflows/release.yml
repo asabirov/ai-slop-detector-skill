@@ -117,6 +117,9 @@ jobs:
       # pull request and then failed here would otherwise leave it with no
       # status and no later run would add one. The checkout is on the branch
       # head by now, so the command runs against what the status will describe.
+      # A branch left behind by a run older than the `verify` script has no such
+      # script, and adopting it posts a `failure` that says nothing about the
+      # README commit. Delete that branch and let the next merge open it again.
       - name: Report the `test` status on the README branch
         if: steps.branch.outputs.sha != ''
         env:
