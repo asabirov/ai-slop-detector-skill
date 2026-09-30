@@ -104,8 +104,10 @@ Three rule packs over one engine.
   oversized stats, motion and repeated layout defaults. It also reads position:
   an explanatory line under a table or a chart — the basis of the numbers, what
   they exclude, where they came from, or an "as of" date — fails at level 1,
-  whether or not a local design rule asks for the line. Native font stacks,
-  numeric table data and a count line under a table are allowed.
+  whether or not a local design rule asks for the line. A component counts as a
+  table: `<DataTable/>` and `<LineChart/>` are what a screen actually ships.
+  Native font stacks, numeric table data, a count line, a chart legend and a
+  caption naming its figure are allowed.
 - **Text** reads visible prose plus the attributes a person actually reads
   (`title`, `alt`, `placeholder`, `aria-label`, `data-tip`, the meta
   description). Catches "not just X, but Y", hedge openers, sycophancy residue,

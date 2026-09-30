@@ -127,7 +127,11 @@ function markupElements(html) {
   let m;
   let previousEnd = 0;
   while ((m = re.exec(body)) !== null) {
-    if (stack.length) out[stack[stack.length - 1]].text += body.slice(previousEnd, m.index);
+    if (stack.length) {
+      const run = body.slice(previousEnd, m.index);
+      out[stack[stack.length - 1]].text += run;
+      out[stack[stack.length - 1]].chunks.push([previousEnd, run]);
+    }
     previousEnd = re.lastIndex;
     const [, closing, rawTag, attrs] = m;
     const tag = rawTag.toLowerCase();
@@ -152,6 +156,12 @@ function markupElements(html) {
       id: idAttr ? idAttr[1].trim() : null,
       parent,
       text: '',
+      // `text` loses order: a run belongs to the innermost open element, so
+      // `<p><strong>Amounts</strong> in EUR.</p>` gives the <p> " in EUR." and
+      // the <strong> "Amounts", and joining parent before child reads them
+      // backwards. `chunks` keeps each run's position in the document so a
+      // subtree can be read in the order a person reads it.
+      chunks: [],
       style: styleAttr ? decodeEntities(styleAttr[1] ?? styleAttr[2]) : '',
       inTable: tag === 'td' || tag === 'th' || (parent >= 0 && out[parent].inTable),
       inCode: CODE_TAGS.has(tag) || (parent >= 0 && out[parent].inCode),
@@ -159,9 +169,14 @@ function markupElements(html) {
     out.push(el);
     if (!VOID_TAGS.has(tag) && !/\/\s*$/.test(attrs)) stack.push(out.length - 1);
   }
-  if (stack.length) out[stack[stack.length - 1]].text += body.slice(previousEnd);
+  if (stack.length) {
+    const run = body.slice(previousEnd);
+    out[stack[stack.length - 1]].text += run;
+    out[stack[stack.length - 1]].chunks.push([previousEnd, run]);
+  }
   for (const el of out) {
     el.text = decodeEntities(el.text);
+    for (const chunk of el.chunks) chunk[1] = decodeEntities(chunk[1]);
     el.numericData = /^[\s\d.,+−–—%$€£¥()/: -]*$/.test(el.text);
     el.hasDigit = /\d/.test(el.text);
   }
@@ -305,72 +320,98 @@ function labelsAboveHeadings(html) {
 
 // A footnote is defined by where it sits, so the rule that judges one has to
 // read the page, the way `labelsAboveHeadings` does for kickers. Document order
-// plus each element's parent is enough: everything between one child and the
+// plus each element's parent is enough: every element between one child and the
 // next is the first one's subtree, so the block above an element is the run
 // from its previous sibling up to it.
-// A table, and a description list, are rows of data whatever they hold. A <ul>
-// is not: measured over 1,264 HTML files on this machine, every <ul> the first
-// draft of this reached was a navigation menu or an ordinary bulleted list with
-// the next paragraph after it, and a bare <svg> was an illustration with its
-// caption under it. Both are 0 of 65 and 0 of 395. So a chart has to say it is
-// one, and a list of bullets is out.
-const DATA_TAGS = new Set(['table', 'dl']);
-// Bounded at both ends of the word, or `cloud-paragraph-align-right` reads as a
-// graph and every paragraph on a Google Cloud legal page becomes data (2 hits in
-// the same 1,264-file measurement).
+
+// A table by tag, and a chart by tag or by a class that says so. The tag is
+// matched as a word ending because a screen ships a component, not a <table>:
+// finance2 renders <DataTable/> and the draft of this rule that could only see
+// `table` missed the one line #40 was filed about.
+//
+// `table` is deliberately absent from the class test. `.table-wrap` and
+// `.table-note` would both match it, and the note is the thing being judged.
+const DATA_TAG = /(?:table|chart|graph|plot|sparkline)s?$/i;
 const CHART_CLASS = /(?:^|[-_])(?:chart|graph|plot|sparkline)s?(?:$|[-_\d])/i;
 
-// A line a reader operates rather than reads.
-const CONTROL_TAGS = new Set(['button', 'input', 'select', 'textarea']);
+// Text a reader operates rather than reads. Their words come out before the
+// candidate is measured, so a pager reading "Previous Page 2 of 5 Next Export"
+// is four words of prose and a note beside an Export button is still a note.
+const MUTE_TAGS = new Set(['button', 'input', 'select', 'textarea', 'a']);
 
-// A wrapper that is a section of the page, or that carries a heading, is not
-// the data: what follows it starts something new rather than annotating it.
+// A wrapper that is a section of the page is not the data: what follows it
+// starts something new rather than annotating it.
 const SECTION_TAGS = new Set(['section', 'nav', 'article', 'aside', 'main', 'header', 'footer', 'form']);
 
 function isDataBlock(el) {
-  return DATA_TAGS.has(el.tag) || [...el.classes].some((c) => CHART_CLASS.test(c));
+  return DATA_TAG.test(el.tag) || [...el.classes].some((c) => CHART_CLASS.test(c));
 }
 
-// The data an element sits under: the previous sibling itself, or a plain
-// wrapper around one — `<div class="table-wrap"><table>…</table></div>` is how
-// a table usually ships. `from`..`to` is that sibling's subtree.
-function dataAbove(elements, from, to) {
-  const sibling = elements[from];
-  if (isDataBlock(sibling)) return sibling;
-  if (SECTION_TAGS.has(sibling.tag)) return null;
-  let found = null;
-  for (let k = from + 1; k < to; k++) {
-    if (/^h[1-6]$/.test(elements[k].tag)) return null;
-    if (!found && isDataBlock(elements[k])) found = elements[k];
+// The data an element sits under: the previous sibling, or a plain wrapper whose
+// last child is one — `<div class="table-wrap"><table>…</table></div>` is how a
+// table usually ships. Last child, not anywhere inside: an article body holding
+// a table in the middle and two paragraphs after it is not a table, and reading
+// the whole subtree made every `<div class="post-meta">` after one a footnote.
+// Walking the last-child chain also costs the depth rather than the subtree.
+function dataAbove(elements, lastChildOf, from) {
+  if (SECTION_TAGS.has(elements[from].tag)) return null;
+  for (let j = from; j !== undefined; j = lastChildOf.get(j)) {
+    if (isDataBlock(elements[j])) return elements[j];
   }
-  return found;
+  return null;
 }
 
-// Every element sitting directly under a table, list or chart, with the text it
-// renders and whether it holds a control. `el.text` is the element's own text
-// only — the parser hands each run to the innermost open element — so a footnote
-// wrapped in a <span> has to be read from its subtree.
+// Every element sitting directly under a table or a chart, with the prose it
+// renders and what its subtree holds. A JSX expression is not prose: `{rows.map(
+// (r) => …)}` reaches this as text, and a brace run comes out before the words
+// are counted.
 function blocksUnderData(elements) {
   const out = [];
   if (!elements) return out;
-  const lastSeen = new Map(); // parent index -> its last child seen so far
+  // One map answers both questions asked of it. Read before the write it is the
+  // previous sibling of the element in hand; read for an element whose subtree
+  // is already behind us it is that element's last child.
+  const lastChildOf = new Map();
   for (let i = 0; i < elements.length; i++) {
     const el = elements[i];
-    const sibling = lastSeen.get(el.parent);
-    lastSeen.set(el.parent, i);
-    if (sibling == null || isDataBlock(el)) continue;
-    const above = dataAbove(elements, sibling, i);
+    const sibling = lastChildOf.get(el.parent);
+    lastChildOf.set(el.parent, i);
+    if (sibling === undefined || isDataBlock(el) || SECTION_TAGS.has(el.tag)) continue;
+    const above = dataAbove(elements, lastChildOf, sibling);
     if (!above) continue;
-    let text = el.text;
-    let control = CONTROL_TAGS.has(el.tag);
+
+    const chunks = el.chunks.slice();
+    // The candidate and everything prose-bearing under it. A note is often
+    // wrapped: `<table/><div><p class="text-muted">…</p></div>` sets the note on
+    // the <p>, and reading only the <div> saw no marker at all.
+    const inside = [el];
+    const muted = new Set();
+    let heading = false;
+    let data = false;
     for (let k = i + 1; k < elements.length; k++) {
       let parent = elements[k].parent;
       while (parent > i) parent = elements[parent].parent;
       if (parent !== i) break;
-      text += ' ' + elements[k].text;
-      control ||= CONTROL_TAGS.has(elements[k].tag);
+      const child = elements[k];
+      if (/^h[1-6]$/.test(child.tag)) heading = true;
+      if (isDataBlock(child)) data = true;
+      if (MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
+        muted.add(k);
+        continue;
+      }
+      inside.push(child);
+      chunks.push(...child.chunks);
     }
-    out.push({ el, above, control, text: text.replace(/\s+/g, ' ').trim() });
+    const text = chunks
+      .sort((a, b) => a[0] - b[0])
+      .map((chunk) => chunk[1])
+      // A space between runs, for the reason `stripTags` puts one there: without
+      // it `</summary>Amounts` is one word to anything that counts words.
+      .join(' ')
+      .replace(/\{[^{}]*\}/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    out.push({ el, above, text, heading, data, inside, parent: elements[el.parent] || null });
   }
   return out;
 }
