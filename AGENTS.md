@@ -22,6 +22,18 @@ A suite without one degrades where nobody is looking, and the first sign of it
 is a timeout on a busy machine. Raising the budget to get a green run treats
 the symptom and loses the signal.
 
+Take `test`, `it` and `describe` from `scripts/lib/budget.js`, never straight
+from `node:test`, and declare the budget as `{ timeout: ms }`. node's timeout
+cancels a test that is awaiting something and cannot interrupt one that is
+blocking the thread, so on its own it lets a slow synchronous test through.
+The wrapper times each body as well, `describe` included, so a body over its
+budget fails when it returns, synchronous work included.
+
+The budget is measured, not interrupted, and it measures the body it was
+given. A test that never returns is a hang rather than a budget breach; work
+started and neither returned nor awaited is invisible to it; and the
+`before`/`after` hooks carry no budget, only the tests they set up do.
+
 ## A test earns its place by failing first
 
 Write the code, then the test, in the same change. Test-first is not the rule

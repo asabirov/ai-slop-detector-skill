@@ -1,5 +1,5 @@
 'use strict';
-const test = require('node:test');
+const { test } = require('./lib/budget');
 const assert = require('node:assert/strict');
 const { detect } = require('./detect');
 test('native font stacks and numeric table cells pass the merge gate', { timeout: 1000 }, () => {
