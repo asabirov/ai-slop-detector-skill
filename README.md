@@ -63,6 +63,9 @@ DO_NOT_TRACK=1 npx skills remove ai-slop-detector --agent claude-code codex --gl
 If you prefer not to use `npx skills`, clone the repository at the `v2.3.0` release tag into your agent's skills folder as `ai-slop-detector`. To update or roll back, run `git fetch --tags` in that folder and check out another release tag; to remove it, delete the folder.
 
 Versions are the `vX.Y.Z` release tags that the release workflow creates; the skill has no version field of its own.
+After each release the same workflow opens a pull request that renames every tag in this file to the newest release,
+because `main` takes no push. Until the owner merges it, the tags here name the last release whose pull request was
+merged. The workflow retries on the next merge to `main`, so a release whose pull request never opened is not lost.
 
 ## Using the skill
 
@@ -140,8 +143,9 @@ npx -y "$REPO" 'src/**/*.js' --json         # unpinned tracks main
 
 There is no npm package. `npx` installs from this repository, so a runner needs
 network and access to GitHub. Pin a tag: unpinned tracks `main`, and a rule that
-tightens will fail a build that passed yesterday. The tag above is the one that was
-current when this line was written; the newest is on the [releases page](https://github.com/asabirov/ai-slop-detector-skill/releases).
+tightens will fail a build that passed yesterday. The tag above is the one the
+release workflow last put here, which lags while its pull request waits; the
+newest is on the [releases page](https://github.com/asabirov/ai-slop-detector-skill/releases).
 
 In this repository:
 

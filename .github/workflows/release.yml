@@ -15,6 +15,12 @@ on:
   push:
     branches: [main]
 
+# A second merge during a release would otherwise take its own tag listing and
+# race the first over the same README branch.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -22,6 +28,10 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      # The `test` commit status on the README branch.
+      statuses: write
+    env:
+      ORIGIN: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,3 +49,81 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
+      # Against the remote's newest release rather than whatever this run cut:
+      # a run that released but failed before its pull request existed is
+      # retried here on the next merge instead of being lost.
+      - name: List the release tags
+        run: git ls-remote --tags "$ORIGIN" > "$RUNNER_TEMP/tags"
+      # Prints the tag, or nothing when the README already names the newest
+      # release. Nothing means the steps below do not run.
+      - name: Point the README at the newest release
+        id: readme
+        run: |
+          tag=$(node scripts/release-readme-tag.js \
+            --tags "$RUNNER_TEMP/tags" \
+            --readme README.md)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      # `main` takes no push, so the change goes as a pull request. Its commit
+      # is a `docs:` one, which semantic-release does not release, so merging it
+      # cuts no second release and the follow-up does not repeat.
+      #
+      # The branch, the pull request and the status are three separate things
+      # that can each already exist, so each is checked on its own. A run that
+      # pushed the branch and then failed used to leave work no later run would
+      # pick up; now the next run adopts the branch and finishes it.
+      - name: Open the README pull request
+        if: steps.readme.outputs.tag != ''
+        id: branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.readme.outputs.tag }}
+        run: |
+          branch="readme-install-tag-$TAG"
+          if git ls-remote --exit-code --heads "$ORIGIN" "$branch" > /dev/null; then
+            echo "$branch is already on the remote; adopting it."
+            # The step above rewrote README.md in the working tree. The branch already
+          # carries that rewrite, so the edit is in the way of checking it out.
+          git restore README.md
+          git fetch --no-tags "$ORIGIN" "refs/heads/$branch:refs/remotes/bump/$branch"
+            git switch --detach "refs/remotes/bump/$branch"
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git switch -c "$branch"
+            git commit -m "docs: name $TAG as the install tag in the README" README.md
+            git push "$ORIGIN" "HEAD:refs/heads/$branch"
+          fi
+
+          if [ -n "$(gh pr list --head "$branch" --base main --state open --json number --jq '.[].number')" ]; then
+            echo "a pull request for $branch is already open."
+          else
+            gh pr create --base main --head "$branch" \
+              --title "docs: name $TAG as the install tag in the README" \
+              --body "Release $TAG is out and the README still names the tag before it. \`main\` takes no push, so the release workflow sends the change this way instead.
+
+          The commit is a \`docs:\` one, so merging it cuts no release and no further pull request follows.
+
+          The \`test\` status on this branch was reported by the release run that opened it, from the same command tests.yml runs. GitHub starts no \`pull_request\` workflow for a pull request opened with GITHUB_TOKEN, and it does not count a \`workflow_dispatch\` check towards a required one."
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      # GitHub starts no `pull_request` run for a pull request opened with
+      # GITHUB_TOKEN, and it counts a check from a `workflow_dispatch` run
+      # towards no required check, so `test` would never arrive and the owner
+      # could never merge. This runs the command tests.yml's `test` job runs and
+      # reports the result as a commit status of that name, which does count.
+      # Always, not only when this run created the branch: a run that opened the
+      # pull request and then failed here would otherwise leave it with no
+      # status and no later run would add one. The checkout is on the branch
+      # head by now, so the command runs against what the status will describe.
+      - name: Report the `test` status on the README branch
+        if: steps.branch.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.branch.outputs.sha }}
+        run: |
+          if npm run lint:self; then state=success; else state=failure; fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$SHA" \
+            -f state="$state" \
+            -f context=test \
+            -f description='the detector passes its own rules' \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
