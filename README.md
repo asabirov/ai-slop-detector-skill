@@ -25,16 +25,48 @@ it catches a chatbot greeting in the sample. The second scan reports `PASS` and
 exits **0**. Replace the fixture path with a file or directory to scan your work.
 
 The CLI is **not published to npm**. The public registry returned 404 for
-`@apliteni/slop-detector` on 2026-09-23. Run from this clone or use the GitHub-based
-`npx` commands below.
+`@apliteni/slop-detector` on 2026-09-23. Run from this clone or use the GitHub-based `npx` commands under [Running it](#running-it).
 
 ## Why it exists
 
 AI-assisted drafts can keep chatbot greetings, vague claims, and comments that simply describe the code. The skill identifies specific problems in a finished artifact. The optional CLI finds repeatable patterns across files and provides stable exit codes for CI. Neither tool can prove who wrote the work.
 
+## Install, update, roll back, and remove
+
+Install the tagged skill for Claude Code and Codex with:
+
+```bash
+DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill/tree/v2.3.0 --skill ai-slop-detector --agent claude-code codex --global
+```
+
+`DO_NOT_TRACK=1` tells the skills CLI not to send telemetry. The `npx skills`
+installer requires Node.js/npm and Git. It puts the skill in
+`~/.agents/skills/ai-slop-detector`, where Codex reads it, and links it into
+`~/.claude/skills` for Claude Code.
+
+The skill itself needs nothing else. The optional CLI needs Node.js 20+ and
+comes with the install, so you can run it from there:
+
+```bash
+node ~/.agents/skills/ai-slop-detector/bin/slop-detector.js <path>
+```
+
+Update to a later release tag with the same command and its new tag. Roll back
+by rerunning it with the previous release tag. The newest tag is on the
+[releases page](https://github.com/asabirov/ai-slop-detector-skill/releases).
+Remove it with:
+
+```bash
+DO_NOT_TRACK=1 npx skills remove ai-slop-detector --agent claude-code codex --global
+```
+
+If you prefer not to use `npx skills`, clone the repository at the `v2.3.0` release tag into your agent's skills folder as `ai-slop-detector`. To update or roll back, run `git fetch --tags` in that folder and check out another release tag; to remove it, delete the folder.
+
+Versions are the `vX.Y.Z` release tags that the release workflow creates; the skill has no version field of its own.
+
 ## Using the skill
 
-Make the skill available in your agent's skill directory. Its description asks
+The skill's description asks
 the agent to review PR bodies, issues, UI copy, documents, and code comments
 before delivery, without waiting for an explicit request. You can also ask it
 to “check this README for AI slop”. The skill makes one focused pass and reports
@@ -101,8 +133,8 @@ In a repository's CI, or anywhere with Node 20:
 
 ```bash
 REPO=github:asabirov/ai-slop-detector-skill
-npx -y "$REPO#v2.0.0" dist --level 1        # pin a tag in CI
-npx -y "$REPO#v2.0.0" src scripts --level 1
+npx -y "$REPO#v2.3.0" dist --level 1        # pin a tag in CI
+npx -y "$REPO#v2.3.0" src scripts --level 1
 npx -y "$REPO" 'src/**/*.js' --json         # unpinned tracks main
 ```
 
@@ -110,15 +142,6 @@ There is no npm package. `npx` installs from this repository, so a runner needs
 network and access to GitHub. Pin a tag: unpinned tracks `main`, and a rule that
 tightens will fail a build that passed yesterday. The tag above is the one that was
 current when this line was written; the newest is on the [releases page](https://github.com/asabirov/ai-slop-detector-skill/releases).
-
-In a Claude Code session, from this repository cloned where it looks for personal
-skills:
-
-```bash
-git clone https://github.com/asabirov/ai-slop-detector-skill.git \
-  ~/.claude/skills/ai-slop-detector
-node ~/.claude/skills/ai-slop-detector/bin/slop-detector.js <path>
-```
 
 In this repository:
 
