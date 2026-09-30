@@ -42,13 +42,14 @@ the passage, the reader's problem and a specific correction. It preserves useful
 detail and does not rewrite for readability; use a separate editing pass for that.
 
 The editorial UI checks cover headline full stops, middot separators, repeated
-qualification badges, unhelpful implementation captions, a title that repeats
-the value a control already shows as chosen, the same fact stated twice on one
-screen, explanation wrapped around a number that changes, and tooltip text
-printed as its own line. They preserve necessary disclosures and useful user
+qualification badges, unhelpful implementation captions, a heading repeating
+the value a control shows as chosen, the same fact stated twice, an
+explanation wrapped around a changing number, and tooltip text set as its own
+line, in rendered pages and interface copy files. They preserve necessary
+disclosures and useful user
 information. Component style mismatches need a rendered comparison and can be
-routed to design-review. The CLI carries a narrow static form of the last four;
-the rest are agent review instructions.
+routed to design-review. These are agent review instructions, not additional
+CLI rules.
 
 For unclear marketing lines, the skill can run a fresh-reader check
 (see [SKILL.md](SKILL.md)); the CLI does not.
@@ -65,13 +66,8 @@ Three rule packs over one engine.
 - **Visual** reads markup and the CSS a page applies, including stylesheets it
   links from disk. Catches fake protocol URIs, monospace used as decoration,
   emoji headings, gradients, glow shadows, glass surfaces, nested cards,
-  oversized stats, motion and repeated layout defaults. It also reads what a
-  screen says twice: a title echoing the value a control shows as chosen, one
-  fact restated in different words, a long sentence built around a live count,
-  and helper text standing on its own line. Those four read only what a sighted
-  reader sees: a visually hidden label, a `hidden` subtree and an `aria-live`
-  region are dropped first, so the rules never ask for the text a screen reader
-  needs. Native font stacks and numeric table data are allowed.
+  oversized stats, motion and repeated layout defaults. Native font stacks and
+  numeric table data are allowed.
 - **Text** reads visible prose plus the attributes a person actually reads
   (`title`, `alt`, `placeholder`, `aria-label`, `data-tip`, the meta
   description). Catches "not just X, but Y", hedge openers, sycophancy residue,

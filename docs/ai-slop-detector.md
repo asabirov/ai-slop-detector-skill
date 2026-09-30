@@ -133,10 +133,6 @@ values are stable — reference them in allowlists and PR notes.
 | `heading-italic` | 3 | warning | Italicised word inside a heading — decorative polish. |
 | `heading-period` | 3 | warning | Short display heading ending in a lone period (`Ship it.`). |
 | `decor-bullet-dot` | 3 | warning | Empty colored round element prefixing a label — encodes nothing. |
-| `state-title-echo` | 2 | warning | A title repeating the value a control beside it already shows as chosen. |
-| `restated-fact` | 3 | warning | One fact stated twice on a screen in different words. |
-| `count-sentence` | 3 | warning | A sentence of explanation built around a count that changes. |
-| `tooltip-as-text` | 3 | warning | Helper text (`Compared with August 2026`) printed as a free-standing line. |
 | `radius-monotony` | 4 | warning | One `border-radius` on every surface — templated sameness. |
 
 | `gradient-text` | 2 | warning | Gradient clipped into text is decorative emphasis. |
@@ -167,69 +163,6 @@ a third of the page, unless left/start/justify alignment exists. Display-face
 checks only inspect explicit headings or type at least 48px; choosing Inter for
 body text is allowed. Structural counts resolve simple tag, class, and ID
 selectors; complex selectors and inherited styles need rendered review.
-
-The four repeated-state rules read markup, and each is narrower than the
-editorial check behind it (`SKILL.md`, issue #39).
-
-All four read only what a sighted reader sees. A visually hidden subtree
-(`sr-only`, `visually-hidden` and the other framework names), anything under
-`hidden` or `aria-hidden="true"`, and an `aria-live` region are dropped before
-any of them looks at the page. A label written for a screen reader is not a
-repeat, and a rule telling somebody to delete one makes the page worse.
-
-`state-title-echo` needs the chosen control marked in the markup —
-`aria-pressed`, `aria-selected` or `aria-checked` set to `true` (or `{true}` in
-JSX), `<option selected>`, or an `is-selected` / `is-active` / `selected` class —
-within 500 characters of a heading of 60 characters or less, and every word of
-that heading has to open on the chosen value. `Costs by team` beside a `Costs`
-tab brings a word of its own and stays silent. The chosen value may sit in a
-child element, which is how a component library renders a toggle's label. A link
-is never a chosen value, and neither is an element wrapping one: `aria-current`,
-`is-active` and `selected` all land on the current item of a nav, where a page
-title repeating it is ordinary practice. A breadcrumb is skipped whole — a
-`breadcrumb` class or `aria-label` — because many libraries render its current
-item as plain text carrying `is-active`, which the "wraps a link" escape misses.
-A dynamic class expression (`className={cn(…)}`) is not read, so a component
-that computes its selected class needs the review pass. The match is on letters,
-so a numeric period (`09/2026` beside `September 2026`) is not read as an echo.
-
-`restated-fact` pairs two lines only when they share a number or date, carry
-three or more content words, overlap by 60% of their words after a crude plural
-strip, and are not the same line twice — the same label on twenty rows is a
-column, and a value appearing in more than twenty lines is skipped outright. The
-`<title>` is excluded: it is the browser tab, not a line on the page, and
-`Page — Brand` beside the `<h1>` it names would pair with it everywhere.
-`<header>` and `<footer>` are excluded with it, because a print statement
-repeats the account and the period on every page by design. Two lines that each
-bring a word the other lacks are one frame around different facts rather than
-one fact twice, so `Total revenue in September 2026` beside `Total expenses in
-September 2026` stays silent: a restatement may add words to the line it
-repeats, but it does not swap the subject.
-
-`count-sentence` wants an HTML line of twelve or more words opening on a count
-(`4 rows would move…`). A four-digit year is a date rather than a count, and a
-unit of time (`10 years ago…`) opens a story, so both stay silent. So does a
-count of zero, a count of `errors`, `warnings`, `issues`, `problems` or
-`fields`, and anything inside a `role="alert"`, `role="alertdialog"` or
-`role="status"` region: an empty state and an error summary both put the count
-before an instruction, which is the right copy for the pattern. Only a digit at
-the start of a line counts, so a count written as a word (`Four rows…`) or set
-mid-sentence is missed.
-
-`tooltip-as-text` wants a short line opening on a comparison, outside the
-places that explanation is allowed to live: headings, table cells, `<caption>`,
-`<figcaption>`, `<legend>`, `<label>`, a chart legend (a `legend` class), a real
-`role="tooltip"` component, and code or the tab title, which are not page copy
-at all. Print and touch have no hover, so a caption or a legend is often the
-only place a baseline can go, and the fix names a tooltip last for the same
-reason. The line has to be a fragment: a comma or a full stop makes it a
-sentence somebody wrote on purpose, and `Compared to last year, revenue grew
-40%.` is copy.
-
-State a rendered view alone can show, and a restatement sharing no value, need
-the review pass. A tab and the heading of its panel saying the same word do
-fire: the pattern is the same one, and the heading is free to name its subject
-instead.
 
 ### Text pack — prose
 
