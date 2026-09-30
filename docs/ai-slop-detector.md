@@ -169,22 +169,42 @@ body text is allowed. Structural counts resolve simple tag, class, and ID
 selectors; complex selectors and inherited styles need rendered review.
 
 The four repeated-state rules read markup, and each is narrower than the
-editorial check behind it (`SKILL.md`, issue #39). `state-title-echo` needs the
-chosen control marked in the markup — `aria-pressed`, `aria-selected`,
-`aria-checked`, `<option selected>`, or an `is-selected` / `is-active` /
-`selected` class — within 500 characters of a heading of 60 characters or less,
-and every word of that heading has to open on the chosen value: `Costs by team`
-beside a `Costs` tab brings a word of its own and stays silent. `aria-current` is
-not a chosen value; it says where the reader is, and a page title matching the
-current nav item is ordinary practice. `restated-fact` pairs two lines only when
-they share a number or date, carry three or more content words, overlap by 60%
-of their words after a crude plural strip, and are not the same line twice — the
-same label on twenty rows is a column. `count-sentence` wants a line of twelve
-or more words opening on a count (`4 rows would move…`). `tooltip-as-text` wants
-a short line opening on a comparison, outside headings, code and table cells,
-so the tooltip and the column header that should carry it stay legal. State a
-rendered view alone can show, and a restatement sharing no value, need the
-review pass.
+editorial check behind it (`SKILL.md`, issue #39).
+
+`state-title-echo` needs the chosen control marked in the markup —
+`aria-pressed`, `aria-selected` or `aria-checked` set to `true` (or `{true}` in
+JSX), `<option selected>`, or an `is-selected` / `is-active` / `selected` class —
+within 500 characters of a heading of 60 characters or less, and every word of
+that heading has to open on the chosen value. `Costs by team` beside a `Costs`
+tab brings a word of its own and stays silent. The chosen value may sit in a
+child element, which is how a component library renders a toggle's label. A link
+is never a chosen value, and neither is an element wrapping one: `aria-current`,
+`is-active` and `selected` all land on the current item of a nav, where a page
+title repeating it is ordinary practice. A dynamic class expression
+(`className={cn(…)}`) is not read, so a component that computes its selected
+class needs the review pass.
+
+`restated-fact` pairs two lines only when they share a number or date, carry
+three or more content words, overlap by 60% of their words after a crude plural
+strip, and are not the same line twice — the same label on twenty rows is a
+column, and a value appearing in more than twenty lines is skipped outright. The
+`<title>` is excluded: it is the browser tab, not a line on the page, and
+`Page — Brand` beside the `<h1>` it names would pair with it everywhere.
+
+`count-sentence` wants an HTML line of twelve or more words opening on a count
+(`4 rows would move…`). A four-digit year is a date rather than a count, and a
+unit of time (`10 years ago…`) opens a story, so both stay silent.
+
+`tooltip-as-text` wants a short line opening on a comparison, outside headings,
+code, table cells and the tab title, so the tooltip and the column header that
+should carry it stay legal. The line has to be a fragment: a comma or a full
+stop makes it a sentence somebody wrote on purpose, and
+`Compared to last year, revenue grew 40%.` is copy.
+
+State a rendered view alone can show, and a restatement sharing no value, need
+the review pass. A tab and the heading of its panel saying the same word do
+fire: the pattern is the same one, and the heading is free to name its subject
+instead.
 
 ### Text pack — prose
 

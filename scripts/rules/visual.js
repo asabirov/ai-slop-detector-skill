@@ -14,10 +14,12 @@
 const {
   DECOR_ARROWS,
   EMOJI,
+  stripBetween,
   stripTags,
   selectorApplies,
   selectorTargets,
   labelsAboveHeadings,
+  visibleTextRuns,
 } = require('../lib/html');
 
 const countOcc = (s, sub) => s.split(sub).length - 1;
@@ -420,22 +422,37 @@ const stem = (w) => (w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w);
 // Markers a page uses to say "this one is chosen". Each attribute is tested on
 // its own rather than inside one `[^>]*` alternation, which is polynomial-redos.
 //
-// `aria-current` is not one of them. It marks where the reader is, and a page
-// title matching the current nav item is ordinary practice, not a repeat.
-const CHOSEN_ATTR = /\baria-(?:pressed|selected|checked)\s*=\s*"true"/i;
+// A link is never one of them, however it is marked. `aria-current`, `is-active`
+// and `selected` all land on the current item of a nav, where a page title
+// repeating it is ordinary practice, so only a control that is not a link counts.
+const CHOSEN_ATTR = /\baria-(?:pressed|selected|checked)\s*=\s*(?:"true"|\{true\})/i;
 const CHOSEN_CLASS = /(?:^|\s)(?:is-selected|is-active|selected)(?:$|\s)/i;
 const ECHO_NEAR = 500;
+const LABEL_MAX_CHARS = 60;
+
+// The value as a reader sees it, so a label wrapped in a child element — which is
+// how every component library renders one — is read rather than missed.
+function chosenText(html, tag, from) {
+  const close = html.indexOf(`</${tag}`, from);
+  const end = close === -1 ? from + 200 : Math.min(close, from + 200);
+  const inner = html.slice(from, end);
+  // A wrapper around a link is a nav item, whatever class it carries.
+  if (/<a\b/i.test(inner)) return '';
+  return stripTags(inner).replace(/\s+/g, ' ').trim().slice(0, LABEL_MAX_CHARS);
+}
 
 function chosenValues(html) {
   const out = [];
-  const re = /<([a-z][a-z0-9-]*)((?:"[^"]*"|'[^']*'|[^>'"])*)>([^<]{0,60})/gi;
+  const re = /<([a-z][a-z0-9-]*)((?:"[^"]*"|'[^']*'|[^>'"])*)>/gi;
   let m;
   while ((m = re.exec(html)) !== null) {
+    const tag = m[1].toLowerCase();
+    if (tag === 'a') continue;
     const attrs = m[2];
-    const classes = (/\bclass\s*=\s*"([^"]*)"/i.exec(attrs) || ['', ''])[1];
-    const option = m[1].toLowerCase() === 'option' && /\bselected\b/i.test(attrs);
+    const classes = (/\b(?:class|className)\s*=\s*"([^"]*)"/i.exec(attrs) || ['', ''])[1];
+    const option = tag === 'option' && /\bselected\b/i.test(attrs);
     if (!option && !CHOSEN_ATTR.test(attrs) && !CHOSEN_CLASS.test(classes)) continue;
-    const text = m[3].replace(/\s+/g, ' ').trim();
+    const text = chosenText(html, tag, re.lastIndex);
     if (text) out.push({ at: m.index, text });
   }
   return out;
@@ -475,7 +492,7 @@ const stateTitleEcho = {
     for (const chosen of chosenValues(ctx.html)) {
       for (const h of headings) {
         if (chosen.at > h.at && chosen.at < h.end) continue;
-        if (Math.abs(h.at - chosen.at) > ECHO_NEAR || !h.text || h.text.length > 60) continue;
+        if (Math.abs(h.at - chosen.at) > ECHO_NEAR || !h.text || h.text.length > LABEL_MAX_CHARS) continue;
         if (echoesValue(chosen.text, h.text)) hits.add(`"${h.text}" repeats the selected "${chosen.text}"`);
       }
     }
@@ -504,8 +521,12 @@ const restatedFact = {
   // rather than every run against every other run.
   test(ctx) {
     const buckets = new Map();
+    // The browser-tab title is not a line on the page, and "Page — Brand" beside
+    // the <h1> it names would pair with it on every well-titled document.
+    const title = (/<title\b[^>]*>([\s\S]{0,300}?)<\/title>/i.exec(ctx.html) || ['', ''])[1];
+    const tabTitle = stripTags(title).replace(/\s+/g, ' ').trim();
     for (const text of ctx.runs) {
-      if (text.length > 120) continue;
+      if (text.length > 120 || (tabTitle && text === tabTitle)) continue;
       const tokens = factTokens(text);
       const numbers = [...tokens].filter((w) => /\d/.test(w));
       if (tokens.size < 3 || !numbers.length) continue;
@@ -532,6 +553,10 @@ const restatedFact = {
   },
 };
 
+// Words that end in "s" after a number without counting anything: a verb, or a
+// unit of time in "10 years ago".
+const NOT_COUNTED = new Set(['was', 'is', 'as', 'has', 'years', 'months', 'weeks', 'days', 'hours', 'minutes', 'seconds', 'times']);
+
 const countSentence = {
   id: 'count-sentence',
   level: 3,
@@ -539,13 +564,21 @@ const countSentence = {
   why: 'A sentence of explanation built around a count that changes — "4 rows would move to Software. Each amount shows how much the move adds to or removes from Software." The number moves under the reader while the prose wrapped round it stays.',
   fix: 'Put the count in a short label beside the thing it counts, and let the table show the rest.',
   test(ctx) {
-    return ctx.runs
-      .filter((t) => /^\d[\d,.]*\s+[a-z][a-z-]*s\b/i.test(t) && (t.match(/\S+/g) || []).length >= 12)
-      .map((t) => t.slice(0, 70));
+    if (!ctx.isHtml) return [];
+    return ctx.runs.filter((t) => {
+      const opening = /^(\d[\d,.]*)\s+([a-z][a-z-]*s)\b/i.exec(t);
+      if (!opening || (t.match(/\S+/g) || []).length < 12) return false;
+      // A year is a date, not a count, and "10 years ago" opens a story.
+      if (/^(?:19|20)\d\d$/.test(opening[1]) || NOT_COUNTED.has(opening[2].toLowerCase())) return false;
+      return true;
+    }).map((t) => t.slice(0, 70));
   },
 };
 
 const HELPER_LINE = /^(?:compared (?:with|to|against)|relative to|measured against|benchmarked against)\b/i;
+// A tooltip is a fragment. A comma or a full stop makes it a sentence somebody
+// wrote on purpose — "Compared to last year, revenue grew 40%." is copy.
+const isFragment = (t) => !/[,.!?]/.test(t) && (t.match(/\S+/g) || []).length <= 8;
 
 const tooltipAsText = {
   id: 'tooltip-as-text',
@@ -553,15 +586,16 @@ const tooltipAsText = {
   severity: 'warning',
   why: 'Helper text laid out as a free-standing line — "Compared with August 2026" printed beside the period selector. It is a tooltip, or a column header, doing its explaining in the middle of the page.',
   fix: 'Move it into the control it qualifies, its tooltip, or the column header that already carries the comparison.',
+  // Read off the page with the places the explanation is allowed to live —
+  // headings, table cells, code, the tab title — taken out first.
   test(ctx) {
-    const hits = new Set();
-    for (const el of ctx.elements || []) {
-      if (/^h[1-6]$/.test(el.tag) || el.inCode || el.inTable) continue;
-      const text = (el.text || '').replace(/\s+/g, ' ').trim();
-      if (!HELPER_LINE.test(text) || (text.match(/\S+/g) || []).length > 8) continue;
-      hits.add(text.slice(0, 60));
-    }
-    return [...hits];
+    const candidate = (t) => HELPER_LINE.test(t) && isFragment(t);
+    // Asked of the runs first. Stripping can only remove candidates, so a page
+    // with none skips the strip — and with it the cost of a page of unclosed tags.
+    if (!ctx.isHtml || !ctx.runs.some(candidate)) return [];
+    const free = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'th', 'td', 'code', 'pre', 'title']
+      .reduce(stripBetween, ctx.html);
+    return [...new Set(visibleTextRuns(free).filter(candidate))].map((t) => t.slice(0, 60));
   },
 };
 
