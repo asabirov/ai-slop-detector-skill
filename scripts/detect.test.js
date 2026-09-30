@@ -1,6 +1,6 @@
 'use strict';
 
-const test = require('node:test');
+const { test } = require('./lib/budget');
 const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');

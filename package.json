@@ -25,7 +25,8 @@
   "files": [
     "bin/",
     "scripts/",
-    "!scripts/*.test.js",
+    "!scripts/**/*.test.js",
+    "!scripts/lib/budget.js",
     "!scripts/release-readme-tag.js",
     "SKILL.md",
     "docs/ai-slop-detector.md"

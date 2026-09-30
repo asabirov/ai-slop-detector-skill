@@ -157,6 +157,12 @@ npm run lint:self  # the detector must pass its own rules
 Tests run locally, not in CI. Paste the full `npm test` output and self-lint
 result into the PR. CI retains self-lint, release, and CodeQL workflows.
 
+Every test has a budget — its own `{ timeout: ms }` or the module's default —
+and the suites take `test`, `it` and `describe` from `scripts/lib/budget.js`,
+which times each body on top of the timeout it hands to `node:test`. Without
+that a synchronous test runs as long as it likes: a timeout cannot interrupt
+code that never yields the thread.
+
 JavaScript and TypeScript source files skip visual rules by default. Text output
 reports how many files skipped them, including in mixed scans; JSON marks each
 file with `visualRulesSkipped`. Rerun UI copy with `--as artifact` to include
