@@ -18,6 +18,7 @@ const {
   selectorApplies,
   selectorTargets,
   labelsAboveHeadings,
+  blocksUnderData,
 } = require('../lib/html');
 
 const countOcc = (s, sub) => s.split(sub).length - 1;
@@ -113,6 +114,51 @@ const monoNoncode = {
         // Guess from the spelling rather than go quiet.
         if (!SPELLED_FOR_CODE.test(sel)) hits.push(`${sel} → ${m[2].trim().slice(0, 40)}`);
       }
+    }
+    return hits;
+  },
+};
+
+// What makes a line under a table a footnote: how it is set, or what it says.
+// Either is enough. Under a table a small muted sentence is a footnote whatever
+// it says, and a basis line is a footnote however it is set. A rule reading only
+// the wording would have to guess at a sentence anywhere on the page; the whole
+// point is that this one reads where the sentence sits.
+const FOOTNOTE_TAGS = new Set(['small', 'figcaption', 'caption', 'footer']);
+const FOOTNOTE_CLASS =
+  /(?:^|[-_])(?:foot|footer|footnote|notes?|caption|hint|help|legend|basis|disclaimer|fineprint|muted|subtle|meta|desc|description)(?:$|[-_\d])/i;
+
+// The facts a footnote carries: what the numbers are counted in, what they leave
+// out, where they came from, when they were taken.
+const BASIS =
+  /\b(?:amounts?|values?|figures?|totals?|numbers?)\b[^.;]{0,40}?\b(?:in|at|rate|rounded|converted|excludes?|excluded|includes?|included)\b|\bexclud(?:e|es|ed|ing)\b|\brounded\b|\bas of\b|\bsource\b|\bbased on\b/i;
+
+// Six words. A count line ("Showing 1–20 of 45") and a legend are not sentences
+// and belong under a table; past six words it is prose about the table.
+const FOOTNOTE_MIN_WORDS = 6;
+
+const tableFootnote = {
+  id: 'table-footnote',
+  level: 1,
+  severity: 'error',
+  why:
+    'An explanatory line under a table or a chart — what the numbers are counted in, what they exclude, where they came from, when they were taken. Nobody reading the table reads under it, so the fact is unread and load-bearing at once. A local design rule asking for the line does not make anyone read it.',
+  fix:
+    'Cut the line. If the fact changes what a number means, put it where the number is: the column header, the unit on the value, or the label of the control that chose it. Policy belongs on the page that sets the policy, linked from the heading.',
+  // Position is the definition, so position is the test — finance2 shipped a
+  // basis line under every money table and passed four review rounds at strict
+  // (#40), because nothing here was looking at where a line sat. Register then
+  // decides footnote from next-section: the element is set subordinate to the
+  // data, or it talks like a basis line.
+  test(ctx) {
+    const hits = [];
+    for (const { el, above, text, control } of blocksUnderData(ctx.elements)) {
+      if (control || /^h[1-6]$/.test(el.tag)) continue;
+      if ((text.match(/\S+/g) || []).length < FOOTNOTE_MIN_WORDS) continue;
+      const subordinate =
+        FOOTNOTE_TAGS.has(el.tag) || [...el.classes].some((c) => FOOTNOTE_CLASS.test(c));
+      if (!subordinate && !BASIS.test(text)) continue;
+      hits.push(`under <${above.tag}>: ${text.slice(0, 90)}`);
     }
     return hits;
   },
@@ -415,6 +461,7 @@ module.exports = [
   fakeUri,
   monoNoncode,
   externalLinkArrow,
+  tableFootnote,
   middotChain,
   decorNumbering,
   eyebrowKicker,

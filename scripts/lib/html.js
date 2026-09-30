@@ -303,6 +303,78 @@ function labelsAboveHeadings(html) {
   return out;
 }
 
+// A footnote is defined by where it sits, so the rule that judges one has to
+// read the page, the way `labelsAboveHeadings` does for kickers. Document order
+// plus each element's parent is enough: everything between one child and the
+// next is the first one's subtree, so the block above an element is the run
+// from its previous sibling up to it.
+// A table, and a description list, are rows of data whatever they hold. A <ul>
+// is not: measured over 1,264 HTML files on this machine, every <ul> the first
+// draft of this reached was a navigation menu or an ordinary bulleted list with
+// the next paragraph after it, and a bare <svg> was an illustration with its
+// caption under it. Both are 0 of 65 and 0 of 395. So a chart has to say it is
+// one, and a list of bullets is out.
+const DATA_TAGS = new Set(['table', 'dl']);
+// Bounded at both ends of the word, or `cloud-paragraph-align-right` reads as a
+// graph and every paragraph on a Google Cloud legal page becomes data (2 hits in
+// the same 1,264-file measurement).
+const CHART_CLASS = /(?:^|[-_])(?:chart|graph|plot|sparkline)s?(?:$|[-_\d])/i;
+
+// A line a reader operates rather than reads.
+const CONTROL_TAGS = new Set(['button', 'input', 'select', 'textarea']);
+
+// A wrapper that is a section of the page, or that carries a heading, is not
+// the data: what follows it starts something new rather than annotating it.
+const SECTION_TAGS = new Set(['section', 'nav', 'article', 'aside', 'main', 'header', 'footer', 'form']);
+
+function isDataBlock(el) {
+  return DATA_TAGS.has(el.tag) || [...el.classes].some((c) => CHART_CLASS.test(c));
+}
+
+// The data an element sits under: the previous sibling itself, or a plain
+// wrapper around one — `<div class="table-wrap"><table>…</table></div>` is how
+// a table usually ships. `from`..`to` is that sibling's subtree.
+function dataAbove(elements, from, to) {
+  const sibling = elements[from];
+  if (isDataBlock(sibling)) return sibling;
+  if (SECTION_TAGS.has(sibling.tag)) return null;
+  let found = null;
+  for (let k = from + 1; k < to; k++) {
+    if (/^h[1-6]$/.test(elements[k].tag)) return null;
+    if (!found && isDataBlock(elements[k])) found = elements[k];
+  }
+  return found;
+}
+
+// Every element sitting directly under a table, list or chart, with the text it
+// renders and whether it holds a control. `el.text` is the element's own text
+// only — the parser hands each run to the innermost open element — so a footnote
+// wrapped in a <span> has to be read from its subtree.
+function blocksUnderData(elements) {
+  const out = [];
+  if (!elements) return out;
+  const lastSeen = new Map(); // parent index -> its last child seen so far
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i];
+    const sibling = lastSeen.get(el.parent);
+    lastSeen.set(el.parent, i);
+    if (sibling == null || isDataBlock(el)) continue;
+    const above = dataAbove(elements, sibling, i);
+    if (!above) continue;
+    let text = el.text;
+    let control = CONTROL_TAGS.has(el.tag);
+    for (let k = i + 1; k < elements.length; k++) {
+      let parent = elements[k].parent;
+      while (parent > i) parent = elements[parent].parent;
+      if (parent !== i) break;
+      text += ' ' + elements[k].text;
+      control ||= CONTROL_TAGS.has(elements[k].tag);
+    }
+    out.push({ el, above, control, text: text.replace(/\s+/g, ' ').trim() });
+  }
+  return out;
+}
+
 // Concatenated contents of every <style> block.
 function cssBlocks(html) {
   const blocks = [];
@@ -618,6 +690,7 @@ module.exports = {
   selectorApplies,
   labelsAboveHeadings,
   selectorTargets,
+  blocksUnderData,
   CODE_TAGS,
   cssBlocks,
   stylesheetLinks,

@@ -124,6 +124,7 @@ values are stable — reference them in allowlists and PR notes.
 | `fake-uri` | 1 | error | Fake protocol URI (`lessly://c4/goal`) — links to nothing. Skips code. |
 | `mono-noncode` | 1 | error | Monospace font on prose or a label — fake-terminal decoration. |
 | `external-link-arrow` | 1 | error | Diagonal `↗` open-in-new-tab arrow on a link — decorative cosplay. Skips code. |
+| `table-footnote` | 1 | error | An explanatory line under a table or a chart — basis, source, exclusion or an “as of” date. |
 | `middot-chain` | 2 | warning | `a · b · c` metadata chain — templated polish. |
 | `decor-numbering` | 2 | warning | `01 — label` eyebrow where the number indexes nothing. |
 | `eyebrow-kicker` | 2 | warning | Uppercase wide-tracked micro-label pre-announcing a heading. |
@@ -154,6 +155,24 @@ values are stable — reference them in allowlists and PR notes.
 | `button-drift` | 4 | warning | Several unrelated button sizes or radii weaken control consistency. |
 | `everything-centred` | 4 | warning | Centering most of a page weakens the alignment hierarchy. |
 | `stock-palette` | 4 | warning | Near-black with acid green, or cream with terracotta and serif type, are common generated palettes. |
+
+`table-footnote` reads position, not wording: the element directly under a
+`<table>`, a `<dl>`, or a container whose class names a chart (`chart`, `graph`,
+`plot`, `sparkline`) — or under a plain wrapper around one. It fires when that
+element carries at least six words and is either set subordinate to the data
+(`<small>`, `<figcaption>`, `<caption>`, `<footer>`, or a class naming a note,
+caption, hint, legend, basis, disclaimer or muted text) or states a basis,
+source, exclusion, rounding or an “as of” date. A count line, a legend, a
+heading, and anything holding a button or input stay silent, as does a following
+section whose wrapper carries a heading.
+
+A `<ul>` and a bare `<svg>` are out of the rule, measured rather than assumed:
+over 1,264 HTML files on one machine, every `<ul>` an earlier draft reached was a
+navigation menu or an ordinary bulleted list with the next paragraph after it (65
+hits, 0 real), and every bare `<svg>` was an illustration with its caption under
+it (395 hits, 0 real). A chart drawn as an unclassed `<svg>` is therefore missed
+here; the editorial check in `SKILL.md` still covers a list and a chart, because a
+reader can tell a data list from a menu and this parser cannot.
 
 New UI checks are warnings. Aggregate checks use conservative thresholds: more
 than three primary font families, at least three distinct accents, three
