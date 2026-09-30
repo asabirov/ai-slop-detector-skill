@@ -8,6 +8,13 @@ function stripBetween(html, tag) {
   return html.replace(new RegExp(`<${tag}\\b[\\s\\S]*?</${tag}>`, 'gi'), ' ');
 }
 
+// Markup with the text that is not page copy taken out: a stylesheet, a script
+// and a comment. The subtree scan below needs this, because an element named
+// inside a comment has no closing tag for it to find.
+function readableMarkup(html) {
+  return stripBetween(stripBetween(html, 'style'), 'script').replace(/<!--[\s\S]*?-->/g, ' ');
+}
+
 // Visible text as it roughly renders, one run per element-ish boundary.
 // Tags out, one space in. The space is the whole point: replacing a tag with the
 // empty string lets `<<a>b>` close back up into `<b>`, which is
@@ -109,6 +116,71 @@ const VOID_TAGS = new Set([
   'link', 'meta', 'param', 'source', 'track', 'wbr',
 ]);
 
+// How far an unclosed target may swallow. Running to the end of the document
+// would silence every rule on a page because one <span class="sr-only"> was
+// never closed.
+const SUBTREE_MAX = 2000;
+
+// Elements the caller wants gone, contents and all. Nesting of the same tag is
+// counted, so a <div class="sr-only"> holding <div>s ends at its own close tag.
+// Still a regex, not a DOM: mis-nested markup can end a drop early, which errs
+// toward reading text as visible — the direction that keeps rules firing.
+//
+// Pass markup that has already had style, script and comment text taken out
+// (`readableMarkup`). A `<code>` named inside a CSS comment reads as an element
+// that never closes, and this scan would then drop the SUBTREE_MAX characters
+// after it: on fixtures/clean.html that was most of the page.
+function stripSubtrees(html, isTarget) {
+  const ranges = [];
+  const re = /<(\/?)([a-z][a-z0-9-]*)((?:"[^"]*"|'[^']*'|[^>'"])*)>/gi;
+  let open = null;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const [, closing, rawTag, attrs] = m;
+    const tag = rawTag.toLowerCase();
+    const empty = VOID_TAGS.has(tag) || /\/\s*$/.test(attrs);
+    if (open) {
+      if (tag !== open.tag || empty) continue;
+      if (!closing) open.depth++;
+      else if (--open.depth === 0) {
+        ranges.push([open.at, re.lastIndex]);
+        open = null;
+      }
+      continue;
+    }
+    if (closing || !isTarget(tag, attrs)) continue;
+    if (empty) ranges.push([m.index, re.lastIndex]);
+    else open = { tag, at: m.index, depth: 1 };
+  }
+  if (open) ranges.push([open.at, Math.min(open.at + SUBTREE_MAX, html.length)]);
+  if (!ranges.length) return html;
+  let out = '';
+  let last = 0;
+  for (const [from, to] of ranges) {
+    out += `${html.slice(last, from)} `;
+    last = to;
+  }
+  return out + html.slice(last);
+}
+
+// Classes that put text where a screen reader reads it and a sighted reader does
+// not. The names are the ones the common frameworks ship. A project rolling its
+// own name gets read as visible text, so the rules can still fire on it; that is
+// the wrong direction, and the name to add belongs here when one turns up.
+const HIDDEN_CLASS = /(?:^|\s)(?:sr-only|sr-only-focusable|visually-hidden|visuallyhidden|visually-hidden-focusable|screen-reader-only|screen-reader-text|a11y-hidden|hidden-visually)(?:$|\s)/i;
+
+// Text on the page but not on screen: a visually hidden label, a subtree marked
+// away from everyone, and a live region whose job is to be announced. Reading
+// these as visible text made the repeated-state rules ask for the label a screen
+// reader needs to be deleted (#41 designer review).
+function offScreen(tag, attrs) {
+  if (/(?:^|\s)hidden(?:\s|=|$)/i.test(attrs)) return true;
+  if (/\baria-hidden\s*=\s*(?:"true"|'true'|\{true\})/i.test(attrs)) return true;
+  if (/\baria-live\s*=\s*\{?\s*["']?(?:polite|assertive)/i.test(attrs)) return true;
+  const classAttr = /(?:^|\s)(?:class|className)\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
+  return classAttr ? HIDDEN_CLASS.test(classAttr[1] ?? classAttr[2]) : false;
+}
+
 // Every element the page carries, each with the tag chain above it. Still a
 // regex, not a DOM — but a stack of open tags is enough to answer the one
 // question the mono rule needs: what does this selector land on, and does that
@@ -120,7 +192,7 @@ const VOID_TAGS = new Set([
 // calling something code, which is the quiet direction; a page whose <code>
 // never closes has a bigger problem than this rule.
 function markupElements(html) {
-  const body = stripBetween(stripBetween(html, 'style'), 'script').replace(/<!--[\s\S]*?-->/g, ' ');
+  const body = readableMarkup(html);
   const out = [];
   const stack = []; // open elements, innermost last
   const re = /<(\/?)([a-z][a-z0-9-]*)((?:"[^"]*"|'[^']*'|[^>'"])*)>/gi;
@@ -589,6 +661,8 @@ function parse(source, { filePath, root, ext } = {}) {
   const linked = isHtml ? linkedCss(source, { filePath, root }) : { css: '', found: [], unresolved: [] };
   const css = [isCss ? source : '', inline, linked.css, utilities].filter(Boolean).join('\n');
   const markup = isHtml ? markupTokens(source) : null;
+  const runs = visibleTextRuns(source);
+  const shown = isHtml ? stripSubtrees(readableMarkup(source), offScreen) : source;
   if (markup) for (const el of elements) for (const c of el.classes) markup.classes.add(c);
   return {
     html: source,
@@ -597,7 +671,11 @@ function parse(source, { filePath, root, ext } = {}) {
     inlineCss: inline,
     linkedCss: linked.found,
     unresolvedCss: linked.unresolved,
-    runs: visibleTextRuns(source),
+    runs,
+    onScreenHtml: shown,
+    // The page as a sighted reader meets it. The repeated-state rules judge
+    // repeated *visible* text, so they read these two rather than `runs`.
+    onScreenRuns: shown === source ? runs : visibleTextRuns(shown),
     attrs: isHtml ? attrTextRuns(source) : [],
     markup,
     elements,
@@ -609,7 +687,9 @@ function parse(source, { filePath, root, ext } = {}) {
 }
 
 module.exports = {
+  readableMarkup,
   stripBetween,
+  stripSubtrees,
   stripTags,
   visibleTextRuns,
   attrTextRuns,

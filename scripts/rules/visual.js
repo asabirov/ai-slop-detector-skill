@@ -14,7 +14,7 @@
 const {
   DECOR_ARROWS,
   EMOJI,
-  stripBetween,
+  stripSubtrees,
   stripTags,
   selectorApplies,
   selectorTargets,
@@ -430,6 +430,19 @@ const CHOSEN_CLASS = /(?:^|\s)(?:is-selected|is-active|selected)(?:$|\s)/i;
 const ECHO_NEAR = 500;
 const LABEL_MAX_CHARS = 60;
 
+const classOf = (attrs) => (/\b(?:class|className)\s*=\s*"([^"]*)"/i.exec(attrs) || ['', ''])[1];
+
+// Runs off a page one of these rules has narrowed further, reusing the parse's
+// own runs when the narrowing changed nothing — which is most pages.
+const runsOf = (ctx, page) => (page === ctx.onScreenHtml ? ctx.onScreenRuns : visibleTextRuns(page));
+
+// The current item of a breadcrumb is marked the way a chosen control is —
+// `is-active`, `selected` — and many libraries render it as plain text, so the
+// "wraps a link" escape below misses it. A page title naming the crumb you are
+// standing on is ordinary practice (#41 designer review).
+const breadcrumb = (_tag, attrs) =>
+  /breadcrumb/i.test(classOf(attrs)) || /\baria-label\s*=\s*"[^"]*breadcrumb/i.test(attrs);
+
 // The value as a reader sees it, so a label wrapped in a child element — which is
 // how every component library renders one — is read rather than missed.
 function chosenText(html, tag, from) {
@@ -449,7 +462,7 @@ function chosenValues(html) {
     const tag = m[1].toLowerCase();
     if (tag === 'a') continue;
     const attrs = m[2];
-    const classes = (/\b(?:class|className)\s*=\s*"([^"]*)"/i.exec(attrs) || ['', ''])[1];
+    const classes = classOf(attrs);
     const option = tag === 'option' && /\bselected\b/i.test(attrs);
     if (!option && !CHOSEN_ATTR.test(attrs) && !CHOSEN_CLASS.test(classes)) continue;
     const text = chosenText(html, tag, re.lastIndex);
@@ -484,12 +497,13 @@ const stateTitleEcho = {
   level: 2,
   severity: 'warning',
   why: 'A title beside a control repeats the value the control already shows as chosen — a period selector on "Sep" with "September 2026" as the heading next to it. The reader is told the same state twice, and one of the two goes stale.',
-  fix: 'Let the control carry the state. Give the heading the subject of the screen, or drop it.',
+  fix: 'Let the control carry the state. Give the heading the subject of the screen, or drop it. A heading only a screen reader reads is not a repeat: leave it where it is.',
   test(ctx) {
     if (!ctx.isHtml) return [];
-    const headings = headingRuns(ctx.html);
+    const page = stripSubtrees(ctx.onScreenHtml, breadcrumb);
+    const headings = headingRuns(page);
     const hits = new Set();
-    for (const chosen of chosenValues(ctx.html)) {
+    for (const chosen of chosenValues(page)) {
       for (const h of headings) {
         if (chosen.at > h.at && chosen.at < h.end) continue;
         if (Math.abs(h.at - chosen.at) > ECHO_NEAR || !h.text || h.text.length > LABEL_MAX_CHARS) continue;
@@ -511,12 +525,25 @@ function tokenOverlap(a, b) {
   return shared / (a.size + b.size - shared);
 }
 
+// Two lines that each bring a word the other lacks are two facts in one frame,
+// not one fact twice: "Total revenue in September 2026" beside "Total expenses
+// in September 2026". A restatement may add words to the line it repeats; it
+// does not swap the subject (#41 designer review).
+function eachAddsAWord(a, b) {
+  const beyond = (x, y) => [...x].some((t) => !y.has(t));
+  return beyond(a, b) && beyond(b, a);
+}
+
+// A print statement repeats the account and the period on every page by design,
+// and that is what a running header and footer are for.
+const printChrome = (tag) => tag === 'header' || tag === 'footer';
+
 const restatedFact = {
   id: 'restated-fact',
   level: 3,
   severity: 'warning',
   why: 'One fact stated twice on a screen in different words — "Change against August 2026" above the cards, and "changes are against August 2026" in the caption below them. The second reads as new information and is not.',
-  fix: 'Keep the statement in the one place the reader needs it and delete the other.',
+  fix: 'Keep the statement in the one place the reader needs it and delete the other. A caption that labels its own number is not half of a pair: keep both.',
   // Grouped by the value the two lines share, so a page of prose costs one pass
   // rather than every run against every other run.
   test(ctx) {
@@ -525,7 +552,7 @@ const restatedFact = {
     // the <h1> it names would pair with it on every well-titled document.
     const title = (/<title\b[^>]*>([\s\S]{0,300}?)<\/title>/i.exec(ctx.html) || ['', ''])[1];
     const tabTitle = stripTags(title).replace(/\s+/g, ' ').trim();
-    for (const text of ctx.runs) {
+    for (const text of runsOf(ctx, stripSubtrees(ctx.onScreenHtml, printChrome))) {
       if (text.length > 120 || (tabTitle && text === tabTitle)) continue;
       const tokens = factTokens(text);
       const numbers = [...tokens].filter((w) => /\d/.test(w));
@@ -543,6 +570,7 @@ const restatedFact = {
         for (let j = i + 1; j < group.length; j++) {
           // The same line twice is a list of like things, not a restatement.
           if (group[i].key === group[j].key) continue;
+          if (eachAddsAWord(group[i].tokens, group[j].tokens)) continue;
           if (tokenOverlap(group[i].tokens, group[j].tokens) >= 0.6) {
             hits.add(`"${group[i].text.slice(0, 45)}" restates "${group[j].text.slice(0, 45)}"`);
           }
@@ -557,19 +585,28 @@ const restatedFact = {
 // unit of time in "10 years ago".
 const NOT_COUNTED = new Set(['was', 'is', 'as', 'has', 'years', 'months', 'weeks', 'days', 'hours', 'minutes', 'seconds', 'times']);
 
+// An error summary counts what is wrong with the page, not rows of data, and the
+// sentence after the count tells the reader what to do about it. Same for an
+// empty state, where the count is zero. Both are the right copy for the pattern
+// (#41 designer review).
+const STATE_COUNTED = new Set(['errors', 'warnings', 'issues', 'problems', 'fields']);
+const announced = (_tag, attrs) => /\brole\s*=\s*"(?:alert|alertdialog|status)"/i.test(attrs);
+
 const countSentence = {
   id: 'count-sentence',
   level: 3,
   severity: 'warning',
   why: 'A sentence of explanation built around a count that changes — "4 rows would move to Software. Each amount shows how much the move adds to or removes from Software." The number moves under the reader while the prose wrapped round it stays.',
-  fix: 'Put the count in a short label beside the thing it counts, and let the table show the rest.',
+  fix: 'Put the count in a short label beside the thing it counts, and let the table show the rest. A count followed by what to do next — an error summary, an empty state — is doing its job.',
   test(ctx) {
     if (!ctx.isHtml) return [];
-    return ctx.runs.filter((t) => {
+    return runsOf(ctx, stripSubtrees(ctx.onScreenHtml, announced)).filter((t) => {
       const opening = /^(\d[\d,.]*)\s+([a-z][a-z-]*s)\b/i.exec(t);
       if (!opening || (t.match(/\S+/g) || []).length < 12) return false;
       // A year is a date, not a count, and "10 years ago" opens a story.
       if (/^(?:19|20)\d\d$/.test(opening[1]) || NOT_COUNTED.has(opening[2].toLowerCase())) return false;
+      // Nothing to count is an empty state; counting errors is an error summary.
+      if (Number(opening[1].replace(/,/g, '')) === 0 || STATE_COUNTED.has(opening[2].toLowerCase())) return false;
       return true;
     }).map((t) => t.slice(0, 70));
   },
@@ -580,22 +617,31 @@ const HELPER_LINE = /^(?:compared (?:with|to|against)|relative to|measured again
 // wrote on purpose — "Compared to last year, revenue grew 40%." is copy.
 const isFragment = (t) => !/[,.!?]/.test(t) && (t.match(/\S+/g) || []).length <= 8;
 
+// Where a comparison is allowed to live: a heading, a table cell or its caption,
+// a figure caption, a chart legend, a control's own label, a real tooltip
+// component, and code or the tab title, which are not page copy at all. On print
+// and on a touch screen there is no hover, so a caption or a legend is often the
+// only place the baseline can go (#41 designer and QA reviews).
+const TOOLTIP_HOME = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'th', 'td', 'caption', 'figcaption', 'legend', 'label', 'code', 'pre', 'title']);
+const LEGEND_CLASS = /(?:^|[\s_-])legends?(?:$|[\s_-])/i;
+const tooltipHome = (tag, attrs) =>
+  TOOLTIP_HOME.has(tag) || /\brole\s*=\s*"tooltip"/i.test(attrs) || LEGEND_CLASS.test(classOf(attrs));
+
 const tooltipAsText = {
   id: 'tooltip-as-text',
   level: 3,
   severity: 'warning',
   why: 'Helper text laid out as a free-standing line — "Compared with August 2026" printed beside the period selector. It is a tooltip, or a column header, doing its explaining in the middle of the page.',
-  fix: 'Move it into the control it qualifies, its tooltip, or the column header that already carries the comparison.',
-  // Read off the page with the places the explanation is allowed to live —
-  // headings, table cells, code, the tab title — taken out first.
+  fix: 'Move it into the column header that already carries the comparison, or the label of the control it qualifies. A tooltip last, and only for detail the reader can do without: hover reaches neither touch nor print.',
+  // Read off the page with the places the explanation is allowed to live taken
+  // out first.
   test(ctx) {
     const candidate = (t) => HELPER_LINE.test(t) && isFragment(t);
     // Asked of the runs first. Stripping can only remove candidates, so a page
     // with none skips the strip — and with it the cost of a page of unclosed tags.
-    if (!ctx.isHtml || !ctx.runs.some(candidate)) return [];
-    const free = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'th', 'td', 'code', 'pre', 'title']
-      .reduce(stripBetween, ctx.html);
-    return [...new Set(visibleTextRuns(free).filter(candidate))].map((t) => t.slice(0, 60));
+    if (!ctx.isHtml || !ctx.onScreenRuns.some(candidate)) return [];
+    const free = stripSubtrees(ctx.onScreenHtml, tooltipHome);
+    return [...new Set(runsOf(ctx, free).filter(candidate))].map((t) => t.slice(0, 60));
   },
 };
 

@@ -68,8 +68,10 @@ Three rule packs over one engine.
   oversized stats, motion and repeated layout defaults. It also reads what a
   screen says twice: a title echoing the value a control shows as chosen, one
   fact restated in different words, a long sentence built around a live count,
-  and helper text standing on its own line. Native font stacks and numeric
-  table data are allowed.
+  and helper text standing on its own line. Those four read only what a sighted
+  reader sees: a visually hidden label, a `hidden` subtree and an `aria-live`
+  region are dropped first, so the rules never ask for the text a screen reader
+  needs. Native font stacks and numeric table data are allowed.
 - **Text** reads visible prose plus the attributes a person actually reads
   (`title`, `alt`, `placeholder`, `aria-label`, `data-tip`, the meta
   description). Catches "not just X, but Y", hedge openers, sycophancy residue,
