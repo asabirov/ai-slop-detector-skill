@@ -81,7 +81,10 @@ jobs:
           branch="readme-install-tag-$TAG"
           if git ls-remote --exit-code --heads "$ORIGIN" "$branch" > /dev/null; then
             echo "$branch is already on the remote; adopting it."
-            git fetch --no-tags "$ORIGIN" "refs/heads/$branch:refs/remotes/bump/$branch"
+            # The step above rewrote README.md in the working tree. The branch already
+          # carries that rewrite, so the edit is in the way of checking it out.
+          git restore README.md
+          git fetch --no-tags "$ORIGIN" "refs/heads/$branch:refs/remotes/bump/$branch"
             git switch --detach "refs/remotes/bump/$branch"
           else
             git config user.name 'github-actions[bot]'
