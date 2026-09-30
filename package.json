@@ -26,6 +26,7 @@
     "bin/",
     "scripts/",
     "!scripts/*.test.js",
+    "!scripts/release-readme-tag.js",
     "SKILL.md",
     "docs/ai-slop-detector.md"
   ],
