@@ -292,12 +292,13 @@ in real AI output — and it must be tested both ways:
    the good page fire, the rule is too aggressive — fix the rule, not the good page.
 
 ```bash
-npm test
+npm run verify
 ```
 
-Run the suite locally and paste its full output in the PR, together with
-`npm run lint:self`. CI does not run unit tests; it keeps self-lint, CodeQL,
-and release automation.
+That runs the suite and then `npm run lint:self`, and it is the script the
+required `test` check on `main` runs, so a rule change that breaks the suite
+cannot merge. Paste its full output in the PR: the check says pass or fail and
+nothing about which assertions ran.
 
 ## Disagree with a rule, or want to tune it?
 

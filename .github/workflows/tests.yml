@@ -1,4 +1,4 @@
-name: self-lint
+name: tests
 
 on:
   push:
@@ -6,6 +6,9 @@ on:
   pull_request:
 
 jobs:
+  # `test` is the required check on `main`, and the check takes its name from
+  # this job. Renaming the job renames the check, the branch rule stops matching
+  # it, and every pull request becomes mergeable without it.
   test:
     # ubuntu, not macos: a private repo bills macOS minutes at ten times the
     # rate. Move this only if the tests genuinely need a Mac.
@@ -15,5 +18,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: The detector passes its own rules
-        run: npm run lint:self
+      # `npm run verify` and not the two commands spelled out here: release.yml
+      # reports a `test` commit status on the README branch it opens, and runs
+      # the same script to decide it. One script keeps that status meaning what
+      # this check means.
+      - name: The unit tests and the detector's own rules
+        run: npm run verify

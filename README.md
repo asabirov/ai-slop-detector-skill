@@ -152,10 +152,15 @@ In this repository:
 ```bash
 npm test           # the unit tests, the fixtures, and this repo's own prose
 npm run lint:self  # the detector must pass its own rules
+npm run verify     # both, in that order — the one script CI runs
 ```
 
-Tests run locally, not in CI. Paste the full `npm test` output and self-lint
-result into the PR. CI retains self-lint, release, and CodeQL workflows.
+`main` requires a `test` check, and that check runs `npm run verify`, so a pull
+request whose unit tests fail cannot merge. The release workflow reports its own
+`test` status on the README branch it opens, from the same script, so the two
+mean the same thing. Paste the full `npm run verify` output into the PR anyway:
+the check says pass or fail and nothing about which assertions ran. CodeQL runs
+alongside it.
 
 Every test has a budget — its own `{ timeout: ms }` or the module's default —
 and the suites take `test`, `it` and `describe` from `scripts/lib/budget.js`,
