@@ -22,7 +22,7 @@ function scratch(readme, ...tags) {
 }
 
 test('the newest release on the remote is the one to install', { timeout: 1000 }, () => {
-  assert.equal(latestReleaseTag(lsRemote('v2.3.0', 'v2.2.0', 'v1.0.0')), 'v2.3.0');
+  assert.equal(latestReleaseTag(lsRemote('v2.2.0', 'v1.0.0', 'v2.3.0')), 'v2.3.0');
 });
 
 test('a double-digit minor sorts above a single-digit one', { timeout: 1000 }, () => {
@@ -86,7 +86,7 @@ test('the command line reaches main and prints what it returns', { timeout: 2000
   const dir = scratch('install .../tree/v2.3.0 --skill x\n', 'v2.3.0', 'v2.4.0');
   const printed = execFileSync(process.execPath, [
     SCRIPT, '--tags', path.join(dir, 'tags'), '--readme', path.join(dir, 'README.md'),
-  ], { encoding: 'utf8' });
+  ], { encoding: 'utf8', timeout: 2000 });
 
   assert.equal(printed, 'v2.4.0');
   assert.equal(fs.readFileSync(path.join(dir, 'README.md'), 'utf8'), 'install .../tree/v2.4.0 --skill x\n');
