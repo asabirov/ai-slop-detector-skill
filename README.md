@@ -42,8 +42,11 @@ the passage, the reader's problem and a specific correction. It preserves useful
 detail and does not rewrite for readability; use a separate editing pass for that.
 
 The editorial UI checks cover headline full stops, middot separators, repeated
-qualification badges and unhelpful implementation captions in rendered pages
-and interface copy files. They preserve necessary disclosures and useful user
+qualification badges, unhelpful implementation captions, a heading repeating
+the value a control shows as chosen, the same fact stated twice, an
+explanation wrapped around a changing number, and tooltip text set as its own
+line, in rendered pages and interface copy files. They preserve necessary
+disclosures and useful user
 information. Component style mismatches need a rendered comparison and can be
 routed to design-review. These are agent review instructions, not additional
 CLI rules.
