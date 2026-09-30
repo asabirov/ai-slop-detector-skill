@@ -410,6 +410,161 @@ const cssUnreadable = {
   },
 };
 
+// ── repeated state and restated facts · why: #39 ─────────────────────────
+
+// Words that carry no fact, and a crude plural strip so "change" and "changes"
+// are the same token. Enough for a restatement; not a stemmer.
+const FACT_STOP = new Set(['a', 'all', 'an', 'and', 'any', 'are', 'as', 'at', 'be', 'been', 'but', 'by', 'for', 'from', 'has', 'have', 'in', 'is', 'it', 'its', 'not', 'of', 'on', 'or', 'that', 'the', 'then', 'these', 'this', 'those', 'than', 'to', 'was', 'were', 'will', 'with', 'would']);
+const stem = (w) => (w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w);
+
+// Markers a page uses to say "this one is chosen". Each attribute is tested on
+// its own rather than inside one `[^>]*` alternation, which is polynomial-redos.
+//
+// `aria-current` is not one of them. It marks where the reader is, and a page
+// title matching the current nav item is ordinary practice, not a repeat.
+const CHOSEN_ATTR = /\baria-(?:pressed|selected|checked)\s*=\s*"true"/i;
+const CHOSEN_CLASS = /(?:^|\s)(?:is-selected|is-active|selected)(?:$|\s)/i;
+const ECHO_NEAR = 500;
+
+function chosenValues(html) {
+  const out = [];
+  const re = /<([a-z][a-z0-9-]*)((?:"[^"]*"|'[^']*'|[^>'"])*)>([^<]{0,60})/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const attrs = m[2];
+    const classes = (/\bclass\s*=\s*"([^"]*)"/i.exec(attrs) || ['', ''])[1];
+    const option = m[1].toLowerCase() === 'option' && /\bselected\b/i.test(attrs);
+    if (!option && !CHOSEN_ATTR.test(attrs) && !CHOSEN_CLASS.test(classes)) continue;
+    const text = m[3].replace(/\s+/g, ' ').trim();
+    if (text) out.push({ at: m.index, text });
+  }
+  return out;
+}
+
+function headingRuns(html) {
+  const out = [];
+  const re = /<(h[1-6])\b[^>]*>([\s\S]{0,300}?)<\/\1>/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    out.push({ at: m.index, end: re.lastIndex, text: stripTags(m[2]).replace(/\s+/g, ' ').trim() });
+  }
+  return out;
+}
+
+// "Sep" is echoed by "September 2026": every word of the title opens on the
+// chosen value, so the title adds nothing but a date the control implies. A
+// title that brings a word of its own ("Costs by team" beside a "Costs" tab) is
+// naming its subject and stays silent.
+function echoesValue(value, heading) {
+  const chosen = (value.toLowerCase().match(/[a-z][a-z-]*/g) || []).filter((w) => w.length >= 3);
+  const words = (heading.toLowerCase().match(/[a-z][a-z-]*/g) || []).filter((w) => w.length > 2 && !FACT_STOP.has(w));
+  if (!chosen.length || !words.length) return false;
+  return words.every((w) => chosen.some((c) => w.startsWith(c) || c.startsWith(w)));
+}
+
+const stateTitleEcho = {
+  id: 'state-title-echo',
+  level: 2,
+  severity: 'warning',
+  why: 'A title beside a control repeats the value the control already shows as chosen — a period selector on "Sep" with "September 2026" as the heading next to it. The reader is told the same state twice, and one of the two goes stale.',
+  fix: 'Let the control carry the state. Give the heading the subject of the screen, or drop it.',
+  test(ctx) {
+    if (!ctx.isHtml) return [];
+    const headings = headingRuns(ctx.html);
+    const hits = new Set();
+    for (const chosen of chosenValues(ctx.html)) {
+      for (const h of headings) {
+        if (chosen.at > h.at && chosen.at < h.end) continue;
+        if (Math.abs(h.at - chosen.at) > ECHO_NEAR || !h.text || h.text.length > 60) continue;
+        if (echoesValue(chosen.text, h.text)) hits.add(`"${h.text}" repeats the selected "${chosen.text}"`);
+      }
+    }
+    return [...hits];
+  },
+};
+
+function factTokens(text) {
+  const words = (text.toLowerCase().match(/[a-z0-9][a-z0-9'’-]*/g) || []).map(stem);
+  return new Set(words.filter((w) => w.length > 1 && !FACT_STOP.has(w)));
+}
+
+function tokenOverlap(a, b) {
+  let shared = 0;
+  for (const t of a) if (b.has(t)) shared++;
+  return shared / (a.size + b.size - shared);
+}
+
+const restatedFact = {
+  id: 'restated-fact',
+  level: 3,
+  severity: 'warning',
+  why: 'One fact stated twice on a screen in different words — "Change against August 2026" above the cards, and "changes are against August 2026" in the caption below them. The second reads as new information and is not.',
+  fix: 'Keep the statement in the one place the reader needs it and delete the other.',
+  // Grouped by the value the two lines share, so a page of prose costs one pass
+  // rather than every run against every other run.
+  test(ctx) {
+    const buckets = new Map();
+    for (const text of ctx.runs) {
+      if (text.length > 120) continue;
+      const tokens = factTokens(text);
+      const numbers = [...tokens].filter((w) => /\d/.test(w));
+      if (tokens.size < 3 || !numbers.length) continue;
+      const row = { text, key: text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(), tokens };
+      for (const n of numbers) {
+        if (!buckets.has(n)) buckets.set(n, []);
+        buckets.get(n).push(row);
+      }
+    }
+    const hits = new Set();
+    for (const group of buckets.values()) {
+      if (group.length > 20) continue; // one value in twenty lines is a column
+      for (let i = 0; i < group.length; i++) {
+        for (let j = i + 1; j < group.length; j++) {
+          // The same line twice is a list of like things, not a restatement.
+          if (group[i].key === group[j].key) continue;
+          if (tokenOverlap(group[i].tokens, group[j].tokens) >= 0.6) {
+            hits.add(`"${group[i].text.slice(0, 45)}" restates "${group[j].text.slice(0, 45)}"`);
+          }
+        }
+      }
+    }
+    return [...hits];
+  },
+};
+
+const countSentence = {
+  id: 'count-sentence',
+  level: 3,
+  severity: 'warning',
+  why: 'A sentence of explanation built around a count that changes — "4 rows would move to Software. Each amount shows how much the move adds to or removes from Software." The number moves under the reader while the prose wrapped round it stays.',
+  fix: 'Put the count in a short label beside the thing it counts, and let the table show the rest.',
+  test(ctx) {
+    return ctx.runs
+      .filter((t) => /^\d[\d,.]*\s+[a-z][a-z-]*s\b/i.test(t) && (t.match(/\S+/g) || []).length >= 12)
+      .map((t) => t.slice(0, 70));
+  },
+};
+
+const HELPER_LINE = /^(?:compared (?:with|to|against)|relative to|measured against|benchmarked against)\b/i;
+
+const tooltipAsText = {
+  id: 'tooltip-as-text',
+  level: 3,
+  severity: 'warning',
+  why: 'Helper text laid out as a free-standing line — "Compared with August 2026" printed beside the period selector. It is a tooltip, or a column header, doing its explaining in the middle of the page.',
+  fix: 'Move it into the control it qualifies, its tooltip, or the column header that already carries the comparison.',
+  test(ctx) {
+    const hits = new Set();
+    for (const el of ctx.elements || []) {
+      if (/^h[1-6]$/.test(el.tag) || el.inCode || el.inTable) continue;
+      const text = (el.text || '').replace(/\s+/g, ' ').trim();
+      if (!HELPER_LINE.test(text) || (text.match(/\S+/g) || []).length > 8) continue;
+      hits.add(text.slice(0, 60));
+    }
+    return [...hits];
+  },
+};
+
 module.exports = [
   cssUnreadable,
   fakeUri,
@@ -424,6 +579,10 @@ module.exports = [
   headingItalic,
   headingPeriod,
   decorBulletDot,
+  stateTitleEcho,
+  restatedFact,
+  countSentence,
+  tooltipAsText,
   radiusMonotony,
   ...require('./ui'),
 ];

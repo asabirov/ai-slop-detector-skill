@@ -133,6 +133,10 @@ values are stable — reference them in allowlists and PR notes.
 | `heading-italic` | 3 | warning | Italicised word inside a heading — decorative polish. |
 | `heading-period` | 3 | warning | Short display heading ending in a lone period (`Ship it.`). |
 | `decor-bullet-dot` | 3 | warning | Empty colored round element prefixing a label — encodes nothing. |
+| `state-title-echo` | 2 | warning | A title repeating the value a control beside it already shows as chosen. |
+| `restated-fact` | 3 | warning | One fact stated twice on a screen in different words. |
+| `count-sentence` | 3 | warning | A sentence of explanation built around a count that changes. |
+| `tooltip-as-text` | 3 | warning | Helper text (`Compared with August 2026`) printed as a free-standing line. |
 | `radius-monotony` | 4 | warning | One `border-radius` on every surface — templated sameness. |
 
 | `gradient-text` | 2 | warning | Gradient clipped into text is decorative emphasis. |
@@ -163,6 +167,24 @@ a third of the page, unless left/start/justify alignment exists. Display-face
 checks only inspect explicit headings or type at least 48px; choosing Inter for
 body text is allowed. Structural counts resolve simple tag, class, and ID
 selectors; complex selectors and inherited styles need rendered review.
+
+The four repeated-state rules read markup, and each is narrower than the
+editorial check behind it (`SKILL.md`, issue #39). `state-title-echo` needs the
+chosen control marked in the markup — `aria-pressed`, `aria-selected`,
+`aria-checked`, `<option selected>`, or an `is-selected` / `is-active` /
+`selected` class — within 500 characters of a heading of 60 characters or less,
+and every word of that heading has to open on the chosen value: `Costs by team`
+beside a `Costs` tab brings a word of its own and stays silent. `aria-current` is
+not a chosen value; it says where the reader is, and a page title matching the
+current nav item is ordinary practice. `restated-fact` pairs two lines only when
+they share a number or date, carry three or more content words, overlap by 60%
+of their words after a crude plural strip, and are not the same line twice — the
+same label on twenty rows is a column. `count-sentence` wants a line of twelve
+or more words opening on a count (`4 rows would move…`). `tooltip-as-text` wants
+a short line opening on a comparison, outside headings, code and table cells,
+so the tooltip and the column header that should carry it stay legal. State a
+rendered view alone can show, and a restatement sharing no value, need the
+review pass.
 
 ### Text pack — prose
 
