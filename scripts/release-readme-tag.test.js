@@ -79,14 +79,16 @@ test('a remote with no release leaves the README alone', { timeout: 1000 }, () =
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('the command line rewrites a README and prints the new tag', { timeout: 10000 }, () => {
+// The only test here that spawns anything. It proves the command line reaches
+// main(); every other case above calls main() or its parts directly, because a
+// second spawn would cost a hundred times more and prove nothing new.
+test('the command line reaches main and prints what it returns', { timeout: 2000 }, () => {
   const dir = scratch('install .../tree/v2.3.0 --skill x\n', 'v2.3.0', 'v2.4.0');
-  const run = () => execFileSync(process.execPath, [
+  const printed = execFileSync(process.execPath, [
     SCRIPT, '--tags', path.join(dir, 'tags'), '--readme', path.join(dir, 'README.md'),
   ], { encoding: 'utf8' });
 
-  assert.equal(run(), 'v2.4.0');
+  assert.equal(printed, 'v2.4.0');
   assert.equal(fs.readFileSync(path.join(dir, 'README.md'), 'utf8'), 'install .../tree/v2.4.0 --skill x\n');
-  assert.equal(run(), '');
   fs.rmSync(dir, { recursive: true, force: true });
 });
