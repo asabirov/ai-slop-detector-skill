@@ -21,6 +21,11 @@ export function Ledger({ rows, columns }: LedgerProps) {
       <DataTable columns={columns} rows={rows} />
       {/* What legitimately sits under a table: a count line and a pager. */}
       <p className="fin-rowcount">Showing 1 to 10 of 57 entries</p>
+
+      {/* The line beside the heading instead of under the data: Company.tsx
+          ships this one, and it is what #52 was filed on. */}
+      <div className="fin-section__head"><h2>Revenue per unit</h2><Basis>charge month</Basis></div>
+      <DataTable columns={columns} rows={rows} />
     </section>
   );
 }

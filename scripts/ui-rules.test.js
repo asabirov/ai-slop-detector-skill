@@ -115,6 +115,37 @@ describe('UI heuristics', { timeout: 1000 }, () => {
 });
 
 
+// Each case is markup that shipped. The two that fire are finance2's at
+// `0d21703c`, the screens #52 names; the silent ones are what a draft reading any
+// short subordinate line reported over 2,285 real HTML files, and why the rule
+// needs a sentence on that path.
+describe('table-aside', { timeout: 1000 }, () => {
+  const table = '<div class="ui-table-scroll"><table><tbody><tr><td>12</td></tr></tbody></table></div>';
+
+  it('fires on a basis-named line beside the heading', { timeout: 500 }, () => {
+    has(`<section><div class="fin-section__head"><h2>Revenue per unit</h2><span class="fin-basis">charge month</span></div>${table}</section>`, 'table-aside');
+  });
+  it('fires on a group subtitle beside the heading', { timeout: 500 }, () => {
+    has(`<section><div class="fin-tasks__head"><h2>Overdue or blocking</h2><p class="fin-small">Past due, or holding up a month close.</p></div>${table}</section>`, 'table-aside');
+  });
+  it('stays silent on a count or a unit beside the heading', { timeout: 500 }, () => {
+    lacks(`<section><h2 class="panel-title">Service inventory</h2><span class="panel-meta">11 services · 5 regions</span>${table}</section>`, 'table-aside');
+    lacks(`<section><h2 class="panel-title">Throughput by service</h2><span class="panel-meta">req/s · 15m avg</span>${table}</section>`, 'table-aside');
+  });
+  it('stays silent under an h1, which names the page', { timeout: 500 }, () => {
+    lacks(`<body><h1>More work. Less waste.</h1><p class="subtitle">August cloud spend fell 6.4% while completed jobs grew 12%.</p>${table}</body>`, 'table-aside');
+  });
+  it('stays silent on a link beside the heading', { timeout: 500 }, () => {
+    lacks(`<section><div class="head"><h2>Sources</h2><a class="meta-link" href="/sources">See every source and when it was read.</a></div>${table}</section>`, 'table-aside');
+  });
+  it('stays silent on prose the design did not set subordinate', { timeout: 500 }, () => {
+    lacks(`<section><h2>Rainfall by month</h2><p>The observer recorded a clear morning.</p>${table}</section>`, 'table-aside');
+  });
+  it('stays silent when the data is not the next thing', { timeout: 500 }, () => {
+    lacks('<section><div class="head"><h2>Payouts</h2><p class="sub">Reconciled to bank transactions.</p></div><div class="body"><div class="seg"><button>All</button></div>' + table + '</div></section>', 'table-aside');
+  });
+});
+
 describe('UI scan bounds', { timeout: 3000 }, () => {
   it('scans 2500 nodes with inline styles within the budget', { timeout: 2500 }, () => {
     const source = '<main>' + '<p style="color:#333">Station record</p>'.repeat(2500) + '</main>';

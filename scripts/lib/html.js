@@ -416,6 +416,107 @@ function blocksUnderData(elements) {
   return out;
 }
 
+// The data a heading names, read forwards: the next sibling, or a plain wrapper
+// whose first child is one — `<div class="ui-table-scroll"><table>…</table></div>`
+// is how a table ships inside a scroll region, and finance2's own `TableRegion`
+// renders exactly that. First child, the mirror of `dataAbove`'s last child, and
+// for the same reason: a page body whose first block is a row of controls and
+// whose fourth is a table is not this heading's table.
+function dataBelow(elements, firstChildOf, from) {
+  if (SECTION_TAGS.has(elements[from].tag)) return null;
+  for (let j = from; j !== undefined; j = firstChildOf.get(j)) {
+    if (isDataBlock(elements[j])) return elements[j];
+  }
+  return null;
+}
+
+// At most two lines sit between a heading and the data it names. A third is the
+// body prose of an article that happens to hold a table, not an annotation.
+const ASIDE_MAX = 2;
+
+// Every line set between a heading and the data that heading names, with the
+// prose it renders. The shape that ships puts the heading and the line in one
+// head row — `<div class="head"><h2>…</h2><span class="basis">…</span></div>`
+// followed by the table — so the walk leaves the head row when it runs out of
+// siblings, but never leaves a section: what follows a section is the next thing
+// on the page.
+function blocksBesideHeading(elements) {
+  const out = [];
+  if (!elements) return out;
+  const childrenOf = new Map();
+  const firstChildOf = new Map();
+  for (let i = 0; i < elements.length; i++) {
+    const p = elements[i].parent;
+    if (!childrenOf.has(p)) childrenOf.set(p, []);
+    childrenOf.get(p).push(i);
+    if (!firstChildOf.has(p)) firstChildOf.set(p, i);
+  }
+  for (let h = 0; h < elements.length; h++) {
+    // <h1> names the page, not the table: a report's own subtitle and byline sit
+    // under one with its first table after them, and neither is beside the data.
+    if (!/^h[2-6]$/.test(elements[h].tag)) continue;
+    const siblings = childrenOf.get(elements[h].parent) || [];
+    const at = siblings.indexOf(h);
+    const tail = [];
+    let data = null;
+    for (let s = at + 1; s < siblings.length; s++) {
+      const j = siblings[s];
+      if (/^h[1-6]$/.test(elements[j].tag)) break;
+      data = dataBelow(elements, firstChildOf, j);
+      if (data) break;
+      // A link or a button beside a heading is a control, not a line about the
+      // data — and a `<a class="meta-link">See every source…</a>` reads as a note
+      // to anything looking only at the class.
+      if (!MUTE_TAGS.has(elements[j].tag)) tail.push(j);
+      if (tail.length > ASIDE_MAX) break;
+    }
+    // Out of siblings inside a head row: the data is the row's next sibling.
+    if (!data) {
+      const wrap = elements[h].parent;
+      if (wrap >= 0 && !SECTION_TAGS.has(elements[wrap].tag)) {
+        const up = childrenOf.get(elements[wrap].parent) || [];
+        const after = up[up.indexOf(wrap) + 1];
+        if (after !== undefined) data = dataBelow(elements, firstChildOf, after);
+      }
+    }
+    if (!data || !tail.length || tail.length > ASIDE_MAX) continue;
+    for (const j of tail) out.push(asideCandidate(elements, j, elements[h], data));
+  }
+  return out;
+}
+
+// One candidate, read the way `blocksUnderData` reads a footnote: the whole
+// subtree in document order, with the words a reader operates rather than reads
+// left out, and a brace run — a JSX expression — out before the words count.
+function asideCandidate(elements, i, heading, data) {
+  const el = elements[i];
+  const chunks = el.chunks.slice();
+  const inside = [el];
+  const muted = new Set();
+  let nested = false;
+  for (let k = i + 1; k < elements.length; k++) {
+    let parent = elements[k].parent;
+    while (parent > i) parent = elements[parent].parent;
+    if (parent !== i) break;
+    const child = elements[k];
+    if (/^h[1-6]$/.test(child.tag) || isDataBlock(child)) nested = true;
+    if (MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
+      muted.add(k);
+      continue;
+    }
+    inside.push(child);
+    chunks.push(...child.chunks);
+  }
+  const text = chunks
+    .sort((a, b) => a[0] - b[0])
+    .map((chunk) => chunk[1])
+    .join(' ')
+    .replace(/\{[^{}]*\}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return { el, heading, data, text, nested, inside };
+}
+
 // Concatenated contents of every <style> block.
 function cssBlocks(html) {
   const blocks = [];
@@ -732,6 +833,7 @@ module.exports = {
   labelsAboveHeadings,
   selectorTargets,
   blocksUnderData,
+  blocksBesideHeading,
   CODE_TAGS,
   cssBlocks,
   stylesheetLinks,

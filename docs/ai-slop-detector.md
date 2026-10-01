@@ -125,6 +125,7 @@ values are stable — reference them in allowlists and PR notes.
 | `mono-noncode` | 1 | error | Monospace font on prose or a label — fake-terminal decoration. |
 | `external-link-arrow` | 1 | error | Diagonal `↗` open-in-new-tab arrow on a link — decorative cosplay. Skips code. |
 | `table-footnote` | 1 | error | An explanatory line under a table or a chart — basis, source, exclusion or an “as of” date. |
+| `table-aside` | 1 | error | A lede, subtitle or basis line set beside the heading that names a table or a chart. |
 | `middot-chain` | 2 | warning | `a · b · c` metadata chain — templated polish. |
 | `decor-numbering` | 2 | warning | `01 — label` eyebrow where the number indexes nothing. |
 | `eyebrow-kicker` | 2 | warning | Uppercase wide-tracked micro-label pre-announcing a heading. |
@@ -189,8 +190,59 @@ unclassed `<svg>` is therefore missed here, as is a note that sits outside the c
 holding its table. The editorial check in `SKILL.md` still covers a list and a
 chart, because a reader can tell a data list from a menu and this parser cannot.
 
-New UI checks are warnings, `table-footnote` excepted: it is the merge gate
-because two reviewers ran `--level strict` over the screens in #40 and got a pass.
+`table-aside` is the same test read forwards, for the other half of the same blind
+spot (#52). The candidate is a line between a heading and the data that heading
+names — the following siblings of an `h2`–`h6` up to the data, or, when the
+heading and the line share a head row, the row's next sibling. The data is found
+on the first-child chain, the mirror of `table-footnote`'s last child: a head row
+followed by `<div class="ui-table-scroll"><table>…</table></div>` is a table; a
+page body whose first block is a row of controls and whose fourth is a table is
+not. At most two lines sit between a heading and its data.
+
+Beside a heading, position alone is not enough — a total, a count, a unit and a
+control all legitimately sit there — so the line has to say what it is. Two paths:
+
+- **It names itself an annotation.** A `<small>`, or a tag or class naming a
+  basis, note, footnote, disclaimer or fineprint. Two words are enough:
+  `<Basis>charge month</Basis>` is the line #52 was filed on.
+- **It is a sentence the design set below the heading.** A class naming a sub,
+  subtitle, subheading, description, lede, lead, dek, standfirst, tagline, intro,
+  caption, hint, help, muted, subtle, meta or small, on text of three words or
+  more that ends in `.`, `!` or `?`. Or a basis by wording, the same five patterns
+  `table-footnote` uses.
+
+The sentence floor is measured, not assumed. Over 2,285 real HTML files on one
+machine, a draft that read any subordinate line of two words or more reported 140
+files and 371 hits, and the subordinate slot beside a heading held a
+count (`11 services · 5 regions`), a unit (`req/s · 15m avg`, `checkout-svc · ms`)
+or a status (`Private workspace`) five times for every once it held filler — none
+of them a sentence. The `h2` floor comes from the same sweep: a report's own
+subtitle and byline sit under its `<h1>` with the first table after them, and an
+`<h1>` names the page rather than the table. With both, the same corpus reports
+three distinct lines on three pages, each one a line restating the table beside
+it, and `table-footnote`'s output is byte-identical.
+
+A link or a button beside the heading is a control, not a line: measured, a
+`<a class="meta-link">See every source and when it was read.</a>` reads as a note
+to anything looking only at the class. A candidate carrying its own heading or its
+own data is the next thing on the page, and the words inside a control come out
+before the floors apply.
+
+This rule needs neither the numeric-data nor the count-line exemption
+`table-footnote` needs: a total and a count line are both short and neither is a
+sentence, so the floors already hold them. Removing both changed nothing over the
+2,285 files, the ten rendered screens or the six source files, so neither is here.
+
+A page lede under the page title is out of reach: on the screens in #52 a row of
+review controls sits between it and the first table, so the data is not on the
+first-child chain. Reading the whole subtree instead would make every
+`<p class="lead">` on a page that holds a table anywhere a hit, which is what
+`table-footnote` already rejected for its own side. `SKILL.md` covers the page
+lede editorially.
+
+New UI checks are warnings, `table-footnote` and `table-aside` excepted: they are
+the merge gate because two reviewers ran `--level strict` over the screens in #40
+and got a pass.
 Aggregate checks use conservative thresholds: more
 than three primary font families, at least three distinct accents, three
 hairline-bordered grid items, five border-plus-fill rules, or three button sizes
