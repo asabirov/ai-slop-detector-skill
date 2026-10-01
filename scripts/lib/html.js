@@ -416,6 +416,160 @@ function blocksUnderData(elements) {
   return out;
 }
 
+// The data a heading names, read forwards: the next sibling, or a plain wrapper
+// whose first child is one — `<div class="ui-table-scroll"><table>…</table></div>`
+// is how a table ships inside a scroll region, and finance2's own `TableRegion`
+// renders exactly that. First child, the mirror of `dataAbove`'s last child, and
+// for the same reason: a page body whose first block is a row of controls and
+// whose fourth is a table is not this heading's table.
+function dataBelow(elements, firstChildOf, from) {
+  if (SECTION_TAGS.has(elements[from].tag)) return null;
+  for (let j = from; j !== undefined; j = firstChildOf.get(j)) {
+    if (isDataBlock(elements[j])) return elements[j];
+  }
+  return null;
+}
+
+// At most two lines sit between a heading and the data it names. A third is the
+// body prose of an article that happens to hold a table, not an annotation.
+const ASIDE_MAX = 2;
+
+// A list is content, not a line about the data, and `<ul class="release-notes">`
+// otherwise reads as a note on its class alone.
+const LIST_TAGS = new Set(['ul', 'ol', 'dl', 'li', 'dt', 'dd']);
+
+// The one wrapper the walk will leave: a row that says it holds a heading.
+// Leaving any wrapper read the next grid column's or the next table cell's table
+// as this heading's own — `<div class="col-md-4"><h2/><p class="lead"/></div>
+// <div class="col-md-8"><table/></div>` is a two-column page, not an annotated
+// table, and an HTML email puts each in its own `<td>`. Every real shape that
+// needs the climb names itself: finance2 ships `fin-section__head` and
+// `fin-tasks__head`, and the kit card and the design-evidence page need no climb
+// at all, because their table is already the heading's own sibling.
+const HEAD_ROW_CLASS = /(?:^|[-_])(?:head|header|heading|hd|title)(?:$|[-_\d])/i;
+
+// Index just past each element's subtree, so "is k inside i" is one comparison
+// instead of a climb up k's parent chain. The climb is quadratic in depth, and on
+// 15,000 nested divs it cost more than the rest of the rule put together.
+function subtreeEnds(elements) {
+  const ends = new Array(elements.length).fill(0);
+  for (let i = elements.length - 1; i >= 0; i--) {
+    if (ends[i] < i + 1) ends[i] = i + 1;
+    const p = elements[i].parent;
+    if (p >= 0 && ends[p] < ends[i]) ends[p] = ends[i];
+  }
+  return ends;
+}
+
+// Every line set between a heading and the data that heading names, with the
+// prose it renders. The shape that ships puts the heading and the line in one
+// head row — `<div class="head"><h2>…</h2><span class="basis">…</span></div>`
+// followed by the table — so the walk leaves a named head row when it runs out of
+// siblings, and nothing else.
+function blocksBesideHeading(elements) {
+  const out = [];
+  if (!elements) return out;
+  const childrenOf = new Map();
+  const firstChildOf = new Map();
+  // Where each element sits among its siblings, so a walk does not scan the
+  // sibling list for the element it is already holding.
+  const seatOf = new Map();
+  for (let i = 0; i < elements.length; i++) {
+    const p = elements[i].parent;
+    if (!childrenOf.has(p)) childrenOf.set(p, []);
+    seatOf.set(i, childrenOf.get(p).push(i) - 1);
+    if (!firstChildOf.has(p)) firstChildOf.set(p, i);
+  }
+  const ends = subtreeEnds(elements);
+  for (let h = 0; h < elements.length; h++) {
+    // <h1> names the page, not the table: a report's own subtitle and byline sit
+    // under one with its first table after them, and neither is beside the data.
+    if (!/^h[2-6]$/.test(elements[h].tag)) continue;
+    const siblings = childrenOf.get(elements[h].parent) || [];
+    const tail = [];
+    let data = null;
+    for (let s = seatOf.get(h) + 1; s < siblings.length; s++) {
+      const j = siblings[s];
+      if (/^h[1-6]$/.test(elements[j].tag)) break;
+      data = dataBelow(elements, firstChildOf, j);
+      if (data) break;
+      // A link or a button beside a heading is a control, not a line about the
+      // data — and a `<a class="meta-link">See every source…</a>` reads as a note
+      // to anything looking only at the class.
+      if (!MUTE_TAGS.has(elements[j].tag)) tail.push(j);
+      if (tail.length > ASIDE_MAX) break;
+    }
+    // Out of siblings inside a head row: the data is the row's next sibling.
+    if (!data) {
+      const wrap = elements[h].parent;
+      if (wrap >= 0 && [...elements[wrap].classes].some((c) => HEAD_ROW_CLASS.test(c))) {
+        const up = childrenOf.get(elements[wrap].parent) || [];
+        const after = up[seatOf.get(wrap) + 1];
+        if (after !== undefined) data = dataBelow(elements, firstChildOf, after);
+      }
+    }
+    if (!data || !tail.length || tail.length > ASIDE_MAX) continue;
+    const heading = { tag: elements[h].tag, text: subtreeText(elements, ends, h) };
+    for (const j of tail) out.push(asideCandidate(elements, ends, j, heading, data));
+  }
+  return out;
+}
+
+// An element's own prose plus its descendants', in the order a person reads it.
+// `text` on one element leaves a nested run out: `<h2>Revenue <b>per unit</b></h2>`
+// gives the <h2> "Revenue " and the <b> "per unit".
+function subtreeText(elements, ends, i) {
+  const chunks = [];
+  for (let k = i; k < ends[i]; k++) chunks.push(...elements[k].chunks);
+  return orderedText(chunks);
+}
+
+// Chunks joined in document order, with a space between runs for the reason
+// `stripTags` puts one there, and a brace run — a JSX expression — taken out.
+function orderedText(chunks) {
+  return chunks
+    .sort((a, b) => a[0] - b[0])
+    .map((chunk) => chunk[1])
+    .join(' ')
+    .replace(/\{[^{}]*\}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// A line about the data is a line. Past this many elements it is a block of
+// content, and reading each of its lines separately is quadratic in the subtree:
+// a candidate wrapping 15,000 nested divs took 79 seconds before this bound.
+const ASIDE_MAX_NODES = 40;
+
+// One candidate: the element and everything prose-bearing under it, each with its
+// own text, because the line carrying the marker is the line to measure and to
+// report. `<span class="total">12,400 <small>EUR</small></span>` is a total with
+// its unit, and reading the pair as one two-word note fired on `EUR`. Words a
+// reader operates rather than reads come out, and so does a brace run.
+function asideCandidate(elements, ends, i, heading, data) {
+  const kept = [];
+  const muted = new Set();
+  let nested = LIST_TAGS.has(elements[i].tag) || ends[i] - i > ASIDE_MAX_NODES;
+  const stop = Math.min(ends[i], i + ASIDE_MAX_NODES + 1);
+  for (let k = i; k < stop; k++) {
+    const child = elements[k];
+    if (k > i) {
+      if (/^h[1-6]$/.test(child.tag) || isDataBlock(child) || LIST_TAGS.has(child.tag)) nested = true;
+      if (MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
+        muted.add(k);
+        continue;
+      }
+    }
+    kept.push(k);
+  }
+  const inside = kept.map((k) => ({
+    tag: elements[k].tag,
+    classes: elements[k].classes,
+    text: orderedText(kept.filter((j) => j >= k && j < ends[k]).flatMap((j) => elements[j].chunks)),
+  }));
+  return { heading, data, nested, inside, text: inside[0].text };
+}
+
 // Concatenated contents of every <style> block.
 function cssBlocks(html) {
   const blocks = [];
@@ -732,6 +886,7 @@ module.exports = {
   labelsAboveHeadings,
   selectorTargets,
   blocksUnderData,
+  blocksBesideHeading,
   CODE_TAGS,
   cssBlocks,
   stylesheetLinks,

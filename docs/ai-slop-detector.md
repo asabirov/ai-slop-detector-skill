@@ -125,6 +125,7 @@ values are stable — reference them in allowlists and PR notes.
 | `mono-noncode` | 1 | error | Monospace font on prose or a label — fake-terminal decoration. |
 | `external-link-arrow` | 1 | error | Diagonal `↗` open-in-new-tab arrow on a link — decorative cosplay. Skips code. |
 | `table-footnote` | 1 | error | An explanatory line under a table or a chart — basis, source, exclusion or an “as of” date. |
+| `table-aside` | 1 | error | A lede, subtitle or basis line set beside the heading that names a table or a chart. |
 | `middot-chain` | 2 | warning | `a · b · c` metadata chain — templated polish. |
 | `decor-numbering` | 2 | warning | `01 — label` eyebrow where the number indexes nothing. |
 | `eyebrow-kicker` | 2 | warning | Uppercase wide-tracked micro-label pre-announcing a heading. |
@@ -189,8 +190,37 @@ unclassed `<svg>` is therefore missed here, as is a note that sits outside the c
 holding its table. The editorial check in `SKILL.md` still covers a list and a
 chart, because a reader can tell a data list from a menu and this parser cannot.
 
-New UI checks are warnings, `table-footnote` excepted: it is the merge gate
-because two reviewers ran `--level strict` over the screens in #40 and got a pass.
+`table-aside` is the same test read forwards (#52). The candidate is a line between
+an `h2`–`h6` and the data that heading names: the heading's following siblings, or,
+when the heading and the line share a head row whose class says so (`head`,
+`header`, `heading`, `hd`, `title`), that row's next sibling. The data is found on
+the first-child chain, the mirror of `table-footnote`'s last child. At most two
+lines sit between a heading and its data, and a candidate over 40 elements is
+content rather than a line.
+
+Beside a heading a total, a count, a unit and a control all sit legitimately, so
+the line has to say what it is. Each floor is measured on the line carrying the
+marker, not the row holding it. It fires when that line either names itself a
+basis, note, footnote, disclaimer or fineprint, at any length; or is a `<small>` or
+carries a class naming a sub, subtitle, subheading, description, lede, lead, dek,
+standfirst, tagline, intro, hint, help, muted, subtle or small, on three words or
+more ending in `.`, `!` or `?`; or states a basis by wording, the five patterns
+`table-footnote` uses, on three words or more.
+
+These stay silent: an `<h1>`, which names the page; a `<small>` holding a unit
+(`EUR`, `ms, p95`); a `caption` or a `meta` class, because a caption above its
+figure belongs there and `meta` is a byline; a count line by shape; a list; a link
+or a button; a candidate carrying its own heading or data; and the table in the
+next grid column or table cell, which is what the head-row class test keeps out.
+
+A page lede under the page title is out of reach: finance2 renders it under an
+`<h1>`, and a row of controls sits between it and the first table. `SKILL.md`
+covers it editorially. Two of #40's lines are reached only in a rendered page,
+because `Tasks.tsx` renders its group subtitles through a JSX expression.
+
+New UI checks are warnings, `table-footnote` and `table-aside` excepted: they are
+the merge gate because two reviewers ran `--level strict` over the screens in #40
+and got a pass.
 Aggregate checks use conservative thresholds: more
 than three primary font families, at least three distinct accents, three
 hairline-bordered grid items, five border-plus-fill rules, or three button sizes
