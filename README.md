@@ -36,7 +36,7 @@ AI-assisted drafts can keep chatbot greetings, vague claims, and comments that s
 Install the tagged skill for Claude Code and Codex with:
 
 ```bash
-DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill/tree/v2.3.1 --skill ai-slop-detector --agent claude-code codex --global
+DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill/tree/v2.4.0 --skill ai-slop-detector --agent claude-code codex --global
 ```
 
 `DO_NOT_TRACK=1` tells the skills CLI not to send telemetry. The `npx skills`
@@ -60,7 +60,7 @@ Remove it with:
 DO_NOT_TRACK=1 npx skills remove ai-slop-detector --agent claude-code codex --global
 ```
 
-If you prefer not to use `npx skills`, clone the repository at the `v2.3.1` release tag into your agent's skills folder as `ai-slop-detector`. To update or roll back, run `git fetch --tags` in that folder and check out another release tag; to remove it, delete the folder.
+If you prefer not to use `npx skills`, clone the repository at the `v2.4.0` release tag into your agent's skills folder as `ai-slop-detector`. To update or roll back, run `git fetch --tags` in that folder and check out another release tag; to remove it, delete the folder.
 
 Versions are the `vX.Y.Z` release tags that the release workflow creates; the skill has no version field of its own.
 After each release the same workflow opens a pull request that renames every tag in this file to the newest release,
@@ -143,8 +143,8 @@ In a repository's CI, or anywhere with Node 20:
 
 ```bash
 REPO=github:asabirov/ai-slop-detector-skill
-npx -y "$REPO#v2.3.1" dist --level 1        # pin a tag in CI
-npx -y "$REPO#v2.3.1" src scripts --level 1
+npx -y "$REPO#v2.4.0" dist --level 1        # pin a tag in CI
+npx -y "$REPO#v2.4.0" src scripts --level 1
 npx -y "$REPO" 'src/**/*.js' --json         # unpinned tracks main
 ```
 
