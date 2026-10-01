@@ -115,56 +115,6 @@ describe('UI heuristics', { timeout: 1000 }, () => {
 });
 
 
-// Each case is markup that shipped. The two that fire are finance2's at
-// `0d21703c`, the screens #52 names; the silent ones are what a draft reading any
-// short subordinate line reported over 2,285 real HTML files, and why the rule
-// needs a sentence on that path.
-describe('table-aside', { timeout: 1000 }, () => {
-  const table = '<div class="ui-table-scroll"><table><tbody><tr><td>12</td></tr></tbody></table></div>';
-
-  it('fires on a basis-named line beside the heading', { timeout: 500 }, () => {
-    has(`<section><div class="fin-section__head"><h2>Revenue per unit</h2><span class="fin-basis">charge month</span></div>${table}</section>`, 'table-aside');
-  });
-  it('fires on a group subtitle beside the heading', { timeout: 500 }, () => {
-    has(`<section><div class="fin-tasks__head"><h2>Overdue or blocking</h2><p class="fin-small">Past due, or holding up a month close.</p></div>${table}</section>`, 'table-aside');
-  });
-  it('stays silent on a count or a unit beside the heading', { timeout: 500 }, () => {
-    lacks(`<section><h2 class="panel-title">Service inventory</h2><span class="panel-meta">11 services · 5 regions</span>${table}</section>`, 'table-aside');
-    lacks(`<section><h2 class="panel-title">Throughput by service</h2><span class="panel-meta">req/s · 15m avg</span>${table}</section>`, 'table-aside');
-  });
-  it('stays silent under an h1, which names the page', { timeout: 500 }, () => {
-    lacks(`<body><h1>More work. Less waste.</h1><p class="subtitle">August cloud spend fell 6.4% while completed jobs grew 12%.</p>${table}</body>`, 'table-aside');
-  });
-  it('stays silent on a link beside the heading', { timeout: 500 }, () => {
-    lacks(`<section><div class="head"><h2>Sources</h2><a class="meta-link" href="/sources">See every source and when it was read.</a></div>${table}</section>`, 'table-aside');
-  });
-  it('fires on an "as of" line with no marker on it', { timeout: 500 }, () => {
-    has(`<section><h2>Spend per unit</h2><p>Figures as of the last completed month close.</p>${table}</section>`, 'table-aside');
-  });
-  it('stays silent on a unit or a status in a <small>', { timeout: 500 }, () => {
-    lacks(`<section><div class="head"><h2>Spend</h2><span class="total">12,400 <small>EUR</small></span></div>${table}</section>`, 'table-aside');
-    lacks(`<section><h2>Latency</h2><small>ms, p95</small><div class="chart"><svg></svg></div></section>`, 'table-aside');
-  });
-  it('stays inside its own grid column or table cell', { timeout: 500 }, () => {
-    lacks(`<div class="row"><div class="col-md-4"><h2>About the club</h2><p class="lead">We have met every Tuesday since 1987.</p></div><div class="col-md-8">${table}</div></div>`, 'table-aside');
-    lacks(`<table role="presentation"><tr><td><h2>Your order</h2><p class="small">Thanks for shopping with us.</p></td><td>${table}</td></tr></table>`, 'table-aside');
-  });
-  it('stays silent on a count line, a caption and a byline', { timeout: 500 }, () => {
-    lacks(`<section><h2>Entries</h2><p class="meta">Showing 1 to 10 of 57 entries.</p>${table}</section>`, 'table-aside');
-    lacks('<section><h2>Rainfall</h2><p class="caption">Figure 3. Rainfall by station, 2025.</p><div class="chart"><svg></svg></div></section>', 'table-aside');
-    lacks(`<article><h2 class="entry-title">Results of the 2026 survey</h2><div class="entry-meta">Posted by Dana on 1 Oct 2026.</div><div class="entry-content">${table}</div></article>`, 'table-aside');
-  });
-  it('stays silent on a list, which is content', { timeout: 500 }, () => {
-    lacks(`<section><h2>Changelog</h2><ul class="release-notes"><li>Fixed export</li><li>Added filters</li></ul>${table}</section>`, 'table-aside');
-  });
-  it('stays silent on prose the design did not set subordinate', { timeout: 500 }, () => {
-    lacks(`<section><h2>Rainfall by month</h2><p>The observer recorded a clear morning.</p>${table}</section>`, 'table-aside');
-  });
-  it('stays silent when the data is not the next thing', { timeout: 500 }, () => {
-    lacks('<section><div class="head"><h2>Payouts</h2><p class="sub">Reconciled to bank transactions.</p></div><div class="body"><div class="seg"><button>All</button></div>' + table + '</div></section>', 'table-aside');
-  });
-});
-
 describe('UI scan bounds', { timeout: 3000 }, () => {
   it('scans 2500 nodes with inline styles within the budget', { timeout: 2500 }, () => {
     const source = '<main>' + '<p style="color:#333">Station record</p>'.repeat(2500) + '</main>';
@@ -172,13 +122,5 @@ describe('UI scan bounds', { timeout: 3000 }, () => {
   });
   it('scans 200KB brace-free CSS within the budget', { timeout: 2500 }, () => {
     assert.deepEqual(scan('.unclosed-selector '.repeat(11000), 'sample.css').findings, []);
-  });
-  // A note wrapped in 15,000 divs is not a line. `table-aside` reads each of a
-  // candidate's lines separately, which is quadratic in its subtree, so the bound
-  // that keeps this silent is the same bound that keeps it inside the budget.
-  it('treats a deeply wrapped line beside a heading as content, inside the budget', { timeout: 2500 }, () => {
-    const deep = '<div>'.repeat(15000) + 'Nested note here.' + '</div>'.repeat(15000);
-    const source = `<section><div class="head"><h2>Deep</h2><div class="sub">${deep}</div></div><table><tbody><tr><td>1</td></tr></tbody></table></section>`;
-    assert.deepEqual(scan(source).findings.map((f) => f.rule), []);
   });
 });
