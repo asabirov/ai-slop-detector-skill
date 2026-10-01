@@ -434,12 +434,38 @@ function dataBelow(elements, firstChildOf, from) {
 // body prose of an article that happens to hold a table, not an annotation.
 const ASIDE_MAX = 2;
 
+// A list is content, not a line about the data, and `<ul class="release-notes">`
+// otherwise reads as a note on its class alone.
+const LIST_TAGS = new Set(['ul', 'ol', 'dl', 'li', 'dt', 'dd']);
+
+// The one wrapper the walk will leave: a row that says it holds a heading.
+// Leaving any wrapper read the next grid column's or the next table cell's table
+// as this heading's own — `<div class="col-md-4"><h2/><p class="lead"/></div>
+// <div class="col-md-8"><table/></div>` is a two-column page, not an annotated
+// table, and an HTML email puts each in its own `<td>`. Every real shape that
+// needs the climb names itself: finance2 ships `fin-section__head` and
+// `fin-tasks__head`, and the kit card and the design-evidence page need no climb
+// at all, because their table is already the heading's own sibling.
+const HEAD_ROW_CLASS = /(?:^|[-_])(?:head|header|heading|hd|title)(?:$|[-_\d])/i;
+
+// Index just past each element's subtree, so "is k inside i" is one comparison
+// instead of a climb up k's parent chain. The climb is quadratic in depth, and on
+// 15,000 nested divs it cost more than the rest of the rule put together.
+function subtreeEnds(elements) {
+  const ends = new Array(elements.length).fill(0);
+  for (let i = elements.length - 1; i >= 0; i--) {
+    if (ends[i] < i + 1) ends[i] = i + 1;
+    const p = elements[i].parent;
+    if (p >= 0 && ends[p] < ends[i]) ends[p] = ends[i];
+  }
+  return ends;
+}
+
 // Every line set between a heading and the data that heading names, with the
 // prose it renders. The shape that ships puts the heading and the line in one
 // head row — `<div class="head"><h2>…</h2><span class="basis">…</span></div>`
-// followed by the table — so the walk leaves the head row when it runs out of
-// siblings, but never leaves a section: what follows a section is the next thing
-// on the page.
+// followed by the table — so the walk leaves a named head row when it runs out of
+// siblings, and nothing else.
 function blocksBesideHeading(elements) {
   const out = [];
   if (!elements) return out;
@@ -454,15 +480,15 @@ function blocksBesideHeading(elements) {
     seatOf.set(i, childrenOf.get(p).push(i) - 1);
     if (!firstChildOf.has(p)) firstChildOf.set(p, i);
   }
+  const ends = subtreeEnds(elements);
   for (let h = 0; h < elements.length; h++) {
     // <h1> names the page, not the table: a report's own subtitle and byline sit
     // under one with its first table after them, and neither is beside the data.
     if (!/^h[2-6]$/.test(elements[h].tag)) continue;
     const siblings = childrenOf.get(elements[h].parent) || [];
-    const at = seatOf.get(h);
     const tail = [];
     let data = null;
-    for (let s = at + 1; s < siblings.length; s++) {
+    for (let s = seatOf.get(h) + 1; s < siblings.length; s++) {
       const j = siblings[s];
       if (/^h[1-6]$/.test(elements[j].tag)) break;
       data = dataBelow(elements, firstChildOf, j);
@@ -476,15 +502,15 @@ function blocksBesideHeading(elements) {
     // Out of siblings inside a head row: the data is the row's next sibling.
     if (!data) {
       const wrap = elements[h].parent;
-      if (wrap >= 0 && !SECTION_TAGS.has(elements[wrap].tag)) {
+      if (wrap >= 0 && [...elements[wrap].classes].some((c) => HEAD_ROW_CLASS.test(c))) {
         const up = childrenOf.get(elements[wrap].parent) || [];
         const after = up[seatOf.get(wrap) + 1];
         if (after !== undefined) data = dataBelow(elements, firstChildOf, after);
       }
     }
     if (!data || !tail.length || tail.length > ASIDE_MAX) continue;
-    const heading = { tag: elements[h].tag, text: subtreeText(elements, h) };
-    for (const j of tail) out.push(asideCandidate(elements, j, heading, data));
+    const heading = { tag: elements[h].tag, text: subtreeText(elements, ends, h) };
+    for (const j of tail) out.push(asideCandidate(elements, ends, j, heading, data));
   }
   return out;
 }
@@ -492,14 +518,9 @@ function blocksBesideHeading(elements) {
 // An element's own prose plus its descendants', in the order a person reads it.
 // `text` on one element leaves a nested run out: `<h2>Revenue <b>per unit</b></h2>`
 // gives the <h2> "Revenue " and the <b> "per unit".
-function subtreeText(elements, i) {
-  const chunks = elements[i].chunks.slice();
-  for (let k = i + 1; k < elements.length; k++) {
-    let parent = elements[k].parent;
-    while (parent > i) parent = elements[parent].parent;
-    if (parent !== i) break;
-    chunks.push(...elements[k].chunks);
-  }
+function subtreeText(elements, ends, i) {
+  const chunks = [];
+  for (let k = i; k < ends[i]; k++) chunks.push(...elements[k].chunks);
   return orderedText(chunks);
 }
 
@@ -515,29 +536,38 @@ function orderedText(chunks) {
     .trim();
 }
 
-// One candidate, read the way `blocksUnderData` reads a footnote: the whole
-// subtree in document order, with the words a reader operates rather than reads
-// left out, and a brace run — a JSX expression — out before the words count.
-function asideCandidate(elements, i, heading, data) {
-  const el = elements[i];
-  const chunks = el.chunks.slice();
-  const inside = [el];
+// A line about the data is a line. Past this many elements it is a block of
+// content, and reading each of its lines separately is quadratic in the subtree:
+// a candidate wrapping 15,000 nested divs took 79 seconds before this bound.
+const ASIDE_MAX_NODES = 40;
+
+// One candidate: the element and everything prose-bearing under it, each with its
+// own text, because the line carrying the marker is the line to measure and to
+// report. `<span class="total">12,400 <small>EUR</small></span>` is a total with
+// its unit, and reading the pair as one two-word note fired on `EUR`. Words a
+// reader operates rather than reads come out, and so does a brace run.
+function asideCandidate(elements, ends, i, heading, data) {
+  const kept = [];
   const muted = new Set();
-  let nested = false;
-  for (let k = i + 1; k < elements.length; k++) {
-    let parent = elements[k].parent;
-    while (parent > i) parent = elements[parent].parent;
-    if (parent !== i) break;
+  let nested = LIST_TAGS.has(elements[i].tag) || ends[i] - i > ASIDE_MAX_NODES;
+  const stop = Math.min(ends[i], i + ASIDE_MAX_NODES + 1);
+  for (let k = i; k < stop; k++) {
     const child = elements[k];
-    if (/^h[1-6]$/.test(child.tag) || isDataBlock(child)) nested = true;
-    if (MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
-      muted.add(k);
-      continue;
+    if (k > i) {
+      if (/^h[1-6]$/.test(child.tag) || isDataBlock(child) || LIST_TAGS.has(child.tag)) nested = true;
+      if (MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
+        muted.add(k);
+        continue;
+      }
     }
-    inside.push(child);
-    chunks.push(...child.chunks);
+    kept.push(k);
   }
-  return { el, heading, data, text: orderedText(chunks), nested, inside };
+  const inside = kept.map((k) => ({
+    tag: elements[k].tag,
+    classes: elements[k].classes,
+    text: orderedText(kept.filter((j) => j >= k && j < ends[k]).flatMap((j) => elements[j].chunks)),
+  }));
+  return { heading, data, nested, inside, text: inside[0].text };
 }
 
 // Concatenated contents of every <style> block.

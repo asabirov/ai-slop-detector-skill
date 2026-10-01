@@ -26,6 +26,12 @@ export function Ledger({ rows, columns }: LedgerProps) {
           ships this one, and it is what #52 was filed on. */}
       <div className="fin-section__head"><h2>Revenue per unit</h2><Basis>charge month</Basis></div>
       <DataTable columns={columns} rows={rows} />
+
+      {/* The same slot filled by wording rather than by a marker: nothing here is
+          set small, and "as of" is what makes it a basis line. */}
+      <h2>Spend by vendor</h2>
+      <p>Figures as of the last completed month close.</p>
+      <DataTable columns={columns} rows={rows} />
     </section>
   );
 }

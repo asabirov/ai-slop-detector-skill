@@ -200,45 +200,85 @@ page body whose first block is a row of controls and whose fourth is a table is
 not. At most two lines sit between a heading and its data.
 
 Beside a heading, position alone is not enough — a total, a count, a unit and a
-control all legitimately sit there — so the line has to say what it is. Two paths:
+control all legitimately sit there — so the line has to say what it is. Each floor
+is measured against the line carrying the marker, not the row holding it: reading
+`<span class="total">12,400 <small>EUR</small></span>` as one note reported `EUR`.
+Three paths:
 
-- **It names itself an annotation.** A `<small>`, or a tag or class naming a
-  basis, note, footnote, disclaimer or fineprint. Two words are enough:
-  `<Basis>charge month</Basis>` is the line #52 was filed on.
-- **It is a sentence the design set below the heading.** A class naming a sub,
-  subtitle, subheading, description, lede, lead, dek, standfirst, tagline, intro,
-  caption, hint, help, muted, subtle, meta or small, on text of three words or
-  more that ends in `.`, `!` or `?`. Or a basis by wording, the same five patterns
-  `table-footnote` uses.
+- **It names itself an annotation.** A tag or class naming a basis, note,
+  footnote, disclaimer or fineprint, on any wording at all. One word is enough:
+  `<Basis>charge month</Basis>` is the line #52 was filed on, and
+  `<Basis>non-cash</Basis>` beside an `<h2>` that already carries a `Non-cash`
+  badge is one word. The line does need a letter in it, because a basis holding
+  only `€794.00` is the value rather than a line about it.
+- **It is a sentence the design set below the heading.** A `<small>`, or a class
+  naming a sub, subtitle, subheading, description, lede, lead, dek, standfirst,
+  tagline, intro, hint, help, muted, subtle or small, on text of three words or
+  more that ends in `.`, `!` or `?`.
+- **It states a basis by wording**, with no marker at all: the same five patterns
+  `table-footnote` uses, on three words or more. `<h2>Spend per unit</h2><p>Figures
+  as of the last completed month close.</p>` above a table is this path.
 
 The sentence floor is measured, not assumed. Over 2,285 real HTML files on one
-machine, a draft that read any subordinate line of two words or more reported 140
-files and 371 hits, and the subordinate slot beside a heading held a
-count (`11 services · 5 regions`), a unit (`req/s · 15m avg`, `checkout-svc · ms`)
-or a status (`Private workspace`) five times for every once it held filler — none
-of them a sentence. The `h2` floor comes from the same sweep: a report's own
-subtitle and byline sit under its `<h1>` with the first table after them, and an
-`<h1>` names the page rather than the table. With both, the same corpus reports
-three distinct lines on three pages, each one a line restating the table beside
-it, and `table-footnote`'s output is byte-identical.
+machine, a draft that read any subordinate line of two words or more reported 123
+files and 303 hits on 11 distinct lines, of which 8 were not filler. Two sat under
+an `<h1>`. The other six, none of them a sentence, were a count of services and
+regions, a throughput and its averaging window, a service and its unit, an event
+count and its bucket, a share of a limit, and the status `Private workspace`. Five
+of the six were two fragments joined by a middot, as in `11 services · 5 regions`.
 
-A link or a button beside the heading is a control, not a line: measured, a
-`<a class="meta-link">See every source and when it was read.</a>` reads as a note
-to anything looking only at the class. A candidate carrying its own heading or its
-own data is the next thing on the page, and the words inside a control come out
-before the floors apply.
+The `h2` floor comes from
+the same sweep: a report's own subtitle and byline sit under its `<h1>` with the
+first table after them, and an `<h1>` names the page rather than the table. With
+both, the same corpus reports three distinct lines on three pages, each one a line
+restating the table beside it, and `table-footnote`'s output is byte-identical.
 
-This rule needs neither the numeric-data nor the count-line exemption
-`table-footnote` needs: a total and a count line are both short and neither is a
-sentence, so the floors already hold them. Removing both changed nothing over the
-2,285 files, the ten rendered screens or the six source files, so neither is here.
+These stay out, each one a shape an independent review of the first draft found
+the rule firing on:
 
-A page lede under the page title is out of reach: on the screens in #52 a row of
-review controls sits between it and the first table, so the data is not on the
-first-child chain. Reading the whole subtree instead would make every
-`<p class="lead">` on a page that holds a table anywhere a hit, which is what
-`table-footnote` already rejected for its own side. `SKILL.md` covers the page
-lede editorially.
+- **A `<small>` holding a unit or a status.** `<small>` is how a kit sets `EUR` or
+  `ms, p95`, so it takes the sentence path and never the annotation one.
+- **A `caption` or a `meta` class.** A caption above the figure it names is where
+  a caption belongs, which `SKILL.md` says in as many words, and `meta` is a
+  byline: `<div class="entry-meta">Posted by Dana on 1 Oct 2026.</div>` above a
+  post whose body opens with a table is about the post. Neither is a marker here.
+- **A count line**, by the shape `table-footnote` uses — including one ending in a
+  period, which the sentence floor alone would have let through.
+- **A list.** `<ul class="release-notes">` is content, and read as a line it was a
+  note on its class alone.
+- **The next grid column's or the next table cell's table.** The walk leaves a
+  wrapper only when that wrapper's class names it a head row (`head`, `header`,
+  `heading`, `hd`, `title`). Leaving any wrapper read
+  `<div class="col-md-4"><h2/><p class="lead"/></div><div class="col-md-8"><table/></div>`
+  as an annotated table rather than a two-column page, and did the same for an
+  HTML email that puts each in its own `<td>`. Every shape that needs the climb
+  names itself: finance2 ships `fin-section__head` and `fin-tasks__head`, and the
+  kit card and the design-evidence page in the corpus need no climb at all.
+- **A link or a button beside the heading**, which is a control rather than a
+  line: `<a class="meta-link">See every source and when it was read.</a>` read as
+  a note on its class alone. The words inside a control also come out before the
+  floors apply.
+- **A candidate of more than 40 elements**, which is a block of content rather
+  than a line. The bound also keeps the cost linear: reading each of a candidate's
+  lines is quadratic in its subtree, and a note wrapped in 15,000 divs cost 79
+  seconds without it.
+
+This rule needs neither the numeric-data exemption `table-footnote` carries nor its
+caption rule: a total is held by the floors, and `caption` is not a marker here at
+all.
+
+A page lede under the page title is out of reach, for two reasons rather than one.
+finance2 renders it as `<h1>Tasks</h1><p class="ui-app__sub">…</p>`, so the `h2`
+floor hides it on its own; and on the screens in #52 a row of review controls also
+sits between it and the first table, so the data is not on the first-child chain
+either. Reading the whole subtree instead would make every `<p class="lead">` on a
+page that holds a table anywhere a hit, which is what `table-footnote` already
+rejected for its own side. `SKILL.md` covers the page lede editorially.
+
+Two of #40's lines are reached only in a rendered page, not in the component that
+writes them. `Tasks.tsx` keeps its group subtitles in a `groups` array and renders
+them through a JSX expression, so no literal sits beside the heading in the source;
+both fail once the screen is rendered.
 
 New UI checks are warnings, `table-footnote` and `table-aside` excepted: they are
 the merge gate because two reviewers ran `--level strict` over the screens in #40

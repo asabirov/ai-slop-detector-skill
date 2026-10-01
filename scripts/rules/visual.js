@@ -193,30 +193,36 @@ const tableFootnote = {
 
 // Two tiers, because one marker set cannot carry both halves of this. A class or
 // tag that names an annotation — basis, note, footnote, disclaimer — says the line
-// is about the data, so two words are enough: `<Basis>charge month</Basis>` is the
-// line #52 was filed on. FOOTNOTE_TAG and FOOTNOTE_CLASS are too wide for that
-// job, because `meta`, `hint` and `caption` only say "set this smaller".
-const ANNOTATION_TAG = /^small$|(?:^|-)(?:basis|notes?|footnotes?|disclaimer)$/i;
+// is about the data, so any wording is enough: `<Basis>charge month</Basis>` is the
+// line #52 was filed on and `<Basis>non-cash</Basis>` is one word. `<small>` is deliberately not here: it is how a kit sets
+// a unit (`<small>EUR</small>`, `<small>ms, p95</small>`), and the README allows a
+// unit beside a heading.
+const ANNOTATION_TAG = /(?:^|-)(?:basis|notes?|footnotes?|disclaimer)$/i;
 const ANNOTATION_CLASS = /(?:^|[-_])(?:basis|notes?|footnotes?|disclaimer|fineprint)(?:$|[-_\d])/i;
 
 // The other tier is everything a design calls a line it has merely set below the
-// heading: a subtitle, a lede, a muted meta line. finance2 ships `fin-small` and
-// `ui-app__sub`; a kit ships `card-description` and `panel-meta`.
+// heading: a subtitle, a lede, a `<small>`. finance2 ships `fin-small` and
+// `ui-app__sub`; a kit ships `card-description`.
+//
+// `caption` and `meta` are deliberately out. A caption above the figure it names is
+// where a caption belongs, which `SKILL.md` says in as many words, and `meta` is a
+// byline — `<div class="entry-meta">Posted by Dana on 1 Oct 2026.</div>` above a
+// post whose body opens with a table is about the post. Neither is needed by any
+// shape measured here.
+const SUBORDINATE_TAG = /^small$/i;
 const SUBORDINATE_CLASS =
-  /(?:^|[-_])(?:sub|subtitle|subhead(?:ing|line)?|description|lede|lead|dek|standfirst|tagline|intro|caption|hint|help|muted|subtle|meta|small)(?:$|[-_\d])/i;
+  /(?:^|[-_])(?:sub|subtitle|subhead(?:ing|line)?|description|lede|lead|dek|standfirst|tagline|intro|hint|help|muted|subtle|small)(?:$|[-_\d])/i;
 
 // A line that is merely set smaller has to be a sentence before this rule reads
 // it. Measured, not assumed: over 2,285 real HTML files the subordinate slot
 // beside a heading holds a count (`11 services · 5 regions`), a unit (`req/s ·
-// 15m avg`) or a status (`Private workspace`) far more often than it holds
-// filler, and none of those is a sentence. An annotation-named line skips this,
-// because naming itself a basis is the stronger signal.
+// 15m avg`) or a status (`Private workspace`) more often than it holds filler, and
+// none of those is a sentence. An annotation-named line skips this, because naming
+// itself a basis is the stronger signal.
 const SENTENCE = /[.!?]["')”’]?$/;
 const SENTENCE_MIN_WORDS = 3;
-const ANNOTATION_MIN_WORDS = 2;
 
-// A JSX expression is not prose, and `text` on one element is already in order.
-const clean = (t) => String(t).replace(/\{[^{}]*\}/g, ' ').replace(/\s+/g, ' ').trim();
+const words = (text) => (text.match(/\S+/g) || []).length;
 
 const tableAside = {
   id: 'table-aside',
@@ -226,34 +232,43 @@ const tableAside = {
     'A line set beside a heading that names a table or a chart — a lede, a group subtitle, a basis, an "as of" date. The data is right there, so the line is read instead of the numbers or not at all. Setting it small or muted says the designer knew it was not worth reading.',
   fix:
     'Cut the line. If it only names what the heading already names, the heading is the one copy needed. If it changes what a number means, put it where the number is: the column header, the unit on the value, or the label of the control that chose it.',
-  // The mirror of `table-footnote`: the same position test read forwards and the
-  // same control muting, which is what keeps a link beside a heading out. It needs
-  // neither the numeric-data nor the count-line exemption its twin needs: a total
-  // and a count line are both short and neither is a sentence, so the floors
-  // already hold them, measured over the same 2,285 files. An <h1> is out — it
-  // names the page, and a report's own subtitle and byline sit under one with the
-  // first table after them. A candidate holding its own heading or its own data is
-  // the next thing on the page.
+  // The mirror of `table-footnote`: the same position test read forwards, the same
+  // control muting and the same count-line exemption. An <h1> is out — it names
+  // the page, and a report's own subtitle and byline sit under one with the first
+  // table after them. A candidate carrying its own heading, its own data or a list
+  // is content rather than an annotation. Each floor is measured against the line
+  // that carries the marker, not the row holding it.
   test(ctx) {
     const hits = [];
-    for (const { el, heading, data, text, nested, inside } of blocksBesideHeading(ctx.elements)) {
-      if (nested) continue;
-      const words = (text.match(/\S+/g) || []).length;
+    for (const { heading, data, text, nested, inside } of blocksBesideHeading(ctx.elements)) {
+      if (nested || COUNT_LINE.test(text)) continue;
+      // No word floor on this tier, measured: one word recovers `<Basis>non-cash</Basis>`
+      // beside an <h2> that already carries a `Non-cash` badge, and adds nothing over
+      // the 2,285 files or the counter-cases. A letter, though — a basis holding only
+      // `€794.00` is the value, not a line about it.
       const annotated = inside.find(
-        (e) => ANNOTATION_TAG.test(e.tag) || [...e.classes].some((c) => ANNOTATION_CLASS.test(c))
+        (e) =>
+          /\p{L}/u.test(e.text) &&
+          (ANNOTATION_TAG.test(e.tag) || [...e.classes].some((c) => ANNOTATION_CLASS.test(c)))
       );
-      const subordinate = inside.find((e) => [...e.classes].some((c) => SUBORDINATE_CLASS.test(c)));
-      const sentence = words >= SENTENCE_MIN_WORDS && SENTENCE.test(text);
-      const marked =
-        (annotated && words >= ANNOTATION_MIN_WORDS && annotated) ||
-        (sentence && (subordinate || annotated)) ||
-        null;
-      const basis = words >= SENTENCE_MIN_WORDS && BASIS.some((re) => re.test(text));
-      if (!marked && !basis) continue;
+      const subordinate = inside.find(
+        (e) =>
+          words(e.text) >= SENTENCE_MIN_WORDS &&
+          SENTENCE.test(e.text) &&
+          (SUBORDINATE_TAG.test(e.tag) ||
+            ANNOTATION_TAG.test(e.tag) ||
+            [...e.classes].some((c) => SUBORDINATE_CLASS.test(c) || ANNOTATION_CLASS.test(c)))
+      );
+      const marked = annotated || subordinate;
+      const basis =
+        words(text) >= SENTENCE_MIN_WORDS && BASIS.some((re) => re.test(text)) ? inside[0] : null;
+      const line = marked || basis;
+      if (!line) continue;
       // Point at the marked line, not at the row holding it: a total with a basis
       // beside it is one candidate, and the basis is the half worth reading about.
-      const span = (marked && marked !== el && clean(marked.text)) || text;
-      hits.push(`beside <${heading.tag}> "${heading.text.trim().slice(0, 40)}" above <${data.tag}>: ${span.slice(0, 70)}`);
+      hits.push(
+        `beside <${heading.tag}> "${heading.text.slice(0, 40)}" above <${data.tag}>: ${line.text.slice(0, 70)}`
+      );
     }
     return hits;
   },
