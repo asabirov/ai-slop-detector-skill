@@ -18,6 +18,7 @@ const {
   selectorApplies,
   selectorTargets,
   labelsAboveHeadings,
+  blocksUnderData,
 } = require('../lib/html');
 
 const countOcc = (s, sub) => s.split(sub).length - 1;
@@ -113,6 +114,77 @@ const monoNoncode = {
         // Guess from the spelling rather than go quiet.
         if (!SPELLED_FOR_CODE.test(sel)) hits.push(`${sel} → ${m[2].trim().slice(0, 40)}`);
       }
+    }
+    return hits;
+  },
+};
+
+// What makes a line under a table a footnote: how it is set, or what it says.
+// Either is enough. Under a table a small muted sentence is a footnote whatever
+// it says, and a basis line is a footnote however it is set. A rule reading only
+// the wording would have to guess at a sentence anywhere on the page; the whole
+// point is that this one reads where the sentence sits.
+//
+// Set as subordinate: <small>, or a component or class that names itself a note.
+// `legend` and `description` are not here — a chart legend and a product
+// description are what they say they are, and this rule has no business in them.
+const FOOTNOTE_TAG = /^small$|(?:^|-)(?:basis|notes?|footnotes?|hint|disclaimer)$/i;
+
+// A caption names the thing it belongs to, which is its job. It is a footnote
+// only when it states a basis instead, so it never takes the "set as
+// subordinate" path.
+const CAPTION_TAG = /^(?:fig)?caption$|(?:^|-)caption$/i;
+const FOOTNOTE_CLASS =
+  /(?:^|[-_])(?:foot|footer|footnote|notes?|caption|hint|help|basis|disclaimer|fineprint|muted|subtle|meta)(?:$|[-_\d])/i;
+
+// The facts a footnote carries: what the numbers are counted in, what they leave
+// out, how they were rounded, where they came from, when they were taken. Kept
+// tight around the numbers, because a bare `source` or `based on` read ordinary
+// article prose after a table as a basis line.
+const BASIS = [
+  /\b(?:amounts?|values?|figures?|totals?|numbers?|prices?|balances?|rates?)\b[^.;]{0,40}?\b(?:in|at|rate|rounded|converted|exclude[sd]?|excluding|include[sd]?|including)\b/i,
+  /\bas of\b/i,
+  /\brounded (?:to|up|down)\b/i,
+  /\bexcluded from\b/i,
+  /\bsources?:/i,
+];
+
+// A count line belongs under a table, and it is a count line by shape rather
+// than by length: "Showing 1 to 10 of 57 entries" is what DataTables writes and
+// it is eight words.
+const COUNT_LINE = /^(?:showing|displaying|viewing)\b|^\d[\d,]*\s*(?:-|–|to|of)\s*\d/i;
+
+// Six words for a line identified by how it is set, four for one identified by
+// what it says — a basis line is named by its wording, so it needs fewer of
+// them, and "Amounts in EUR, VAT excluded." is the shape that ships.
+const SET_MIN_WORDS = 6;
+const BASIS_MIN_WORDS = 4;
+
+const tableFootnote = {
+  id: 'table-footnote',
+  level: 1,
+  severity: 'error',
+  why:
+    'An explanatory line under a table or a chart — what the numbers are counted in, what they exclude, where they came from, when they were taken. Nobody reading the table reads under it, so the fact is unread and load-bearing at once. A local design rule asking for the line does not make anyone read it.',
+  fix:
+    'Cut the line. If the fact changes what a number means, put it where the number is: the column header, the unit on the value, or the label of the control that chose it. Policy belongs on the page that sets the policy, linked from the heading.',
+  // Position is the definition, so position is the test — finance2 shipped a
+  // basis line under every money table and passed four review rounds at strict
+  // (#40), because nothing here was looking at where a line sat. What the
+  // candidate holds then separates a footnote from the next thing on the page: a
+  // heading or a table of its own means it is a section, not an annotation.
+  test(ctx) {
+    const hits = [];
+    for (const { el, above, text, heading, data, inside } of blocksUnderData(ctx.elements)) {
+      if (heading || data || COUNT_LINE.test(text)) continue;
+      const words = (text.match(/\S+/g) || []).length;
+      const basis = words >= BASIS_MIN_WORDS && BASIS.some((re) => re.test(text));
+      const set =
+        words >= SET_MIN_WORDS &&
+        !CAPTION_TAG.test(el.tag) &&
+        inside.some((e) => FOOTNOTE_TAG.test(e.tag) || [...e.classes].some((c) => FOOTNOTE_CLASS.test(c)));
+      if (!set && !basis) continue;
+      hits.push(`under <${above.tag}>: ${text.slice(0, 90)}`);
     }
     return hits;
   },
@@ -415,6 +487,7 @@ module.exports = [
   fakeUri,
   monoNoncode,
   externalLinkArrow,
+  tableFootnote,
   middotChain,
   decorNumbering,
   eyebrowKicker,

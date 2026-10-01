@@ -79,8 +79,8 @@ detail and does not rewrite for readability; use a separate editing pass for tha
 The editorial UI checks cover headline full stops, middot separators, repeated
 qualification badges, unhelpful implementation captions, a heading repeating
 the value a control shows as chosen, the same fact stated twice, an
-explanation wrapped around a changing number, and tooltip text set as its own
-line, in rendered pages and interface copy files. They preserve necessary
+explanation wrapped around a changing number, a footnote under a table, and
+tooltip text set as its own line, in rendered pages and interface copy files. They preserve necessary
 disclosures and useful user
 information. Component style mismatches need a rendered comparison and can be
 routed to design-review. These are agent review instructions, not additional
@@ -101,8 +101,13 @@ Three rule packs over one engine.
 - **Visual** reads markup and the CSS a page applies, including stylesheets it
   links from disk. Catches fake protocol URIs, monospace used as decoration,
   emoji headings, gradients, glow shadows, glass surfaces, nested cards,
-  oversized stats, motion and repeated layout defaults. Native font stacks and
-  numeric table data are allowed.
+  oversized stats, motion and repeated layout defaults. It also reads position:
+  an explanatory line under a table or a chart — the basis of the numbers, what
+  they exclude, where they came from, or an "as of" date — fails at level 1,
+  whether or not a local design rule asks for the line. A component counts as a
+  table: `<DataTable/>` and `<LineChart/>` are what a screen actually ships.
+  Native font stacks, numeric table data, a count line, a chart legend and a
+  caption naming its figure are allowed.
 - **Text** reads visible prose plus the attributes a person actually reads
   (`title`, `alt`, `placeholder`, `aria-label`, `data-tip`, the meta
   description). Catches "not just X, but Y", hedge openers, sycophancy residue,

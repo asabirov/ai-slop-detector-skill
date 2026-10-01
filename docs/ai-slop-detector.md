@@ -124,6 +124,7 @@ values are stable — reference them in allowlists and PR notes.
 | `fake-uri` | 1 | error | Fake protocol URI (`lessly://c4/goal`) — links to nothing. Skips code. |
 | `mono-noncode` | 1 | error | Monospace font on prose or a label — fake-terminal decoration. |
 | `external-link-arrow` | 1 | error | Diagonal `↗` open-in-new-tab arrow on a link — decorative cosplay. Skips code. |
+| `table-footnote` | 1 | error | An explanatory line under a table or a chart — basis, source, exclusion or an “as of” date. |
 | `middot-chain` | 2 | warning | `a · b · c` metadata chain — templated polish. |
 | `decor-numbering` | 2 | warning | `01 — label` eyebrow where the number indexes nothing. |
 | `eyebrow-kicker` | 2 | warning | Uppercase wide-tracked micro-label pre-announcing a heading. |
@@ -155,7 +156,42 @@ values are stable — reference them in allowlists and PR notes.
 | `everything-centred` | 4 | warning | Centering most of a page weakens the alignment hierarchy. |
 | `stock-palette` | 4 | warning | Near-black with acid green, or cream with terracotta and serif type, are common generated palettes. |
 
-New UI checks are warnings. Aggregate checks use conservative thresholds: more
+`table-footnote` reads position, not wording. The data above it is a `<table>`, a
+tag ending in a data word (`DataTable`, `LineChart`, `BarGraph`), or a container
+whose class names a chart (`chart`, `graph`, `plot`, `sparkline`) — either as the
+element directly before the candidate, or as the last child of a plain wrapper
+around one. Last child, not anywhere inside: an article body with a table in the
+middle is not a table.
+
+It fires when the element under that data either states a basis in four words or
+more, or is set subordinate to the data in six or more. A basis is what the
+numbers are counted in, what they exclude, how they were rounded, an “as of”
+date, or a `Source:`. Set subordinate means a `<small>`, a tag naming a note,
+basis, hint, footnote or disclaimer (`<Basis>`, `<TableNote>`), or a class naming
+one of those plus caption, help, fineprint, muted, subtle or meta — on the
+element, or on anything prose-bearing inside it.
+
+These stay silent: a count line by its shape (`Showing 1 to 10 of 57 entries`), a
+chart legend and a product description (neither `legend` nor `description` is a
+marker), a `<caption>` or `<figcaption>` element unless it states a basis rather
+than naming its figure, a candidate that carries its own heading or its own table, a
+`<section>`, `<nav>`, `<footer>` or `<main>`, and a line whose prose is under the
+floor once the words inside its links and buttons are removed — which is what a
+pager is.
+
+A `<ul>`, a `<dl>` and a bare `<svg>` are out of the rule, measured rather than
+assumed. Over 1,264 HTML files on one machine, every `<ul>` an earlier draft
+reached was a navigation menu or an ordinary bulleted list with the next paragraph
+after it (65 hits, none real), and every bare `<svg>` was an illustration with its
+caption under it (395 hits, none real). A `<p class="cloud-paragraph-align-right">`
+matched the chart class, because `paragraph` contains `graph`. A chart drawn as an
+unclassed `<svg>` is therefore missed here, as is a note that sits outside the card
+holding its table. The editorial check in `SKILL.md` still covers a list and a
+chart, because a reader can tell a data list from a menu and this parser cannot.
+
+New UI checks are warnings, `table-footnote` excepted: it is the merge gate
+because two reviewers ran `--level strict` over the screens in #40 and got a pass.
+Aggregate checks use conservative thresholds: more
 than three primary font families, at least three distinct accents, three
 hairline-bordered grid items, five border-plus-fill rules, or three button sizes
 or radii. Centering warns on a document root or four elements covering at least
