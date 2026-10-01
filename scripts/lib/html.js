@@ -445,10 +445,13 @@ function blocksBesideHeading(elements) {
   if (!elements) return out;
   const childrenOf = new Map();
   const firstChildOf = new Map();
+  // Where each element sits among its siblings, so a walk does not scan the
+  // sibling list for the element it is already holding.
+  const seatOf = new Map();
   for (let i = 0; i < elements.length; i++) {
     const p = elements[i].parent;
     if (!childrenOf.has(p)) childrenOf.set(p, []);
-    childrenOf.get(p).push(i);
+    seatOf.set(i, childrenOf.get(p).push(i) - 1);
     if (!firstChildOf.has(p)) firstChildOf.set(p, i);
   }
   for (let h = 0; h < elements.length; h++) {
@@ -456,7 +459,7 @@ function blocksBesideHeading(elements) {
     // under one with its first table after them, and neither is beside the data.
     if (!/^h[2-6]$/.test(elements[h].tag)) continue;
     const siblings = childrenOf.get(elements[h].parent) || [];
-    const at = siblings.indexOf(h);
+    const at = seatOf.get(h);
     const tail = [];
     let data = null;
     for (let s = at + 1; s < siblings.length; s++) {
@@ -475,14 +478,41 @@ function blocksBesideHeading(elements) {
       const wrap = elements[h].parent;
       if (wrap >= 0 && !SECTION_TAGS.has(elements[wrap].tag)) {
         const up = childrenOf.get(elements[wrap].parent) || [];
-        const after = up[up.indexOf(wrap) + 1];
+        const after = up[seatOf.get(wrap) + 1];
         if (after !== undefined) data = dataBelow(elements, firstChildOf, after);
       }
     }
     if (!data || !tail.length || tail.length > ASIDE_MAX) continue;
-    for (const j of tail) out.push(asideCandidate(elements, j, elements[h], data));
+    const heading = { tag: elements[h].tag, text: subtreeText(elements, h) };
+    for (const j of tail) out.push(asideCandidate(elements, j, heading, data));
   }
   return out;
+}
+
+// An element's own prose plus its descendants', in the order a person reads it.
+// `text` on one element leaves a nested run out: `<h2>Revenue <b>per unit</b></h2>`
+// gives the <h2> "Revenue " and the <b> "per unit".
+function subtreeText(elements, i) {
+  const chunks = elements[i].chunks.slice();
+  for (let k = i + 1; k < elements.length; k++) {
+    let parent = elements[k].parent;
+    while (parent > i) parent = elements[parent].parent;
+    if (parent !== i) break;
+    chunks.push(...elements[k].chunks);
+  }
+  return orderedText(chunks);
+}
+
+// Chunks joined in document order, with a space between runs for the reason
+// `stripTags` puts one there, and a brace run — a JSX expression — taken out.
+function orderedText(chunks) {
+  return chunks
+    .sort((a, b) => a[0] - b[0])
+    .map((chunk) => chunk[1])
+    .join(' ')
+    .replace(/\{[^{}]*\}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // One candidate, read the way `blocksUnderData` reads a footnote: the whole
@@ -507,14 +537,7 @@ function asideCandidate(elements, i, heading, data) {
     inside.push(child);
     chunks.push(...child.chunks);
   }
-  const text = chunks
-    .sort((a, b) => a[0] - b[0])
-    .map((chunk) => chunk[1])
-    .join(' ')
-    .replace(/\{[^{}]*\}/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return { el, heading, data, text, nested, inside };
+  return { el, heading, data, text: orderedText(chunks), nested, inside };
 }
 
 // Concatenated contents of every <style> block.
