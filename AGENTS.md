@@ -66,7 +66,7 @@ pass; that deletes the test.
 
 A rule's wording does not show what it now catches, or what it still lets
 through. Show that in the pull request body. One case whose result changes —
-fine before and flagged after, or flagged before and silent after — and a
+silent before and flagged after, or flagged before and silent after — and a
 similar case that reads the same both times.
 
 Include a diff of the real output of the check, before and after. A summary is
