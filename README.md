@@ -82,8 +82,8 @@ the value a control shows as chosen, the same fact stated twice, an
 explanation wrapped around a changing number, a footnote under a table, a lede or
 subtitle beside the heading that names one, and tooltip text set as its own line, in rendered pages and interface copy files. They preserve necessary
 disclosures and useful user
-information. Component style mismatches need a rendered comparison and can be
-routed to design-review. These are agent review instructions, not additional
+information. Component style mismatches need a rendered comparison; uncertain
+ones are reported as needing a design review. These are agent review instructions, not additional
 CLI rules.
 
 For unclear marketing lines, the skill can run a fresh-reader check
