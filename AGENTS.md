@@ -61,3 +61,14 @@ A new or changed rule needs a triggering case in a slop fixture, and every
 `fixtures/clean.*` has to stay silent at paranoid. A clean fixture that starts
 firing means the rule is too aggressive. Never edit a fixture to make a test
 pass; that deletes the test.
+
+## Every change ships with examples
+
+Every change must include examples. Show one case that was fine before but
+warns or fails after. Also show a similar case that stays silent both times.
+
+Include a diff of the tool's real output before and after. A summary is not
+enough.
+
+For editorial rules there is no fixture. Run the review twice: once against the
+rule text on the default branch, once against the branch's. Diff both results.
