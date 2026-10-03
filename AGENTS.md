@@ -65,12 +65,12 @@ pass; that deletes the test.
 ## Every change to what the skill flags ships with examples
 
 A rule's wording does not show what it now catches, or what it still lets
-through. Show that in the pull request body. One case that was fine before and
-warns or fails after, and a similar case that stays silent both times. That is
-the pair above, put in front of the reader.
+through. Show that in the pull request body. One case whose result changes —
+fine before and flagged after, or flagged before and silent after — and a
+similar case that reads the same both times.
 
-Include a diff of the tool's real output, before and after. A summary is not
-enough.
+Include a diff of the real output of the check, before and after. A summary is
+not enough.
 
 An editorial rule has no fixture. Run the review twice instead: once against the
 rule text on the default branch, once against the branch's, each run a fresh
