@@ -78,7 +78,8 @@ detail and does not rewrite for readability; use a separate editing pass for tha
 
 The editorial UI checks cover headline full stops, middot separators, repeated
 qualification badges, unhelpful implementation captions, a heading repeating
-the value a control shows as chosen, the same fact stated twice, an
+the value a control shows as chosen or a label wrapping its field in the
+control's own job, the same fact stated twice, an
 explanation wrapped around a changing number, a footnote under a table, a lede or
 subtitle beside the heading that names one, and tooltip text set as its own line, in rendered pages and interface copy files. They preserve necessary
 disclosures and useful user
