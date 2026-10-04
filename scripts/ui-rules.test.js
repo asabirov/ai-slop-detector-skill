@@ -60,9 +60,12 @@ describe('UI heuristics', { timeout: 1000 }, () => {
   it('lets inline radius override rounded-full', { timeout: 1000 }, () => {
     lacks('<button class="rounded-full" style="border-radius:4px">Read notes</button>', 'pill-radius');
   });
-  it('reads a repeated unit as one value and a noun as a second fact', { timeout: 1000 }, () => {
+  it('reads one shape on both sides as one value and a changed word as a second fact', { timeout: 1000 }, () => {
     lacks('<p><span>1920 px · 1080 px</span></p>', 'middot-two-facts');
+    lacks('<p><span>10 km/h · 20 km/h</span></p>', 'middot-two-facts');
+    lacks('<p><span>Q1 · Q2</span></p>', 'middot-two-facts');
     has('<p><span>14 · 1 lost</span></p>', 'middot-two-facts');
+    has('<p><span>1 h · 30 min</span></p>', 'middot-two-facts');
   });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
