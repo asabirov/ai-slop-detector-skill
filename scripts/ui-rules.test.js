@@ -19,6 +19,7 @@ const rules = [
   'bounce-easing', 'accent-bar', 'pill-radius', 'big-number-stat', 'emoji-icon',
   'family-ceiling', 'stock-display-face', 'mono-uppercase-label', 'accent-budget',
   'hairline-grid', 'double-edge', 'button-drift', 'everything-centred', 'stock-palette',
+  'middot-two-facts',
 ];
 
 describe('UI heuristics', { timeout: 1000 }, () => {
