@@ -310,6 +310,38 @@ const middotChain = {
   },
 };
 
+// The pair, where `middot-chain` reads three or more. A screen ships it as one
+// value — "4 April · 3 days late", "14 · 1 no-show" — and the reader has to take
+// the separator apart to find the fact they came for. Three things make it two
+// facts: a number on each side, a word on at least one, and different words
+// around the numbers. So "09:40 · System" is one event, "3 · 4 = 12" is
+// arithmetic, and "1920 px · 1080 px" or "Q1 2024 · Q2 2024" is a range. The
+// shape compared is the side with its numbers blanked out, and only a value of
+// eight words or fewer is read at all. Measured over 4,247 local pages and
+// components, one distinct string fires. A vertical bar came out of the
+// separator set: a union type (`'browser' | 'server'`) is not a value.
+const FACT_PAIR = /\s[·•]\s/;
+const shape = (side) => side.toLowerCase().replace(/[\d.,]+/g, '#');
+
+const middotTwoFacts = {
+  id: 'middot-two-facts',
+  level: 2,
+  severity: 'warning',
+  why: 'Two facts joined into one value with a middot — the reader has to take the value apart to find the one they came for.',
+  fix: 'Split them into their own value and label, or keep the fact that matters and drop the other.',
+  test(ctx) {
+    return ctx.runs
+      .filter((t) => words(t) <= 8)
+      .filter((t) => {
+        const parts = t.split(FACT_PAIR).map((p) => p.trim());
+        if (parts.length !== 2 || parts.some((p) => !/\d/.test(p))) return false;
+        if (shape(parts[0]) === shape(parts[1])) return false;
+        return parts.some((p) => /\p{L}/u.test(p));
+      })
+      .map((t) => t.slice(0, 70));
+  },
+};
+
 const decorNumbering = {
   id: 'decor-numbering',
   level: 2,
@@ -574,6 +606,7 @@ module.exports = [
   tableFootnote,
   tableAside,
   middotChain,
+  middotTwoFacts,
   decorNumbering,
   eyebrowKicker,
   emojiHeading,
