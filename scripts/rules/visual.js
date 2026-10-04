@@ -316,9 +316,10 @@ const middotChain = {
 // facts: a number on each side, a word on at least one, and different words
 // around the numbers. So "09:40 · System" is one event, "3 · 4 = 12" is
 // arithmetic, and "1920 px · 1080 px" or "Q1 2024 · Q2 2024" is a range. The
-// shape compared is the side with its numbers blanked out. Measured over 4,247
-// local pages and components, one distinct string fires. A vertical bar came out
-// of the separator set: a union type (`'browser' | 'server'`) is not a value.
+// shape compared is the side with its numbers blanked out, and only a value of
+// eight words or fewer is read at all. Measured over 4,247 local pages and
+// components, one distinct string fires. A vertical bar came out of the
+// separator set: a union type (`'browser' | 'server'`) is not a value.
 const FACT_PAIR = /\s[·•]\s/;
 const shape = (side) => side.toLowerCase().replace(/[\d.,]+/g, '#');
 
