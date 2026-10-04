@@ -109,7 +109,8 @@ Three rule packs over one engine.
   as a table: `<DataTable/>` and `<LineChart/>` are what a screen actually ships.
   It reads one value holding two facts, `4 April · 3 days late`, where the
   older chain rule waited for a third dot. A number on each side is what makes it
-  two facts, so a time beside who did it stays silent.
+  two facts, so a time beside who did it stays silent, and so does a pair of plain
+  measurements, which is a dimension or a range.
   Native font stacks, numeric table data, a count line, a chart legend, a caption
   naming its figure, and a total, unit, byline or control beside a heading are
   allowed.

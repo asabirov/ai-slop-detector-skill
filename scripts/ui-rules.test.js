@@ -109,6 +109,9 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     ['everything-centred', '<p style="text-align:center">North station</p><p>Records</p>'],
     ['everything-centred', '<style>body { text-align:center } p { text-align:left }</style><p>Records</p>'],
     ['stock-palette', '<body style="background:white;color:#ccff00">Records</body>'],
+    ['middot-two-facts', '<p><span>28 March 09:40 · System</span></p>'],
+    ['middot-two-facts', '<p><span>1920 px · 1080 px</span></p>'],
+    ['middot-two-facts', '<p><span>3 · 4 = 12</span></p>'],
   ];
   for (const [index, [rule, source]] of nearMisses.entries()) {
     it(`${rule} leaves near miss ${index + 1} alone`, { timeout: 1000 }, () => lacks(source, rule));

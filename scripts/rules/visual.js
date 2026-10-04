@@ -313,11 +313,14 @@ const middotChain = {
 // The pair, where `middot-chain` reads three or more. A screen ships it as one
 // value — "4 April · 3 days late", "14 · 1 no-show" — and the reader has to take
 // the separator apart to find the fact they came for. A number on each side is
-// what makes it two facts: a time beside who did it ("09:40 · System") is one
-// event, and "1920 · 1080" is a dimension. Measured over 4,247 local pages and
-// components, one distinct string fires. A vertical bar was in the separator set
-// and came out: a union type (`'browser' | 'server'`) is not a value.
+// what makes it two facts, so a time beside who did it ("09:40 · System") is one
+// event. Two plain measurements are one value as well — a dimension or a range,
+// "1920 · 1080", "2 m · 3 m" — so the dot there is arithmetic, not a join.
+// Measured over 4,247 local pages and components, one distinct string fires. A
+// vertical bar was in the separator set and came out: a union type
+// (`'browser' | 'server'`) is not a value.
 const FACT_PAIR = /\s[·•]\s/;
+const MEASUREMENT = /^[\d.,]+\s*[a-z%°/²³]{0,4}$/i;
 
 const middotTwoFacts = {
   id: 'middot-two-facts',
@@ -331,6 +334,7 @@ const middotTwoFacts = {
       .filter((t) => {
         const parts = t.split(FACT_PAIR).map((p) => p.trim());
         if (parts.length !== 2 || parts.some((p) => !/\d/.test(p))) return false;
+        if (parts.every((p) => MEASUREMENT.test(p))) return false;
         return parts.some((p) => /\p{L}/u.test(p));
       })
       .map((t) => t.slice(0, 70));
