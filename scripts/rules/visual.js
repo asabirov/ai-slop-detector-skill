@@ -314,16 +314,16 @@ const middotChain = {
 // value — "4 April · 3 days late", "14 · 1 no-show" — and the reader has to take
 // the separator apart to find the fact they came for. A number on each side is
 // what makes it two facts, so a time beside who did it ("09:40 · System") is one
-// event. Both sides in the same shape are one value as well — a dimension, a
-// range, a pair of versions: "1920 · 1080", "1920 px · 1080 px", "Q1 · Q2",
-// "3 items · 7 items". The dot there is arithmetic. A word that changes, or a
-// word on one side only, is a second fact: "14 · 1 lost", "1 h · 30 min".
+// event. The same words around the numbers are one value as well — a dimension,
+// a range, a pair of quarters: "1920 · 1080", "1920 px · 1080 px", "Q1 2024 ·
+// Q2 2024", "3 items · 7 items". The dot there is arithmetic. A word that
+// changes, or a word on one side only, is a second fact: "14 · 1 lost",
+// "1 h · 30 min". The shape is the side with its numbers blanked out.
 // Measured over 4,247 local pages and components, one distinct string fires. A
 // vertical bar was in the separator set and came out: a union type
 // (`'browser' | 'server'`) is not a value.
 const FACT_PAIR = /\s[·•]\s/;
-const MEASURE = /^(\p{L}*)[\d.,]+\s*([\p{L}%°/²³]*)$/u;
-const shape = (m) => `${m[1].toLowerCase()}|${m[2].toLowerCase()}`;
+const shape = (side) => side.toLowerCase().replace(/[\d.,]+/g, '#');
 
 const middotTwoFacts = {
   id: 'middot-two-facts',
@@ -337,8 +337,7 @@ const middotTwoFacts = {
       .filter((t) => {
         const parts = t.split(FACT_PAIR).map((p) => p.trim());
         if (parts.length !== 2 || parts.some((p) => !/\d/.test(p))) return false;
-        const measures = parts.map((p) => MEASURE.exec(p));
-        if (measures.every(Boolean) && shape(measures[0]) === shape(measures[1])) return false;
+        if (shape(parts[0]) === shape(parts[1])) return false;
         return parts.some((p) => /\p{L}/u.test(p));
       })
       .map((t) => t.slice(0, 70));

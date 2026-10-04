@@ -63,7 +63,8 @@ describe('UI heuristics', { timeout: 1000 }, () => {
   it('reads one shape on both sides as one value and a changed word as a second fact', { timeout: 1000 }, () => {
     lacks('<p><span>1920 px · 1080 px</span></p>', 'middot-two-facts');
     lacks('<p><span>10 km/h · 20 km/h</span></p>', 'middot-two-facts');
-    lacks('<p><span>Q1 · Q2</span></p>', 'middot-two-facts');
+    lacks('<p><span>Q1 2024 · Q2 2024</span></p>', 'middot-two-facts');
+    lacks('<p><span>Step 1 · Step 2</span></p>', 'middot-two-facts');
     has('<p><span>14 · 1 lost</span></p>', 'middot-two-facts');
     has('<p><span>1 h · 30 min</span></p>', 'middot-two-facts');
   });
