@@ -55,7 +55,7 @@ It says what this does today, and it opens by naming the choice this design
 makes, the alternatives it turned down, and the fact that decided between them.
 A change is finished when that file matches what shipped.
 
-## A rule change is tested both ways
+## A CLI rule change is tested both ways
 
 A new or changed CLI rule needs a triggering case in a slop fixture, and every
 `fixtures/clean.*` has to stay silent at paranoid. A clean fixture that starts
@@ -72,6 +72,7 @@ similar case that reads the same both times.
 Include a diff of the real output of the check, before and after. A summary is
 not enough.
 
-An editorial rule has no fixture. Run the review twice instead: once against the
+A CLI rule has a fixture, so run the check over it against each version of the
+rule. An editorial rule has none. Run the review twice instead: once against the
 rule text on the default branch, once against the branch's, each run a fresh
 agent given only the page and the rule text. Diff the two results.
