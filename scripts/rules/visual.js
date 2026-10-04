@@ -312,16 +312,13 @@ const middotChain = {
 
 // The pair, where `middot-chain` reads three or more. A screen ships it as one
 // value — "4 April · 3 days late", "14 · 1 no-show" — and the reader has to take
-// the separator apart to find the fact they came for. A number on each side is
-// what makes it two facts, so a time beside who did it ("09:40 · System") is one
-// event. The same words around the numbers are one value as well — a dimension,
-// a range, a pair of quarters: "1920 · 1080", "1920 px · 1080 px", "Q1 2024 ·
-// Q2 2024", "3 items · 7 items". The dot there is arithmetic. A word that
-// changes, or a word on one side only, is a second fact: "14 · 1 lost",
-// "1 h · 30 min". The shape is the side with its numbers blanked out.
-// Measured over 4,247 local pages and components, one distinct string fires. A
-// vertical bar was in the separator set and came out: a union type
-// (`'browser' | 'server'`) is not a value.
+// the separator apart to find the fact they came for. Three things make it two
+// facts: a number on each side, a word on at least one, and different words
+// around the numbers. So "09:40 · System" is one event, "3 · 4 = 12" is
+// arithmetic, and "1920 px · 1080 px" or "Q1 2024 · Q2 2024" is a range. The
+// shape compared is the side with its numbers blanked out. Measured over 4,247
+// local pages and components, one distinct string fires. A vertical bar came out
+// of the separator set: a union type (`'browser' | 'server'`) is not a value.
 const FACT_PAIR = /\s[·•]\s/;
 const shape = (side) => side.toLowerCase().replace(/[\d.,]+/g, '#');
 
