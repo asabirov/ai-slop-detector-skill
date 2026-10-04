@@ -1,6 +1,6 @@
 ---
 name: ai-slop-detector
-description: "Use before delivering a finished PR body, issue, UI copy, document or code comment, even unasked. Not for chat replies."
+description: "Use before opening a PR, sending a review page, or delivering other finished work, even unasked; also when asked to check for AI slop. Not for routine chat replies."
 ---
 
 # AI Slop Detector

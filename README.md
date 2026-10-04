@@ -69,9 +69,9 @@ merged. The workflow retries on the next merge to `main`, so a release whose pul
 
 ## Using the skill
 
-The skill's description asks
-the agent to review PR bodies, issues, UI copy, documents, and code comments
-before delivery, without waiting for an explicit request. You can also ask it
+The skill's description asks the agent to check its work before opening a pull
+request, sending a review page, or delivering other finished work, without
+waiting for an explicit request. Routine chat replies are left out. You can also ask it
 to “check this README for AI slop”. The skill makes one focused pass and reports
 the passage, the reader's problem and a specific correction. It preserves useful technical
 detail and does not rewrite for readability; use a separate editing pass for that.
