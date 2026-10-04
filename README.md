@@ -203,7 +203,8 @@ A change to what the skill flags also ships examples in its pull request: one
 case whose result changes, one that reads the same both times, and a diff of
 the check's real output before and after. A CLI rule has a fixture to run. An
 editorial rule has none, so the two runs are the review itself, once against
-each version of the rule text. `AGENTS.md` has the full rule.
+each version of the rule text. Two runs may differ on their own; say so when a
+line moves for that reason. `AGENTS.md` has the full rule.
 
 ## License
 

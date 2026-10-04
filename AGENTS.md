@@ -77,5 +77,5 @@ rule. An editorial rule has none. Run the review twice instead: once against the
 rule text on the default branch, once against the branch's, each run a fresh
 agent given only the page and the rule text. Diff the two results.
 
-A reviewing agent is not deterministic, so two runs may differ without any rule
+A fresh agent is not deterministic, so two runs may differ without any rule
 change. If a diff line moves for this reason, say so.
