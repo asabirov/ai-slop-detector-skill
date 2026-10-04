@@ -1,6 +1,6 @@
 ---
 name: ai-slop-detector
-description: "Use before a person sees finished work (a pull request, a review page, anything published) or when asked to check for AI slop. Reports empty claims, stock phrasing, decorative clutter and narrated code comments in prose, screens and code."
+description: "Use before opening a PR, sending a review page, or delivering other finished work, even unasked; also when asked to check for AI slop. Not for routine chat replies."
 ---
 
 # AI Slop Detector
