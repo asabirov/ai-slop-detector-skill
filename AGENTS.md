@@ -55,9 +55,27 @@ It says what this does today, and it opens by naming the choice this design
 makes, the alternatives it turned down, and the fact that decided between them.
 A change is finished when that file matches what shipped.
 
-## A rule change is tested both ways
+## A CLI rule change is tested both ways
 
-A new or changed rule needs a triggering case in a slop fixture, and every
+A new or changed CLI rule needs a triggering case in a slop fixture, and every
 `fixtures/clean.*` has to stay silent at paranoid. A clean fixture that starts
 firing means the rule is too aggressive. Never edit a fixture to make a test
 pass; that deletes the test.
+
+## Every change to what the skill flags ships with examples
+
+A rule's wording does not show what it now catches, or what it still lets
+through. Show that in the pull request body. One case whose result changes —
+silent before and flagged after, or flagged before and silent after — and a
+similar case that reads the same both times.
+
+Include a diff of the real output of the check, before and after. A summary is
+not enough.
+
+A CLI rule has a fixture, so run the check over it against each version of the
+rule. An editorial rule has none. Run the review twice instead: once against the
+rule text on the default branch, once against the branch's, each run a fresh
+agent given only the page and the rule text. Diff the two results.
+
+A fresh agent is not deterministic, so two runs may differ without any rule
+change. If a diff line moves for this reason, say so.

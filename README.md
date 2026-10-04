@@ -69,22 +69,21 @@ merged. The workflow retries on the next merge to `main`, so a release whose pul
 
 ## Using the skill
 
-The skill's description asks
-the agent to review PR bodies, issues, UI copy, documents, and code comments
-before delivery, without waiting for an explicit request. You can also ask it
+The skill's description asks the agent to check its work before opening a pull
+request, sending a review page, or delivering other finished work, without
+waiting for an explicit request. Routine chat replies are left out. You can also ask it
 to “check this README for AI slop”. The skill makes one focused pass and reports
 the passage, the reader's problem and a specific correction. It preserves useful technical
 detail and does not rewrite for readability; use a separate editing pass for that.
 
 The editorial UI checks cover headline full stops, middot separators, repeated
-qualification badges, unhelpful implementation captions, a heading repeating
-the value a control shows as chosen or a label wrapping its field in the
-control's own job, the same fact stated twice, an
+qualification badges, unhelpful implementation captions, a heading, label or legend
+that repeats a nearby value or mark, a control named for its job, the same fact stated twice, an
 explanation wrapped around a changing number, a footnote under a table, a lede or
 subtitle beside the heading that names one, and tooltip text set as its own line, in rendered pages and interface copy files. They preserve necessary
 disclosures and useful user
-information. Component style mismatches need a rendered comparison and can be
-routed to design-review. These are agent review instructions, not additional
+information. Component style mismatches need a rendered comparison; uncertain
+ones are reported as needing a design review. These are agent review instructions, not additional
 CLI rules.
 
 For unclear marketing lines, the skill can run a fresh-reader check
@@ -196,9 +195,16 @@ The rule set is a shared contract. Do not fork it, and do not silence a rule in
 the repository that trips over it. Open an issue here naming the rule `id`,
 showing the case, and saying what you would change.
 
-A rule change is tested both ways: a triggering case goes into a slop fixture,
-and every `fixtures/clean.*` must stay silent at paranoid. If a new rule makes a
-clean fixture fire, the rule is wrong, not the fixture.
+A CLI rule change is tested both ways: a triggering case goes into a slop
+fixture, and every `fixtures/clean.*` must stay silent at paranoid. If a new
+rule makes a clean fixture fire, the rule is wrong, not the fixture.
+
+A change to what the skill flags also ships examples in its pull request: one
+case whose result changes, one that reads the same both times, and a diff of
+the check's real output before and after. A CLI rule has a fixture to run. An
+editorial rule has none, so the two runs are the review itself, once against
+each version of the rule text. Two runs may differ on their own; say so when a
+line moves for that reason. `AGENTS.md` has the full rule.
 
 ## License
 
