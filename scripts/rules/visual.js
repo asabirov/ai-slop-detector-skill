@@ -314,13 +314,15 @@ const middotChain = {
 // value — "4 April · 3 days late", "14 · 1 no-show" — and the reader has to take
 // the separator apart to find the fact they came for. A number on each side is
 // what makes it two facts, so a time beside who did it ("09:40 · System") is one
-// event. Two plain measurements are one value as well — a dimension or a range,
-// "1920 · 1080", "2 m · 3 m" — so the dot there is arithmetic, not a join.
+// event. A pair that repeats its unit is one value as well — a dimension or a
+// range, "1920 · 1080", "1920 px · 1080 px", "2 m · 3 m" — so the dot there is
+// arithmetic. The unit has to match on both sides: a unit that changes, or a
+// noun, is a second fact, which is "14 · 1 no-show" and "3 · 7 bugs".
 // Measured over 4,247 local pages and components, one distinct string fires. A
 // vertical bar was in the separator set and came out: a union type
 // (`'browser' | 'server'`) is not a value.
 const FACT_PAIR = /\s[·•]\s/;
-const MEASUREMENT = /^[\d.,]+\s*[a-z%°/²³]{0,4}$/i;
+const MEASURE = /^[\d.,]+\s*([a-z%°]*)$/i;
 
 const middotTwoFacts = {
   id: 'middot-two-facts',
@@ -334,7 +336,8 @@ const middotTwoFacts = {
       .filter((t) => {
         const parts = t.split(FACT_PAIR).map((p) => p.trim());
         if (parts.length !== 2 || parts.some((p) => !/\d/.test(p))) return false;
-        if (parts.every((p) => MEASUREMENT.test(p))) return false;
+        const units = parts.map((p) => MEASURE.exec(p));
+        if (units.every(Boolean) && units[0][1].toLowerCase() === units[1][1].toLowerCase()) return false;
         return parts.some((p) => /\p{L}/u.test(p));
       })
       .map((t) => t.slice(0, 70));
