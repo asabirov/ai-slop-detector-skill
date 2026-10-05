@@ -80,17 +80,29 @@ build output is a gate nobody can act on.
 is the same engine over many.
 
 Text reaches a rule decoded, which the README states as the spec. Before, only attribute
-values and the per-element text decoded; the visible runs, the prose and the paragraphs did
-not, so `&middot;`, `&nbsp;` and even `&#8599;` reached a rule as written.
+values and the per-element text decoded, and only six names; the visible runs, the prose and
+the paragraphs did not, so `&middot;`, `&nbsp;` and even `&#8599;` reached a rule as written.
+The table is now the standard's own, in `scripts/lib/entities.js`.
 
-The table holds the punctuation, the currency and the arrows these rules read, not HTML5's
-two thousand names. One pass resolves an entity, and it runs last, after the tags or the
-markdown syntax are gone, so nothing reads what it produced: `&#38;middot;` is the text
-`&middot;` on the page and stays that, and `&#35; x` is a paragraph printing `# x` rather
-than a heading. A name outside the table, a code point past Unicode's last, and the
-surrogate range are left as written. The one stream that drops an unknown name rather than
-keeping it is the whole-page prose stream, which did that before, so no prose rule reads
-`&copy;` as a word.
+One place outside the text streams decodes: the `style` attribute, before it is read as CSS,
+because that is what a browser does with it.
+
+One pass resolves an entity, and it runs last, after the tags or the markdown syntax are
+gone, so nothing reads what it produced: `&#38;middot;` is the text `&middot;` on the page
+and stays that, and `&#35; x` is a paragraph printing `# x` rather than a heading. Names are
+case-sensitive, because `&Aacute;` and `&aacute;` are different letters. A name the standard
+does not list, a code point past Unicode's last, and the surrogate range are left as
+written, and so are the forms a browser accepts without the semicolon (`&amp` for `&`). The
+one stream that drops an unresolved name rather than keeping it is the whole-page prose
+stream of an HTML page, which did that before, so no prose rule reads it as a word; the
+markdown side keeps it.
+
+A run ends at every element, so `<dd>14 · 1 no-show</dd>` is measured on its own. Twelve tag
+names used to end a run, and a `<dl>` of labels and values arrived as one line that no rule
+measuring a value could reach. A file that is not markup keeps the twelve: it has no
+elements, so its tag-shaped text is an accident — a markdown page's `<date or "—">`
+placeholder — and splitting on those moved noise around rather than removing it. What
+markdown needs is its lines, which is a separate defect.
 
 `--level` accepts a number (`1`–`4`) or a name (`ban`, `recommended`, `strict`,
 `paranoid`). `--json` emits `{ verdict, level, files[], stats }` for chaining.

@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const { detect, resolveLevel, kindForPath, SEVERITY, VERDICT_ICON, LEVELS } = require('./detect');
 const { RULES } = require('./rules');
+const { NAMED } = require('./lib/entities');
 const {
   attrTextRuns,
   cssRules,
@@ -102,6 +103,36 @@ test('decodes once, and leaves what it cannot resolve as written', { timeout: 10
   assert.strictEqual(plainText('&#35; not a heading', false), '# not a heading');
   assert.deepStrictEqual(paragraphs('one&#10;&#10;two', false), ['one two']);
   assert.ok(firedIds('slop-entities.html').has('heading-period'));
+});
+
+// ── the table is the standard's, and names are case-sensitive ───────────
+// Six names were hand-picked, so `&nearr;` and `&thinsp;` got silence. The whole
+// HTML5 list decodes now, and a lower-cased lookup would have made `&Aacute;`
+// and `&aacute;` the same letter.
+test('decodes every HTML5 name, and reads its case', { timeout: 1000 }, () => {
+  assert.strictEqual(Object.keys(NAMED).length, 2125);
+  assert.strictEqual(decodeEntities('&nearr; &thinsp; &copy; &alpha;'), '↗ \u2009 © α');
+  assert.strictEqual(decodeEntities('&Aacute; &aacute;'), 'Á á');
+  assert.strictEqual(decodeEntities('&AACUTE;'), '&AACUTE;');
+  assert.strictEqual(decodeEntities('&#X26;lt;'), '&lt;');
+});
+
+// ── one run per element, in markup only ─────────────────────────────────
+// Twelve tag names ended a run, so a `<dl>` of labels and values arrived as one
+// line and no rule that measures a value could reach `<dd>14 · 1 no-show</dd>`.
+// A file that is not markup keeps the twelve: it has no elements, and its
+// tag-shaped text is an accident.
+test('ends a run at every element in markup, and leaves other files alone', { timeout: 1000 }, () => {
+  const dl = '<dl><dt>Bookings this year</dt><dd>14 &middot; 1 no-show</dd></dl>';
+  assert.deepStrictEqual(visibleTextRuns(dl), ['Bookings this year', '14 · 1 no-show']);
+  assert.deepStrictEqual(visibleTextRuns(dl, { markup: false }), ['Bookings this year 14 · 1 no-show']);
+  // A markdown page's angle-bracket placeholder is not an element, and splitting
+  // on it would stop this line being read at all.
+  const markdown = 'Due: <date> · Priority: <none|low> · Notes: <preview>';
+  assert.deepStrictEqual(
+    detect(markdown, { level: 2, ext: 'md' }).findings.map((finding) => finding.rule),
+    ['middot-chain']
+  );
 });
 
 test('a rule fires on prose that exists only in an attribute', () => {
