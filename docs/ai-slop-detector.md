@@ -79,6 +79,12 @@ build output is a gate nobody can act on.
 `scripts/detect.js` takes exactly one file and is the older entry point; `bin/slop-detector.js`
 is the same engine over many.
 
+Text reaches a rule decoded. A page that writes `&middot;` or pads its dots with `&nbsp;`
+prints the same line as one that types them, so every rule reads the same line. The numeric
+forms always decoded; the names did not, and only inside an attribute, so a chain spelled out
+of names was invisible to every text rule. The punctuation, currency and arrows a reader meets
+are covered; a name outside that set is left as it is written.
+
 `--level` accepts a number (`1`–`4`) or a name (`ban`, `recommended`, `strict`,
 `paranoid`). `--json` emits `{ verdict, level, files[], stats }` for chaining.
 

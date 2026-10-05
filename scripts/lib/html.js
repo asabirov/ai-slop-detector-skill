@@ -21,6 +21,31 @@ function stripTags(html) {
   return html.replace(/<[^>]+>/g, ' ');
 }
 
+// The named entities a page writes for the glyphs these rules read. The numeric
+// forms decoded already; six names did. So `Release&middot;Active` and a dot
+// wrapped in `&nbsp;` were invisible to every text rule, and a page could hide a
+// dotted chain by spelling it out. Not the HTML5 table: the punctuation, the
+// currency and the arrows a reader meets. A name that is not here stays as it is
+// written, which is what it did before.
+const NAMED = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  middot: '·', bull: '•', mdash: '—', ndash: '–', hellip: '…', minus: '−',
+  times: '×', lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”', sbquo: '‚',
+  euro: '€', pound: '£', yen: '¥', cent: '¢', sup2: '²', sup3: '³', deg: '°',
+  larr: '←', uarr: '↑', rarr: '→', darr: '↓', harr: '↔',
+};
+
+// Called only on text that has already had its tags removed, and nothing
+// downstream reads the result as markup again. That order is the point: a `&lt;`
+// decoded while tags are still being matched would hand the next pass a `<` it
+// could close into a tag.
+function decodeEntities(text) {
+  return text
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&([a-z][a-z0-9]*);/gi, (whole, name) => NAMED[name.toLowerCase()] ?? whole);
+}
+
 function visibleTextRuns(html) {
   const body = stripBetween(stripBetween(html, 'style'), 'script');
   const runs = body.split(
@@ -28,7 +53,7 @@ function visibleTextRuns(html) {
   );
   const out = [];
   for (const r of runs) {
-    const t = stripTags(r).replace(/\s+/g, ' ').trim();
+    const t = decodeEntities(stripTags(r)).replace(/\s+/g, ' ').trim();
     if (t) out.push(t);
   }
   return out;
@@ -49,16 +74,6 @@ const PROSE_ATTRS = /\b(?:title|alt|placeholder|aria-label|aria-description|aria
 // carry viewport strings, verification tokens and URLs.
 const META_DESCRIPTION =
   /<meta\b[^>]*\bname\s*=\s*"(?:description|og:description|twitter:description)"[^>]*\bcontent\s*=\s*"([^"]*)"/gi;
-
-function decodeEntities(text) {
-  return text
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
-    .replace(/&(amp|lt|gt|quot|apos|nbsp);/gi, (_, n) => {
-      const map = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
-      return map[n.toLowerCase()];
-    });
-}
 
 // One run per human-readable attribute value, longest first is not needed —
 // order follows the document, same as visibleTextRuns.
@@ -802,8 +817,8 @@ function withoutMarkdownCode(source) {
 function plainText(source, isHtml) {
   if (isHtml) {
     const body = stripBetween(stripBetween(source, 'style'), 'script');
-    const visible = stripTags(body)
-      .replace(/&[a-z]+;/gi, ' ')
+    const visible = decodeEntities(stripTags(body))
+      .replace(/&[a-z][a-z0-9]*;/gi, ' ') // a name this engine does not know
       .replace(/\s+/g, ' ')
       .trim();
     return [visible, ...attrTextRuns(source)].filter(Boolean).join(' ');
@@ -821,7 +836,7 @@ function plainText(source, isHtml) {
 function proseWithoutCode(source, isHtml) {
   if (isHtml) {
     const body = ['style', 'script', 'code', 'pre'].reduce(stripBetween, source);
-    const visible = stripTags(body).replace(/\s+/g, ' ').trim();
+    const visible = decodeEntities(stripTags(body)).replace(/\s+/g, ' ').trim();
     return [visible, ...attrTextRuns(body)].filter(Boolean).join(' ');
   }
   return plainText(source, false);

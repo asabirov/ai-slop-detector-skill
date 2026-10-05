@@ -11,6 +11,7 @@ const {
   attrTextRuns,
   cssRules,
   plainText,
+  visibleTextRuns,
   stripTags,
   markupTokens,
   markupElements,
@@ -32,7 +33,7 @@ const run = (f, level) =>
     filePath: path.join(FIX, f),
   });
 
-const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop.js', 'slop-linked-css.html', 'slop-table-footnote.tsx', ...fs.readdirSync(FIX).filter((f) => f.startsWith('slop-ui-'))];
+const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop.js', 'slop-linked-css.html', 'slop-table-footnote.tsx', 'slop-entities.html', ...fs.readdirSync(FIX).filter((f) => f.startsWith('slop-ui-'))];
 const CLEAN_FIXTURES = ['clean.html', 'clean.md', 'clean.js'];
 
 function firedIds(file, level = 4) {
@@ -55,6 +56,24 @@ test('reads prose out of human-readable attributes, and only those', () => {
     'A named grant, expiring Friday',
     'Our recommended tier: a plan.',
   ]);
+});
+
+// ── an entity is the text a reader meets ────────────────────────────────
+// Six names decoded, and only inside an attribute. So a page could spell its
+// dotted chain `&middot;` or pad the dots with `&nbsp;` and no text rule saw a
+// dot at all. The reader sees one line either way.
+test('decodes the named entities a reader meets, not only the numeric ones', { timeout: 1000 }, () => {
+  assert.deepStrictEqual(
+    visibleTextRuns(
+      '<p>draft &middot; 2026 &middot; brainstorm</p>' +
+        '<p>beta&nbsp;&middot;&nbsp;internal</p>' +
+        '<p>Paris &rarr; Berlin &mdash; &euro;40</p>' +
+        '<p>&quux; stays</p>'
+    ),
+    ['draft · 2026 · brainstorm', 'beta · internal', 'Paris → Berlin — €40', '&quux; stays']
+  );
+  assert.ok(plainText('<p>Total &euro;40 &hellip; done</p>', true).includes('€40 … done'));
+  assert.ok(firedIds('slop-entities.html', 2).has('middot-chain'));
 });
 
 test('a rule fires on prose that exists only in an attribute', () => {
