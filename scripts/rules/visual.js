@@ -466,7 +466,7 @@ const headingPeriod = {
     const re = /<h[12]\b[^>]*>([\s\S]*?)<\/h[12]>/gi;
     let m;
     while ((m = re.exec(ctx.html)) !== null) {
-      const inner = stripTags(m[1]).replace(/\s+/g, ' ').trim();
+      const inner = decodeEntities(stripTags(m[1])).replace(/\s+/g, ' ').trim();
       if (
         inner.endsWith('.') &&
         !inner.endsWith('...') &&
