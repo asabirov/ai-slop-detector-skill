@@ -142,11 +142,16 @@ test('ends a run at every element in markup, and leaves other files alone', { ti
     '2026',
     '· x',
   ]);
-  // `svg` stays a boundary: a chart's own labels are not part of the line beside it.
+  // `svg` stays a boundary, so an icon drawn that way ends the line. Adding `svg`
+  // alone would not change that: `use`, `path` and `g` end a run too.
   assert.deepStrictEqual(visibleTextRuns('<p>one<svg><text>label</text></svg>two</p>'), [
     'one',
     'label',
     'two',
+  ]);
+  assert.deepStrictEqual(visibleTextRuns('<p>a · <svg><use href="#d"/></svg> b · c</p>'), [
+    'a ·',
+    'b · c',
   ]);
   // A <br> does end one, and a <span> around a value still sets it apart.
   assert.deepStrictEqual(visibleTextRuns('<p>a · b<br>c · d</p>'), ['a · b', 'c · d']);

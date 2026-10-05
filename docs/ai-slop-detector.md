@@ -102,10 +102,12 @@ names used to end a run, and a `<dl>` of labels and values arrived as one line t
 measuring a value could reach. A phrasing element is the exception, because it marks up words
 inside a line rather than ending one: `b`, `strong`, `i`, `em`, `code`, `small`, `sub`, `sup`,
 `mark`, `abbr`, `time`, `kbd`, `samp`, `var`, `cite`, `q`, `s`, `u`, `del`, `ins`, `bdi`,
-`bdo`, `ruby`, `rt`, `rp`, `data`, `dfn`, `img`, `wbr`, `big`, `tt` and `font`. An inline icon
+`bdo`, `ruby`, `rt`, `rp`, `data`, `dfn`, `img`, `wbr`, `big`, `tt` and `font`. An `<img>` icon
 between two dots is the same shape as a bolded word between them, which is why `img` and
-`wbr` are there. `svg` is not: it carries text of its own, and a chart's labels are not part
-of the sentence beside it. `span` and `a` are not, because they ended a run before this and a
+`wbr` are there. `svg` is not, and adding it alone would not help: an inline icon is drawn
+from `use`, `path` and `g`, and a chart's labels sit in `text`, so every one of those ends
+the run as well. An svg icon can only pass once its whole subtree is skipped, which is a
+change of its own. Until then an icon drawn that way ends the line. `span` and `a` are not, because they ended a run before this and a
 kit's `<span>` around a value is how a value is set apart. `br` is not, because ending a line
 is what it is for. The list is exact, so a custom element ends a run whatever its name starts
 with; `<time-ago>` is not `time`. A file that is not markup keeps the twelve: it has no
