@@ -79,11 +79,14 @@ build output is a gate nobody can act on.
 `scripts/detect.js` takes exactly one file and is the older entry point; `bin/slop-detector.js`
 is the same engine over many.
 
-Text reaches a rule decoded. A page that writes `&middot;` or pads its dots with `&nbsp;`
-prints the same line as one that types them, so every rule reads the same line. The numeric
-forms always decoded; the names did not, and only inside an attribute, so a chain spelled out
-of names was invisible to every text rule. The punctuation, currency and arrows a reader meets
-are covered; a name outside that set is left as it is written.
+Text reaches a rule decoded, which the README states as the spec. Before, only attribute
+values and the per-element text decoded; the visible runs, the prose and the paragraphs did
+not, so `&middot;`, `&nbsp;` and even `&#8599;` reached a rule as written.
+
+The table holds the punctuation, the currency and the arrows these rules read, not HTML5's
+two thousand names. One pass resolves an entity, so a produced `&` is never read again:
+`&#38;middot;` is the text `&middot;` on the page and stays that. A name outside the table,
+a code point past Unicode's last, and the surrogate range are left as written.
 
 `--level` accepts a number (`1`–`4`) or a name (`ban`, `recommended`, `strict`,
 `paranoid`). `--json` emits `{ verdict, level, files[], stats }` for chaining.

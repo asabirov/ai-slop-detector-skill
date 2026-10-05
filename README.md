@@ -96,9 +96,12 @@ judgment does not waive an existing CI gate.
 
 ## What it does today
 
-Three rule packs over one engine. Every pack reads a character entity as the
-character it prints, so a dotted chain written `&middot;` and one typed with the
-dot are the same line to every rule.
+Three rule packs over one engine. Every stream a rule reads as text — a page's
+visible runs, its prose, its paragraphs, its readable attributes, and the same for
+markdown and plain text — decodes a character entity to the character it prints,
+so a dotted chain written `&middot;` and one typed with the dot are the same line.
+The scans that read markup and CSS for class names and selectors are not text and
+do not decode.
 
 - **Visual** reads markup and the CSS a page applies, including stylesheets it
   links from disk. Catches fake protocol URIs, monospace used as decoration,
