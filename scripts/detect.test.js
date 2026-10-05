@@ -91,6 +91,11 @@ test('decodes once, and leaves what it cannot resolve as written', { timeout: 10
     ['&middot; and &lt;b&gt;']
   );
   assert.strictEqual(decodeEntities('&#1114112; &#xD800; &#x26A;'), '&#1114112; &#xD800; ɪ');
+  // The whole-page prose stream drops a name this engine cannot resolve, which it
+  // did before. Done as a second pass it ate the name a numeric ampersand had
+  // just produced, so the stream reported nothing where the page prints a name.
+  assert.strictEqual(plainText('<p>&#38;middot;</p>', true), '&middot;');
+  assert.strictEqual(plainText('<p>&quux; x</p>', true), 'x');
 });
 
 test('a rule fires on prose that exists only in an attribute', () => {

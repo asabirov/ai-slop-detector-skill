@@ -54,9 +54,17 @@ const ENTITY = /&(?:#x([0-9a-f]+)|#(\d+)|([a-z][a-z0-9]*));/gi;
 // reads the string. Neither is a character a reader sees, so both stay written.
 const decodable = (code) => code >= 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff);
 
-function decodeEntities(text) {
+// `blankUnknown` is the plain-text stream's old behaviour, folded in rather than
+// run as a second pass over the result. As a second pass it ate the name a
+// numeric ampersand had just produced: `&#38;middot;` is the text `&middot;` on
+// the page, and the stream reported nothing at all.
+function decodeEntities(text, { blankUnknown = false } = {}) {
   return text.replace(ENTITY, (whole, hex, dec, name) => {
-    if (name !== undefined) return NAMED[name.toLowerCase()] ?? whole;
+    if (name !== undefined) {
+      const glyph = NAMED[name.toLowerCase()];
+      if (glyph !== undefined) return glyph;
+      return blankUnknown ? ' ' : whole;
+    }
     const code = hex !== undefined ? parseInt(hex, 16) : Number(dec);
     return decodable(code) ? String.fromCodePoint(code) : whole;
   });
@@ -833,8 +841,7 @@ function withoutMarkdownCode(source) {
 function plainText(source, isHtml) {
   if (isHtml) {
     const body = stripBetween(stripBetween(source, 'style'), 'script');
-    const visible = decodeEntities(stripTags(body))
-      .replace(/&[a-z][a-z0-9]*;/gi, ' ') // a name this engine does not know
+    const visible = decodeEntities(stripTags(body), { blankUnknown: true })
       .replace(/\s+/g, ' ')
       .trim();
     return [visible, ...attrTextRuns(source)].filter(Boolean).join(' ');
