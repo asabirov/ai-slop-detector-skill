@@ -142,8 +142,9 @@ test('ends a run at every element in markup, and leaves other files alone', { ti
     '2026',
     '· x',
   ]);
-  // `svg` stays a boundary, so an icon drawn that way ends the line. Adding `svg`
-  // alone would not change that: `use`, `path` and `g` end a run too.
+  // `svg` is a boundary, so an icon drawn that way ends the line where the twelve
+  // tag names kept it whole. Adding `svg` alone would not change that: `use`,
+  // `path` and `g` end a run too. These two pin the shape that is read less.
   assert.deepStrictEqual(visibleTextRuns('<p>one<svg><text>label</text></svg>two</p>'), [
     'one',
     'label',
