@@ -60,13 +60,21 @@ function decodeEntities(text, { blankUnknown = false } = {}) {
 
 // Phrasing marks up words inside a line, so it does not end one: `draft ·
 // <strong>2026</strong> · brainstorm` is one chain, and splitting it at the bold
-// left three fragments and none. `span` and `a` are out, because they ended a run
-// before this and a kit's `<span>` around a value is how a value is set apart,
-// and `br` is out because ending a line is what it is for.
+// left three fragments and none. An inline icon between the dots is the same
+// shape, so `img` and `wbr` are here too. `svg` is not: it carries text of its
+// own, and a chart's labels are not part of the sentence beside it.
+//
+// `span` and `a` are out, because they ended a run before this and a kit's
+// `<span>` around a value is how a value is set apart, and `br` is out because
+// ending a line is what it is for.
 const PHRASING =
   'b|strong|i|em|code|small|sub|sup|mark|abbr|time|kbd|samp|var|cite|q|s|u|del|ins' +
-  '|bdi|bdo|ruby|rt|rp|data|big|tt|font';
-const ELEMENT = new RegExp(`<\\/?(?!(?:${PHRASING})\\b)[a-z][a-z0-9-]*\\b[^>]*>`, 'i');
+  '|bdi|bdo|ruby|rt|rp|data|dfn|img|wbr|big|tt|font';
+
+// The guard after the name is `(?![a-z0-9-])`, not `\b`: a hyphen is not a word
+// character, so `\b` read every custom element starting with one of these names —
+// `<time-ago>`, `<s-badge>` — as phrasing.
+const ELEMENT = new RegExp(`<\\/?(?!(?:${PHRASING})(?![a-z0-9-]))[a-z][a-z0-9-]*\\b[^>]*>`, 'i');
 const BLOCK_ELEMENT = /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a)\b[^>]*>/i;
 
 // In markup every other element boundary ends a run. Twelve tag names used to, so
