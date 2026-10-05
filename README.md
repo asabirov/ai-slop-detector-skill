@@ -107,11 +107,16 @@ Three rule packs over one engine.
   whether or not a local design rule asks for the line — and so does a lede, group
   subtitle or "as of" line set beside the heading that names it. A component counts
   as a table: `<DataTable/>` and `<LineChart/>` are what a screen actually ships.
-  It reads one value holding two facts, `4 April · 3 days late`, where the
-  older chain rule waited for a third dot. A number on each side is what makes it
-  two facts, so a time beside who did it stays silent, and so do the same words
-  around the numbers, which is a dimension, a range or a pair of quarters. A
-  value with no word in it is arithmetic, and only a short value is read at all.
+  It reads one value holding two facts, `4 April · 3 days late` or
+  `Unpaid · 3 days overdue`, where the older chain rule waited for a third dot.
+  Two shapes count: a number on each side with the words around them changing, or
+  a word or two on one side with a number opening the other and naming what it
+  counts. A word there is letters, an apostrophe or a hyphen, so `Wi-Fi · 3
+  devices` is a pair and `A/B · 3 variants` is not. The second shape reads a
+  label joined to its own value, `Deposit · 600 kr`, as a pair as well. A time facing a side with no number of its own
+  stays silent, a relative time included, and so do a range, a dimension, a label
+  that happens to carry a number, a unit, and a phrase of three words or more
+  facing a count. Only a short value is read at all.
   Native font stacks, numeric table data, a count line, a chart legend, a caption
   naming its figure, and a total, unit, byline or control beside a heading are
   allowed.

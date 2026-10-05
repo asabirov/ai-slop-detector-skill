@@ -127,7 +127,7 @@ values are stable — reference them in allowlists and PR notes.
 | `table-footnote` | 1 | error | An explanatory line under a table or a chart — basis, source, exclusion or an “as of” date. |
 | `table-aside` | 1 | error | A lede, subtitle or basis line set beside the heading that names a table or a chart. |
 | `middot-chain` | 2 | warning | `a · b · c` metadata chain — templated polish. |
-| `middot-two-facts` | 2 | warning | One value holding two facts (`4 April · 3 days late`) — a number on each side, a word on one, and the words around them change. |
+| `middot-two-facts` | 2 | warning | One value holding two facts (`4 April · 3 days late`, `Unpaid · 3 days overdue`) — a number on each side with the words around them changing, or a word or two facing a number that opens its side. |
 | `decor-numbering` | 2 | warning | `01 — label` eyebrow where the number indexes nothing. |
 | `eyebrow-kicker` | 2 | warning | Uppercase wide-tracked micro-label pre-announcing a heading. |
 | `emoji-heading` | 2 | warning | Emoji as a section marker, standing in for type hierarchy. |

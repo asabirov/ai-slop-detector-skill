@@ -311,17 +311,50 @@ const middotChain = {
 };
 
 // The pair, where `middot-chain` reads three or more. A screen ships it as one
-// value — "4 April · 3 days late", "14 · 1 no-show" — and the reader has to take
-// the separator apart to find the fact they came for. Three things make it two
-// facts: a number on each side, a word on at least one, and different words
-// around the numbers. So "09:40 · System" is one event, "3 · 4 = 12" is
-// arithmetic, and "1920 px · 1080 px" or "Q1 2024 · Q2 2024" is a range. The
-// shape compared is the side with its numbers blanked out, and only a value of
-// eight words or fewer is read at all. Measured over 4,247 local pages and
-// components, one distinct string fires. A vertical bar came out of the
-// separator set: a union type (`'browser' | 'server'`) is not a value.
+// value — "4 April · 3 days late", "Unpaid · 3 days overdue" — and the reader has
+// to take the separator apart to find the fact they came for. Two shapes count,
+// and nothing else does. A number on each side with the words around them
+// changing, so "3 · 4 = 12" is arithmetic and "1920 px · 1080 px" is a range. Or
+// a state facing a quantity, which is the badge shape. Reading any single number
+// as the second fact instead read a kit legend, a region's health and a chart's
+// unit as pairs, seven times the hits over the same corpus, so both shapes are
+// narrow. Only a value of eight words or fewer is read at all, and a vertical bar
+// is out of the separator set: a union type (`'browser' | 'server'`) is a type.
 const FACT_PAIR = /\s[·•]\s/;
 const shape = (side) => side.toLowerCase().replace(/[\d.,]+/g, '#');
+
+// A state is a word or two and no more: "Unpaid", "email support". A third word
+// makes it a phrase, and a phrase beside a count is a count line ("5 of 34
+// services · sorted by throughput"), which this rule has no business in.
+const STATE = /^\p{L}[\p{L}'’-]*(?:\s\p{L}[\p{L}'’-]*)?$/u;
+
+// A quantity opens with its number and names what it counts: "3 days overdue".
+// A number later in the side belongs to a label ("radius 8", "Backups 7 days"),
+// and a number glued to its unit is the unit ("24h, hourly").
+const QUANTITY = /^\d[\d.,]*\s\p{L}/u;
+
+// A time beside who or what did it is one event, not two facts: "28 March 09:40
+// · System", "Dana Lim · 4 October 2026", "Paid · 2 hours ago". The time holds
+// the digits, so the other side holding none is the tell, and a stamp facing a
+// second number — "4 April · 3 days late" — is still a pair. A clock, a month
+// with its day, and "ago" are the forms; a bare year is not, because "1999
+// items" is a count. The month needs a boundary on both ends, or "3 Marchers"
+// reads as a date.
+const MONTH =
+  '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun[e]?|jul[y]?|aug(?:ust)?' +
+  '|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\b';
+const STAMP = new RegExp(
+  [
+    '\\d{1,2}:\\d{2}',
+    '\\bago\\b',
+    `\\b\\d{1,2}\\s+${MONTH}`,
+    `${MONTH}\\s+\\d{1,2}\\b`,
+  ].join('|'),
+  'i'
+);
+
+const statePlusQuantity = (parts) =>
+  parts.some((p, i) => STATE.test(p) && QUANTITY.test(parts[1 - i]) && !STAMP.test(parts[1 - i]));
 
 const middotTwoFacts = {
   id: 'middot-two-facts',
@@ -334,9 +367,11 @@ const middotTwoFacts = {
       .filter((t) => words(t) <= 8)
       .filter((t) => {
         const parts = t.split(FACT_PAIR).map((p) => p.trim());
-        if (parts.length !== 2 || parts.some((p) => !/\d/.test(p))) return false;
+        if (parts.length !== 2) return false;
         if (shape(parts[0]) === shape(parts[1])) return false;
-        return parts.some((p) => /\p{L}/u.test(p));
+        if (!parts.some((p) => /\p{L}/u.test(p))) return false;
+        if (parts.every((p) => /\d/.test(p))) return true;
+        return statePlusQuantity(parts);
       })
       .map((t) => t.slice(0, 70));
   },

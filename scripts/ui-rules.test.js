@@ -68,6 +68,28 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     has('<p><span>14 · 1 lost</span></p>', 'middot-two-facts');
     has('<p><span>1 h · 30 min</span></p>', 'middot-two-facts');
   });
+  it('reads a state beside a quantity as two facts, and a label or a unit as one', { timeout: 1000 }, () => {
+    has('<p><span>Unpaid · 3 days overdue</span></p>', 'middot-two-facts');
+    has('<p><span>Overdue · 3 days</span></p>', 'middot-two-facts');
+    lacks('<p><span>radius 8 · shadow</span></p>', 'middot-two-facts');
+    lacks('<p><span>us-east-1 · degraded</span></p>', 'middot-two-facts');
+    lacks('<p><span>req/s · 15m avg</span></p>', 'middot-two-facts');
+    lacks('<p><span>events · 24h, hourly</span></p>', 'middot-two-facts');
+    lacks('<p><span>12 of 34 bookings · sorted by date</span></p>', 'middot-two-facts');
+    lacks('<p><span>Dana Lim · 4 October 2026</span></p>', 'middot-two-facts');
+    lacks('<p><span>Paid · 2 hours ago</span></p>', 'middot-two-facts');
+  });
+  // A word or two is the whole gate, so a label joined to its own value and a
+  // count joined to a two-word sort order are pairs as well. Neither appears in
+  // the 4,781-file sweep; both are recorded here so the reading is deliberate.
+  it('reads a label joined to its value, and a count joined to a short sort order', { timeout: 1000 }, () => {
+    has('<p><span>Deposit · 600 kr</span></p>', 'middot-two-facts');
+    has('<p><span>12 results · Newest first</span></p>', 'middot-two-facts');
+    has('<p><span>Unpaid · 1999 items</span></p>', 'middot-two-facts');
+    has('<p><span>Unpaid · 3 Marchers</span></p>', 'middot-two-facts');
+    has("<p><span>Wi-Fi · 3 devices</span></p>", 'middot-two-facts');
+    lacks('<p><span>A/B · 3 variants</span></p>', 'middot-two-facts');
+  });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
   });
@@ -120,6 +142,7 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     ['middot-two-facts', '<p><span>28 March 09:40 · System</span></p>'],
     ['middot-two-facts', '<p><span>1920 px · 1080 px</span></p>'],
     ['middot-two-facts', '<p><span>3 · 4 = 12</span></p>'],
+    ['middot-two-facts', '<p><span>12 of 34 bookings · sorted by date</span></p>'],
   ];
   for (const [index, [rule, source]] of nearMisses.entries()) {
     it(`${rule} leaves near miss ${index + 1} alone`, { timeout: 1000 }, () => lacks(source, rule));
