@@ -199,10 +199,12 @@ time emails the owner.</p></div>`. The wrapper does not have to be named for the
 control; holding one is enough.
 
 "On the line itself" is its own text runs, not its subtree's, so a marked element
-whose words all sit in one inline child —
-`<small class="text-muted"><span>Updated nightly.</span></small>` — reads as a
-wrapper and goes quiet with a control in the block. Measured over 2,253 pages and
-components, that shape appears in two files.
+whose words all sit in one inline child reads as a wrapper and goes quiet with a
+control in the block:
+`<small class="text-muted"><span>Updated nightly, so yesterday stays open.</span></small>`.
+Over 2,253 pages and components, no element under data has all its words in one
+inline child; reading it loosely, as any marked wrapper with no words of its own,
+finds five, four of them with a control.
 
 A `<ul>`, a `<dl>` and a bare `<svg>` are out of the rule, measured rather than
 assumed. Over 1,264 HTML files on one machine, every `<ul>` an earlier draft

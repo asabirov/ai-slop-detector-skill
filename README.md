@@ -113,7 +113,7 @@ Three rule packs over one engine.
   live region, or a plain line whose only marker is on a wrapper around it, with a
   control in the same block. A validation message appears because the reader just
   acted, so the reader is looking at it. That answers how a line is set, never
-  what it says: a muted caption with an Export button next to it is still a
+  what it says: a muted line with an Export button next to it is still a
   footnote, and so is any line stating a basis.
 - **Text** reads visible prose plus the attributes a person actually reads
   (`title`, `alt`, `placeholder`, `aria-label`, `data-tip`, the meta
