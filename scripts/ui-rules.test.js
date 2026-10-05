@@ -93,6 +93,14 @@ describe('UI heuristics', { timeout: 1000 }, () => {
         '<table><tbody><tr><td>12.5</td></tr></tbody></table></section>',
       'table-aside'
     );
+    // "On the line itself" is its own text runs. A marked element whose words all
+    // sit in one inline child reads as a wrapper, which is the documented edge.
+    lacks(
+      '<section><h2>Spend</h2><table><tbody><tr><td>12.5</td></tr></tbody></table>' +
+        '<div class="wrap"><small class="text-muted"><span>Updated nightly, so yesterday stays open.' +
+        '</span></small><button>Export</button></div></section>',
+      'table-footnote'
+    );
   });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');

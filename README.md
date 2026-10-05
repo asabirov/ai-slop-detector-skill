@@ -110,11 +110,11 @@ Three rule packs over one engine.
   Native font stacks, numeric table data, a count line, a chart legend, a caption
   naming its figure, and a total, unit, byline or control beside a heading are
   allowed. So is a control's own feedback, which is not a line about the data: a
-  live region, or a plain line in a block named for the button or field beside it.
-  A validation message appears because the reader just acted, so the reader is
-  looking at it. That answers how a line is set, never what it says, and only a
-  marker on a wrapper drops out: a muted caption with an Export button next to it
-  is still a footnote, and so is any line stating a basis.
+  live region, or a plain line whose only marker is on a wrapper around it, with a
+  control in the same block. A validation message appears because the reader just
+  acted, so the reader is looking at it. That answers how a line is set, never
+  what it says: a muted caption with an Export button next to it is still a
+  footnote, and so is any line stating a basis.
 - **Text** reads visible prose plus the attributes a person actually reads
   (`title`, `alt`, `placeholder`, `aria-label`, `data-tip`, the meta
   description). Catches "not just X, but Y", hedge openers, sycophancy residue,

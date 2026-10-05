@@ -193,9 +193,16 @@ line does not make the line the link's feedback.
 Two halves stay. A basis stated in words is a footnote however it is set. And a
 marker on the line itself still reads, so a card footer holding
 `<small class="text-muted">` and an Export button keeps failing, which is the
-commonest card a kit ships. What goes quiet is the plain line in a block named for
-its control: `<div class="pay-foot"><button>Move</button><p>Saving a new time emails
-the owner.</p></div>`.
+commonest card a kit ships. What goes quiet is a plain line whose only marker is on
+a wrapper around it: `<div class="pay-foot"><button>Move</button><p>Saving a new
+time emails the owner.</p></div>`. The wrapper does not have to be named for the
+control; holding one is enough.
+
+"On the line itself" is its own text runs, not its subtree's, so a marked element
+whose words all sit in one inline child —
+`<small class="text-muted"><span>Updated nightly.</span></small>` — reads as a
+wrapper and goes quiet with a control in the block. Measured over 2,253 pages and
+components, that shape appears in two files.
 
 A `<ul>`, a `<dl>` and a bare `<svg>` are out of the rule, measured rather than
 assumed. Over 1,264 HTML files on one machine, every `<ul>` an earlier draft
