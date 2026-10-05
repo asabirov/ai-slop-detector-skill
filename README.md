@@ -111,8 +111,9 @@ Three rule packs over one engine.
   `Unpaid · 3 days overdue`, where the older chain rule waited for a third dot.
   Two shapes count: a number on each side with the words around them changing, or
   a word or two on one side with a number opening the other and naming what it
-  counts. The second shape reads a label joined to its own value, `Deposit ·
-  600 kr`, as a pair as well. A time facing a side with no number of its own
+  counts. A word there is letters, an apostrophe or a hyphen, so `Wi-Fi · 3
+  devices` is a pair and `A/B · 3 variants` is not. The second shape reads a
+  label joined to its own value, `Deposit · 600 kr`, as a pair as well. A time facing a side with no number of its own
   stays silent, a relative time included, and so do a range, a dimension, a label
   that happens to carry a number, a unit, and a phrase of three words or more
   facing a count. Only a short value is read at all.

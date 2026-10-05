@@ -87,6 +87,8 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     has('<p><span>12 results · Newest first</span></p>', 'middot-two-facts');
     has('<p><span>Unpaid · 1999 items</span></p>', 'middot-two-facts');
     has('<p><span>Unpaid · 3 Marchers</span></p>', 'middot-two-facts');
+    has("<p><span>Wi-Fi · 3 devices</span></p>", 'middot-two-facts');
+    lacks('<p><span>A/B · 3 variants</span></p>', 'middot-two-facts');
   });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
