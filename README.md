@@ -96,7 +96,9 @@ judgment does not waive an existing CI gate.
 
 ## What it does today
 
-Three rule packs over one engine.
+Three rule packs over one engine. Every pack reads a character entity as the
+character it prints, so a dotted chain written `&middot;` and one typed with the
+dot are the same line to every rule.
 
 - **Visual** reads markup and the CSS a page applies, including stylesheets it
   links from disk. Catches fake protocol URIs, monospace used as decoration,
