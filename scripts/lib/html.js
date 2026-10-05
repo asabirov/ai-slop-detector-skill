@@ -21,47 +21,35 @@ function stripTags(html) {
   return html.replace(/<[^>]+>/g, ' ');
 }
 
-// The named entities a page writes for the glyphs these rules read. The numeric
-// forms decoded already; six names did. So `Release&middot;Active` and a dot
-// wrapped in `&nbsp;` were invisible to every text rule, and a page could hide a
-// dotted chain by spelling it out. Not the HTML5 table: the punctuation, the
-// currency and the arrows a reader meets. A name that is not here stays as it is
-// written, which is what it did before.
-const NAMED = {
-  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
-  nbsp: ' ', thinsp: ' ', ensp: ' ', emsp: ' ',
-  middot: '·', bull: '•', mdash: '—', ndash: '–', hellip: '…', minus: '−',
-  times: '×', lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',
-  euro: '€', pound: '£', yen: '¥',
-  larr: '←', uarr: '↑', rarr: '→', darr: '↓', nearr: '↗',
-};
+// Every stream a rule reads as text decodes its character entities, because a
+// name is a spelling and the reader is shown a glyph. The table is the standard's
+// own, in `./entities`.
+const { NAMED } = require('./entities');
 
-// Called only on text that has already had its tags removed, and nothing
-// downstream reads the result as markup again. That order is the point: a `&lt;`
-// decoded while tags are still being matched would hand the next pass a `<` it
-// could close into a tag.
-//
-// One pass, not three. Three let a produced ampersand be read again: `&#38;middot;`
-// is the text `&middot;` on the page, and a numeric pass followed by a name pass
-// turned it into a dot nobody sees. An entity this engine cannot resolve — an
-// unknown name, a code point past the last one Unicode has — is left as written,
-// because a page is allowed to print the name and a bad code point must not take
-// the whole run down.
-const ENTITY = /&(?:#x([0-9a-f]+)|#(\d+)|([a-z][a-z0-9]*));/gi;
+// Case matters: `&Aacute;` and `&aacute;` are different letters, so the name is
+// looked up exactly as written. The hex digits of a numeric reference do not,
+// and neither does its `x`.
+const ENTITY = /&(?:#[xX]([0-9a-fA-F]+)|#(\d+)|([A-Za-z][A-Za-z0-9]*));/g;
 
 // Past the last code point Unicode has, `String.fromCodePoint` throws; inside the
 // surrogate range it returns half a character, which breaks the next thing that
 // reads the string. Neither is a character a reader sees, so both stay written.
 const decodable = (code) => code >= 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff);
 
-// `blankUnknown` is the plain-text stream's old behaviour, folded in rather than
-// run as a second pass over the result. As a second pass it ate the name a
+// Called only on text whose tags, or whose markdown syntax, are already gone, and
+// it runs last, so nothing reads what it produced. That order is the point twice
+// over: a `&lt;` decoded while tags are still being matched would hand the next
+// pass a `<` it could close into a tag, and a `&#35;` decoded before the markdown
+// syntax is stripped would be read as a heading marker.
+//
+// `blankUnknown` is the whole-page prose stream's old behaviour, folded in rather
+// than run as a second pass over the result. As a second pass it ate the name a
 // numeric ampersand had just produced: `&#38;middot;` is the text `&middot;` on
 // the page, and the stream reported nothing at all.
 function decodeEntities(text, { blankUnknown = false } = {}) {
   return text.replace(ENTITY, (whole, hex, dec, name) => {
     if (name !== undefined) {
-      const glyph = NAMED[name.toLowerCase()];
+      const glyph = NAMED[name];
       if (glyph !== undefined) return glyph;
       return blankUnknown ? ' ' : whole;
     }
@@ -70,11 +58,23 @@ function decodeEntities(text, { blankUnknown = false } = {}) {
   });
 }
 
-function visibleTextRuns(html) {
+// In markup, every element boundary ends a run. Twelve tag names used to, and a
+// value in a tag outside the list was read as part of its neighbours: a `<dl>` of
+// label and value pairs arrived as one long line, so `<dd>14 · 1 no-show</dd>`
+// was never read on its own and no rule that measures a value could reach it. A
+// reader sees each of those as its own line.
+//
+// A file that is not markup keeps the twelve. It has no elements, so a tag-shaped
+// run of its text is an accident — a markdown page's `<date or "—">` placeholder
+// or its `<details>` block — and splitting on those moved noise around rather
+// than removing it. What markdown needs is its lines, which is a separate defect
+// from this one and not fixed here.
+const ELEMENT = /<\/?[a-z][a-z0-9-]*\b[^>]*>/i;
+const BLOCK_ELEMENT = /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a)\b[^>]*>/i;
+
+function visibleTextRuns(html, { markup = true } = {}) {
   const body = stripBetween(stripBetween(html, 'style'), 'script');
-  const runs = body.split(
-    /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a)\b[^>]*>/i
-  );
+  const runs = body.split(markup ? ELEMENT : BLOCK_ELEMENT);
   const out = [];
   for (const r of runs) {
     const t = decodeEntities(stripTags(r)).replace(/\s+/g, ' ').trim();
@@ -908,7 +908,7 @@ function parse(source, { filePath, root, ext } = {}) {
     inlineCss: inline,
     linkedCss: linked.found,
     unresolvedCss: linked.unresolved,
-    runs: visibleTextRuns(source),
+    runs: visibleTextRuns(source, { markup: isHtml }),
     attrs: isHtml ? attrTextRuns(source) : [],
     markup,
     elements,
