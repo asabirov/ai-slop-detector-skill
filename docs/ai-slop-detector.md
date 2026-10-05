@@ -99,7 +99,12 @@ markdown side keeps it.
 
 A run ends at every element, so `<dd>14 · 1 no-show</dd>` is measured on its own. Twelve tag
 names used to end a run, and a `<dl>` of labels and values arrived as one line that no rule
-measuring a value could reach. A file that is not markup keeps the twelve: it has no
+measuring a value could reach. A phrasing element is the exception, because it marks up words
+inside a line rather than ending one: `b`, `strong`, `i`, `em`, `code`, `small`, `sub`, `sup`,
+`mark`, `abbr`, `time`, `kbd`, `samp`, `var`, `cite`, `q`, `s`, `u`, `del`, `ins`, `bdi`,
+`bdo`, `ruby`, `rt`, `rp`, `data`, `big`, `tt` and `font`. `span` and `a` are not among them,
+because they ended a run before this and a kit's `<span>` around a value is how a value is
+set apart, and `br` is not, because ending a line is what it is for. A file that is not markup keeps the twelve: it has no
 elements, so its tag-shaped text is an accident — a markdown page's `<date or "—">`
 placeholder — and splitting on those moved noise around rather than removing it. What
 markdown needs is its lines, which is a separate defect.
