@@ -61,11 +61,11 @@ function decodeEntities(text, { blankUnknown = false } = {}) {
 // Phrasing marks up words inside a line, so it does not end one: `draft ·
 // <strong>2026</strong> · brainstorm` is one chain, and splitting it at the bold
 // left three fragments and none. An `<img>` icon between the dots is the same
-// shape, so `img` and `wbr` are here too. `svg` is not, and adding it alone would
-// not help: an icon is drawn from `use`, `path` and `g`, which end a run as well.
-// So a chain with an svg icon between its dots was read before this change and is
-// not now. Letting it through means skipping a whole subtree, which is its own
-// change.
+// shape, so `img` and `wbr` are here too.
+//
+// What it costs: any other element between the dots ends the run, where the twelve
+// kept it whole — an inline `<svg>` icon, a `<relative-time>`, a `<label>`. The
+// reference says why adding `svg` here would not answer the icon case.
 //
 // `span` and `a` are out, because they ended a run before this and a kit's
 // `<span>` around a value is how a value is set apart, and `br` is out because
