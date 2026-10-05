@@ -177,10 +177,15 @@ const tableFootnote = {
   test(ctx) {
     const hits = [];
     for (const { el, above, text, heading, data, feedback, inside } of blocksUnderData(ctx.elements)) {
-      if (heading || data || feedback || COUNT_LINE.test(text)) continue;
+      if (heading || data || COUNT_LINE.test(text)) continue;
       const words = (text.match(/\S+/g) || []).length;
       const basis = words >= BASIS_MIN_WORDS && BASIS.some((re) => re.test(text));
+      // A control's own feedback answers the "set subordinate" half only. A line
+      // that states a basis is a footnote however it is set, and a card footer
+      // holding both a basis line and a Download button is the shape #40 was
+      // filed on, so the wording half keeps reading.
       const set =
+        !feedback &&
         words >= SET_MIN_WORDS &&
         !CAPTION_TAG.test(el.tag) &&
         inside.some((e) => FOOTNOTE_TAG.test(e.tag) || [...e.classes].some((c) => FOOTNOTE_CLASS.test(c)));
@@ -241,7 +246,7 @@ const tableAside = {
   test(ctx) {
     const hits = [];
     for (const { heading, data, text, nested, feedback, inside } of blocksBesideHeading(ctx.elements)) {
-      if (nested || feedback || COUNT_LINE.test(text)) continue;
+      if (nested || COUNT_LINE.test(text)) continue;
       // No word floor on this tier, measured: one word recovers `<Basis>non-cash</Basis>`
       // beside an <h2> that already carries a `Non-cash` badge, and adds nothing over
       // the 2,285 files or the counter-cases. A letter, though — a basis holding only
@@ -259,7 +264,9 @@ const tableAside = {
             ANNOTATION_TAG.test(e.tag) ||
             [...e.classes].some((c) => SUBORDINATE_CLASS.test(c) || ANNOTATION_CLASS.test(c)))
       );
-      const marked = annotated || subordinate;
+      // The mirror of the footnote rule's split: a control's own feedback cannot be
+      // read by its marker, and a basis stated in words is read whatever marks it.
+      const marked = feedback ? null : annotated || subordinate;
       const basis =
         words(text) >= SENTENCE_MIN_WORDS && BASIS.some((re) => re.test(text)) ? inside[0] : null;
       const line = marked || basis;

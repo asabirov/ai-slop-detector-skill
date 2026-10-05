@@ -112,6 +112,9 @@ Three rule packs over one engine.
   allowed. So is a control's own feedback, which is not a line about the data: a
   live region, or a line in the same block as a button or a field. A validation
   message appears because the reader just acted, so the reader is looking at it.
+  That answers how the line is set, not what it says: a line stating a basis is
+  still a footnote, so a card footer holding one and a Download button keeps
+  failing.
 - **Text** reads visible prose plus the attributes a person actually reads
   (`title`, `alt`, `placeholder`, `aria-label`, `data-tip`, the meta
   description). Catches "not just X, but Y", hedge openers, sycophancy residue,

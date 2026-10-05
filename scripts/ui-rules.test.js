@@ -74,6 +74,10 @@ describe('UI heuristics', { timeout: 1000 }, () => {
       '<div class="note"><button>Save</button><p>Saving a new time notifies the observer.</p></div></section>';
     lacks(beside, 'table-footnote');
     has(beside.replace('<button>Save</button>', '<a href="/save">Save</a>'), 'table-footnote');
+    // A basis stated in words is a footnote however it is set, so a card footer
+    // holding a basis line and a Download button keeps reading on both rules.
+    has(beside.replace('Saving a new time notifies the observer.', 'Amounts in EUR, VAT excluded.'), 'table-footnote');
+    has(live.replace('The hall already holds a booking then.', 'Figures as of 1 April 2026.'), 'table-aside');
   });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
