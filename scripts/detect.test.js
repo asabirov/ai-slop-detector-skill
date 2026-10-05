@@ -126,9 +126,27 @@ test('ends a run at every element in markup, and leaves other files alone', { ti
   const dl = '<dl><dt>Bookings this year</dt><dd>14 &middot; 1 no-show</dd></dl>';
   assert.deepStrictEqual(visibleTextRuns(dl), ['Bookings this year', '14 · 1 no-show']);
   assert.deepStrictEqual(visibleTextRuns(dl, { markup: false }), ['Bookings this year 14 · 1 no-show']);
-  // A phrasing element marks up words inside a line, so it does not end one.
+  // A phrasing element marks up words inside a line, so it does not end one. An
+  // inline icon is the same shape.
   assert.deepStrictEqual(visibleTextRuns('<p>draft · <strong>2026</strong> · brainstorm</p>'), [
     'draft · 2026 · brainstorm',
+  ]);
+  assert.deepStrictEqual(visibleTextRuns('<p>draft · <img src="i.png" alt=""> 2026 · x</p>'), [
+    'draft · 2026 · x',
+  ]);
+  // A custom element is not phrasing, whatever its name starts with. A word
+  // boundary after the name read `<time-ago>` and `<s-badge>` as phrasing,
+  // because a hyphen is not a word character.
+  assert.deepStrictEqual(visibleTextRuns('<p>draft · <time-ago>2026</time-ago> · x</p>'), [
+    'draft ·',
+    '2026',
+    '· x',
+  ]);
+  // `svg` stays a boundary: a chart's own labels are not part of the line beside it.
+  assert.deepStrictEqual(visibleTextRuns('<p>one<svg><text>label</text></svg>two</p>'), [
+    'one',
+    'label',
+    'two',
   ]);
   // A <br> does end one, and a <span> around a value still sets it apart.
   assert.deepStrictEqual(visibleTextRuns('<p>a · b<br>c · d</p>'), ['a · b', 'c · d']);

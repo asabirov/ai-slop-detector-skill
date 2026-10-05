@@ -102,9 +102,13 @@ names used to end a run, and a `<dl>` of labels and values arrived as one line t
 measuring a value could reach. A phrasing element is the exception, because it marks up words
 inside a line rather than ending one: `b`, `strong`, `i`, `em`, `code`, `small`, `sub`, `sup`,
 `mark`, `abbr`, `time`, `kbd`, `samp`, `var`, `cite`, `q`, `s`, `u`, `del`, `ins`, `bdi`,
-`bdo`, `ruby`, `rt`, `rp`, `data`, `big`, `tt` and `font`. `span` and `a` are not among them,
-because they ended a run before this and a kit's `<span>` around a value is how a value is
-set apart, and `br` is not, because ending a line is what it is for. A file that is not markup keeps the twelve: it has no
+`bdo`, `ruby`, `rt`, `rp`, `data`, `dfn`, `img`, `wbr`, `big`, `tt` and `font`. An inline icon
+between two dots is the same shape as a bolded word between them, which is why `img` and
+`wbr` are there. `svg` is not: it carries text of its own, and a chart's labels are not part
+of the sentence beside it. `span` and `a` are not, because they ended a run before this and a
+kit's `<span>` around a value is how a value is set apart. `br` is not, because ending a line
+is what it is for. The list is exact, so a custom element ends a run whatever its name starts
+with; `<time-ago>` is not `time`. A file that is not markup keeps the twelve: it has no
 elements, so its tag-shaped text is an accident — a markdown page's `<date or "—">`
 placeholder — and splitting on those moved noise around rather than removing it. What
 markdown needs is its lines, which is a separate defect.
