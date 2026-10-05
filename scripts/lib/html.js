@@ -58,20 +58,25 @@ function decodeEntities(text, { blankUnknown = false } = {}) {
   });
 }
 
-// In markup, every element boundary ends a run. Twelve tag names used to, and a
-// value in a tag outside the list was read as part of its neighbours: a `<dl>` of
-// label and value pairs arrived as one long line, so `<dd>14 · 1 no-show</dd>`
-// was never read on its own and no rule that measures a value could reach it. A
-// reader sees each of those as its own line.
-//
-// A file that is not markup keeps the twelve. It has no elements, so a tag-shaped
-// run of its text is an accident — a markdown page's `<date or "—">` placeholder
-// or its `<details>` block — and splitting on those moved noise around rather
-// than removing it. What markdown needs is its lines, which is a separate defect
-// from this one and not fixed here.
-const ELEMENT = /<\/?[a-z][a-z0-9-]*\b[^>]*>/i;
+// Phrasing marks up words inside a line, so it does not end one: `draft ·
+// <strong>2026</strong> · brainstorm` is one chain, and splitting it at the bold
+// left three fragments and none. `span` and `a` are out, because they ended a run
+// before this and a kit's `<span>` around a value is how a value is set apart,
+// and `br` is out because ending a line is what it is for.
+const PHRASING =
+  'b|strong|i|em|code|small|sub|sup|mark|abbr|time|kbd|samp|var|cite|q|s|u|del|ins' +
+  '|bdi|bdo|ruby|rt|rp|data|big|tt|font';
+const ELEMENT = new RegExp(`<\\/?(?!(?:${PHRASING})\\b)[a-z][a-z0-9-]*\\b[^>]*>`, 'i');
 const BLOCK_ELEMENT = /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a)\b[^>]*>/i;
 
+// In markup every other element boundary ends a run. Twelve tag names used to, so
+// a value in a tag outside the list was read as part of its neighbours: a `<dl>`
+// arrived as one long line and no rule measuring a value could reach
+// `<dd>14 · 1 no-show</dd>`.
+//
+// A file that is not markup keeps the twelve. It has no elements, so a tag-shaped
+// run of its text is an accident, and splitting on those moved noise around rather
+// than removing it. Markdown needs its lines, which is a separate defect.
 function visibleTextRuns(html, { markup = true } = {}) {
   const body = stripBetween(stripBetween(html, 'style'), 'script');
   const runs = body.split(markup ? ELEMENT : BLOCK_ELEMENT);

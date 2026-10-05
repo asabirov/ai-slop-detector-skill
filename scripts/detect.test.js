@@ -126,6 +126,16 @@ test('ends a run at every element in markup, and leaves other files alone', { ti
   const dl = '<dl><dt>Bookings this year</dt><dd>14 &middot; 1 no-show</dd></dl>';
   assert.deepStrictEqual(visibleTextRuns(dl), ['Bookings this year', '14 · 1 no-show']);
   assert.deepStrictEqual(visibleTextRuns(dl, { markup: false }), ['Bookings this year 14 · 1 no-show']);
+  // A phrasing element marks up words inside a line, so it does not end one.
+  assert.deepStrictEqual(visibleTextRuns('<p>draft · <strong>2026</strong> · brainstorm</p>'), [
+    'draft · 2026 · brainstorm',
+  ]);
+  // A <br> does end one, and a <span> around a value still sets it apart.
+  assert.deepStrictEqual(visibleTextRuns('<p>a · b<br>c · d</p>'), ['a · b', 'c · d']);
+  assert.deepStrictEqual(visibleTextRuns('<div><span>Due</span><span>4 April</span></div>'), [
+    'Due',
+    '4 April',
+  ]);
   // A markdown page's angle-bracket placeholder is not an element, and splitting
   // on it would stop this line being read at all.
   const markdown = 'Due: <date> · Priority: <none|low> · Notes: <preview>';

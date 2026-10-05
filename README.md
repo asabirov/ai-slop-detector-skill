@@ -107,8 +107,9 @@ shapes work on the page as written.
 
 In markup, a run ends at every element, so a value is measured on its own: the
 `<dd>` of a label and value pair is its own line, not part of the list around it.
-A file that is not markup has no elements, so its runs end at the block tags it
-happens to carry.
+A phrasing element does not end a line, because it marks up words inside one, so
+`draft · <strong>2026</strong> · brainstorm` stays one chain. A file that is not
+markup has no elements, so its runs end at the block tags it happens to carry.
 
 - **Visual** reads markup and the CSS a page applies, including stylesheets it
   links from disk. Catches fake protocol URIs, monospace used as decoration,
