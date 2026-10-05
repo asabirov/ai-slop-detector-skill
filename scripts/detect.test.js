@@ -96,6 +96,12 @@ test('decodes once, and leaves what it cannot resolve as written', { timeout: 10
   // just produced, so the stream reported nothing where the page prints a name.
   assert.strictEqual(plainText('<p>&#38;middot;</p>', true), '&middot;');
   assert.strictEqual(plainText('<p>&quux; x</p>', true), 'x');
+  // Decoding runs last, after the markdown syntax is stripped, so a character it
+  // produces is never read as syntax. CommonMark resolves an entity after block
+  // structure: `&#35; x` prints `# x` in a paragraph.
+  assert.strictEqual(plainText('&#35; not a heading', false), '# not a heading');
+  assert.deepStrictEqual(paragraphs('one&#10;&#10;two', false), ['one two']);
+  assert.ok(firedIds('slop-entities.html').has('heading-period'));
 });
 
 test('a rule fires on prose that exists only in an attribute', () => {
