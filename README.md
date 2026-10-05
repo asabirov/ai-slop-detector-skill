@@ -108,10 +108,10 @@ shapes work on the page as written.
 In markup, a run ends at every element, so a value is measured on its own: the
 `<dd>` of a label and value pair is its own line, not part of the list around it.
 A phrasing element does not end a line, because it marks up words inside one, so
-`draft · <strong>2026</strong> · brainstorm` stays one chain and so does the same
-line with an inline icon between its dots. A file the engine does not read as
-markup keeps the older, coarser split, because it has no elements to end a run
-at.
+`draft · <strong>2026</strong> · brainstorm` stays one chain, and so does the same
+line with an `<img>` icon between its dots. An icon drawn as inline `<svg>` still
+ends the line. A file the engine does not read as markup keeps the older, coarser
+split, because it has no elements to end a run at.
 
 - **Visual** reads markup and the CSS a page applies, including stylesheets it
   links from disk. Catches fake protocol URIs, monospace used as decoration,
