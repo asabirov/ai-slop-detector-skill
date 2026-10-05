@@ -7,10 +7,14 @@ const os = require('os');
 const path = require('path');
 const { detect, resolveLevel, kindForPath, SEVERITY, VERDICT_ICON, LEVELS } = require('./detect');
 const { RULES } = require('./rules');
+const { NAMED } = require('./lib/entities');
 const {
   attrTextRuns,
   cssRules,
   plainText,
+  paragraphs,
+  visibleTextRuns,
+  decodeEntities,
   stripTags,
   markupTokens,
   markupElements,
@@ -32,7 +36,7 @@ const run = (f, level) =>
     filePath: path.join(FIX, f),
   });
 
-const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop.js', 'slop-linked-css.html', 'slop-table-footnote.tsx', ...fs.readdirSync(FIX).filter((f) => f.startsWith('slop-ui-'))];
+const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop.js', 'slop-linked-css.html', 'slop-table-footnote.tsx', 'slop-entities.html', ...fs.readdirSync(FIX).filter((f) => f.startsWith('slop-ui-'))];
 const CLEAN_FIXTURES = ['clean.html', 'clean.md', 'clean.js'];
 
 function firedIds(file, level = 4) {
@@ -55,6 +59,114 @@ test('reads prose out of human-readable attributes, and only those', () => {
     'A named grant, expiring Friday',
     'Our recommended tier: a plan.',
   ]);
+});
+
+// ── an entity is the text a reader meets ────────────────────────────────
+// Six names decoded, and only inside an attribute. So a page could spell its
+// dotted chain `&middot;` or pad the dots with `&nbsp;` and no text rule saw a
+// dot at all. The reader sees one line either way.
+test('decodes the named entities a reader meets, not only the numeric ones', { timeout: 1000 }, () => {
+  assert.deepStrictEqual(
+    visibleTextRuns(
+      '<p>draft &middot; 2026 &middot; brainstorm</p>' +
+        '<p>beta&nbsp;&middot;&nbsp;internal</p>' +
+        '<p>Paris &rarr; Berlin &mdash; &euro;40</p>' +
+        '<p>&quux; stays</p>'
+    ),
+    ['draft · 2026 · brainstorm', 'beta · internal', 'Paris → Berlin — €40', '&quux; stays']
+  );
+  assert.ok(plainText('<p>Total &euro;40 &hellip; done</p>', true).includes('€40 … done'));
+  assert.ok(firedIds('slop-entities.html', 2).has('middot-chain'));
+  // Markdown prints an entity too, so the prose streams decode as well.
+  assert.strictEqual(plainText('a &middot; b &middot; c', false), 'a · b · c');
+  assert.deepStrictEqual(paragraphs('a &middot; b', false), ['a · b']);
+});
+
+// One pass, and only a character a reader can be shown. Three passes let a
+// produced ampersand be read again, so `&#38;middot;` — the text `&middot;` on
+// the page — became a dot nobody sees. A code point past Unicode's last one threw
+// out of the whole run, and a lone surrogate came back as half a character.
+test('decodes once, and leaves what it cannot resolve as written', { timeout: 1000 }, () => {
+  assert.deepStrictEqual(
+    visibleTextRuns('<p>&#38;middot; and &#x26;lt;b&#x26;gt;</p>'),
+    ['&middot; and &lt;b&gt;']
+  );
+  assert.strictEqual(decodeEntities('&#1114112; &#xD800; &#x26A;'), '&#1114112; &#xD800; ɪ');
+  // The whole-page prose stream drops a name this engine cannot resolve, which it
+  // did before. Done as a second pass it ate the name a numeric ampersand had
+  // just produced, so the stream reported nothing where the page prints a name.
+  assert.strictEqual(plainText('<p>&#38;middot;</p>', true), '&middot;');
+  assert.strictEqual(plainText('<p>&quux; x</p>', true), 'x');
+  // Decoding runs last, after the markdown syntax is stripped, so a character it
+  // produces is never read as syntax. CommonMark resolves an entity after block
+  // structure: `&#35; x` prints `# x` in a paragraph.
+  assert.strictEqual(plainText('&#35; not a heading', false), '# not a heading');
+  assert.deepStrictEqual(paragraphs('one&#10;&#10;two', false), ['one two']);
+  assert.ok(firedIds('slop-entities.html').has('heading-period'));
+});
+
+// ── the table is the standard's, and names are case-sensitive ───────────
+// Six names were hand-picked, so `&nearr;` and `&thinsp;` got silence. The whole
+// HTML5 list decodes now, and a lower-cased lookup would have made `&Aacute;`
+// and `&aacute;` the same letter.
+test('decodes every HTML5 name, and reads its case', { timeout: 1000 }, () => {
+  assert.strictEqual(Object.keys(NAMED).length, 2125);
+  assert.strictEqual(decodeEntities('&nearr; &thinsp; &copy; &alpha;'), '↗ \u2009 © α');
+  assert.strictEqual(decodeEntities('&Aacute; &aacute;'), 'Á á');
+  assert.strictEqual(decodeEntities('&AACUTE;'), '&AACUTE;');
+  assert.strictEqual(decodeEntities('&#X26;lt;'), '&lt;');
+});
+
+// ── one run per element, in markup only ─────────────────────────────────
+// Twelve tag names ended a run, so a `<dl>` of labels and values arrived as one
+// line and no rule that measures a value could reach `<dd>14 · 1 no-show</dd>`.
+// A file that is not markup keeps the twelve: it has no elements, and its
+// tag-shaped text is an accident.
+test('ends a run at every element in markup, and leaves other files alone', { timeout: 1000 }, () => {
+  const dl = '<dl><dt>Bookings this year</dt><dd>14 &middot; 1 no-show</dd></dl>';
+  assert.deepStrictEqual(visibleTextRuns(dl), ['Bookings this year', '14 · 1 no-show']);
+  assert.deepStrictEqual(visibleTextRuns(dl, { markup: false }), ['Bookings this year 14 · 1 no-show']);
+  // A phrasing element marks up words inside a line, so it does not end one. An
+  // inline icon is the same shape.
+  assert.deepStrictEqual(visibleTextRuns('<p>draft · <strong>2026</strong> · brainstorm</p>'), [
+    'draft · 2026 · brainstorm',
+  ]);
+  assert.deepStrictEqual(visibleTextRuns('<p>draft · <img src="i.png" alt=""> 2026 · x</p>'), [
+    'draft · 2026 · x',
+  ]);
+  // A custom element is not phrasing, whatever its name starts with. A word
+  // boundary after the name read `<time-ago>` and `<s-badge>` as phrasing,
+  // because a hyphen is not a word character.
+  assert.deepStrictEqual(visibleTextRuns('<p>draft · <time-ago>2026</time-ago> · x</p>'), [
+    'draft ·',
+    '2026',
+    '· x',
+  ]);
+  // `svg` is a boundary, so an icon drawn that way ends the line where the twelve
+  // tag names kept it whole. Adding `svg` alone would not change that: `use`,
+  // `path` and `g` end a run too. These two pin the shape that is read less.
+  assert.deepStrictEqual(visibleTextRuns('<p>one<svg><text>label</text></svg>two</p>'), [
+    'one',
+    'label',
+    'two',
+  ]);
+  assert.deepStrictEqual(visibleTextRuns('<p>a · <svg><use href="#d"/></svg> b · c</p>'), [
+    'a ·',
+    'b · c',
+  ]);
+  // A <br> does end one, and a <span> around a value still sets it apart.
+  assert.deepStrictEqual(visibleTextRuns('<p>a · b<br>c · d</p>'), ['a · b', 'c · d']);
+  assert.deepStrictEqual(visibleTextRuns('<div><span>Due</span><span>4 April</span></div>'), [
+    'Due',
+    '4 April',
+  ]);
+  // A markdown page's angle-bracket placeholder is not an element, and splitting
+  // on it would stop this line being read at all.
+  const markdown = 'Due: <date> · Priority: <none|low> · Notes: <preview>';
+  assert.deepStrictEqual(
+    detect(markdown, { level: 2, ext: 'md' }).findings.map((finding) => finding.rule),
+    ['middot-chain']
+  );
 });
 
 test('a rule fires on prose that exists only in an attribute', () => {

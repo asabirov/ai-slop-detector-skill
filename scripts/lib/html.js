@@ -21,14 +21,79 @@ function stripTags(html) {
   return html.replace(/<[^>]+>/g, ' ');
 }
 
-function visibleTextRuns(html) {
+// Every stream a rule reads as text decodes its character entities, because a
+// name is a spelling and the reader is shown a glyph. The table is the standard's
+// own, in `./entities`.
+const { NAMED } = require('./entities');
+
+// Case matters: `&Aacute;` and `&aacute;` are different letters, so the name is
+// looked up exactly as written. The hex digits of a numeric reference do not,
+// and neither does its `x`.
+const ENTITY = /&(?:#[xX]([0-9a-fA-F]+)|#(\d+)|([A-Za-z][A-Za-z0-9]*));/g;
+
+// Past the last code point Unicode has, `String.fromCodePoint` throws; inside the
+// surrogate range it returns half a character, which breaks the next thing that
+// reads the string. Neither is a character a reader sees, so both stay written.
+const decodable = (code) => code >= 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff);
+
+// Called only on text whose tags, or whose markdown syntax, are already gone, and
+// it runs last, so nothing reads what it produced. That order is the point twice
+// over: a `&lt;` decoded while tags are still being matched would hand the next
+// pass a `<` it could close into a tag, and a `&#35;` decoded before the markdown
+// syntax is stripped would be read as a heading marker.
+//
+// `blankUnknown` is the whole-page prose stream's old behaviour, folded in rather
+// than run as a second pass over the result. As a second pass it ate the name a
+// numeric ampersand had just produced: `&#38;middot;` is the text `&middot;` on
+// the page, and the stream reported nothing at all.
+function decodeEntities(text, { blankUnknown = false } = {}) {
+  return text.replace(ENTITY, (whole, hex, dec, name) => {
+    if (name !== undefined) {
+      const glyph = NAMED[name];
+      if (glyph !== undefined) return glyph;
+      return blankUnknown ? ' ' : whole;
+    }
+    const code = hex !== undefined ? parseInt(hex, 16) : Number(dec);
+    return decodable(code) ? String.fromCodePoint(code) : whole;
+  });
+}
+
+// Phrasing marks up words inside a line, so it does not end one: `draft ·
+// <strong>2026</strong> · brainstorm` is one chain, and splitting it at the bold
+// left three fragments and none. An `<img>` icon between the dots is the same
+// shape, so `img` and `wbr` are here too.
+//
+// What it costs: any other element between the dots ends the run, where the twelve
+// kept it whole — an inline `<svg>` icon, a `<relative-time>`, a `<label>`. The
+// reference says why adding `svg` here would not answer the icon case.
+//
+// `span` and `a` are out, because they ended a run before this and a kit's
+// `<span>` around a value is how a value is set apart, and `br` is out because
+// ending a line is what it is for.
+const PHRASING =
+  'b|strong|i|em|code|small|sub|sup|mark|abbr|time|kbd|samp|var|cite|q|s|u|del|ins' +
+  '|bdi|bdo|ruby|rt|rp|data|dfn|img|wbr|big|tt|font';
+
+// The guard after the name is `(?![a-z0-9-])`, not `\b`: a hyphen is not a word
+// character, so `\b` read every custom element starting with one of these names —
+// `<time-ago>`, `<s-badge>` — as phrasing.
+const ELEMENT = new RegExp(`<\\/?(?!(?:${PHRASING})(?![a-z0-9-]))[a-z][a-z0-9-]*\\b[^>]*>`, 'i');
+const BLOCK_ELEMENT = /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a)\b[^>]*>/i;
+
+// In markup every other element boundary ends a run. Twelve tag names used to, so
+// a value in a tag outside the list was read as part of its neighbours: a `<dl>`
+// arrived as one long line and no rule measuring a value could reach
+// `<dd>14 · 1 no-show</dd>`.
+//
+// A file that is not markup keeps the twelve. It has no elements, so a tag-shaped
+// run of its text is an accident, and splitting on those moved noise around rather
+// than removing it. Markdown needs its lines, which is a separate defect.
+function visibleTextRuns(html, { markup = true } = {}) {
   const body = stripBetween(stripBetween(html, 'style'), 'script');
-  const runs = body.split(
-    /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a)\b[^>]*>/i
-  );
+  const runs = body.split(markup ? ELEMENT : BLOCK_ELEMENT);
   const out = [];
   for (const r of runs) {
-    const t = stripTags(r).replace(/\s+/g, ' ').trim();
+    const t = decodeEntities(stripTags(r)).replace(/\s+/g, ' ').trim();
     if (t) out.push(t);
   }
   return out;
@@ -49,16 +114,6 @@ const PROSE_ATTRS = /\b(?:title|alt|placeholder|aria-label|aria-description|aria
 // carry viewport strings, verification tokens and URLs.
 const META_DESCRIPTION =
   /<meta\b[^>]*\bname\s*=\s*"(?:description|og:description|twitter:description)"[^>]*\bcontent\s*=\s*"([^"]*)"/gi;
-
-function decodeEntities(text) {
-  return text
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
-    .replace(/&(amp|lt|gt|quot|apos|nbsp);/gi, (_, n) => {
-      const map = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
-      return map[n.toLowerCase()];
-    });
-}
 
 // One run per human-readable attribute value, longest first is not needed —
 // order follows the document, same as visibleTextRuns.
@@ -802,17 +857,21 @@ function withoutMarkdownCode(source) {
 function plainText(source, isHtml) {
   if (isHtml) {
     const body = stripBetween(stripBetween(source, 'style'), 'script');
-    const visible = stripTags(body)
-      .replace(/&[a-z]+;/gi, ' ')
+    const visible = decodeEntities(stripTags(body), { blankUnknown: true })
       .replace(/\s+/g, ' ')
       .trim();
     return [visible, ...attrTextRuns(source)].filter(Boolean).join(' ');
   }
-  return withoutMarkdownCode(source)
-    .replace(/^\s{0,3}#{1,6}\s+/gm, '') // heading hashes
-    .replace(/^\s{0,3}[-*+]\s+/gm, '') // list bullets
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // links → link text
-    .trim();
+  // Markdown renders an entity too, so the same decode applies — after the
+  // syntax is stripped, not before. The other way round, a decoded character is
+  // read as syntax: CommonMark resolves an entity after block structure, so
+  // `&#35; x` is a paragraph printing `# x`, not a heading.
+  return decodeEntities(
+    withoutMarkdownCode(source)
+      .replace(/^\s{0,3}#{1,6}\s+/gm, '') // heading hashes
+      .replace(/^\s{0,3}[-*+]\s+/gm, '') // list bullets
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // links → link text
+  ).trim();
 }
 
 // Prose with code removed — fenced blocks and inline spans in markdown, <code>
@@ -821,7 +880,7 @@ function plainText(source, isHtml) {
 function proseWithoutCode(source, isHtml) {
   if (isHtml) {
     const body = ['style', 'script', 'code', 'pre'].reduce(stripBetween, source);
-    const visible = stripTags(body).replace(/\s+/g, ' ').trim();
+    const visible = decodeEntities(stripTags(body)).replace(/\s+/g, ' ').trim();
     return [visible, ...attrTextRuns(body)].filter(Boolean).join(' ');
   }
   return plainText(source, false);
@@ -836,10 +895,11 @@ function paragraphs(source, isHtml) {
     // reader meets on its own, so the density gates should score it that way.
     return [...visibleTextRuns(source), ...attrTextRuns(source)];
   }
-  const noCode = stripFences(source, '\n');
-  return noCode
+  // Split first, decode after: a decoded newline is inside a paragraph, not a
+  // break between two.
+  return stripFences(source, '\n')
     .split(/\n\s*\n/)
-    .map((p) => p.replace(/\s+/g, ' ').trim())
+    .map((p) => decodeEntities(p).replace(/\s+/g, ' ').trim())
     .filter(Boolean);
 }
 
@@ -864,7 +924,7 @@ function parse(source, { filePath, root, ext } = {}) {
     inlineCss: inline,
     linkedCss: linked.found,
     unresolvedCss: linked.unresolved,
-    runs: visibleTextRuns(source),
+    runs: visibleTextRuns(source, { markup: isHtml }),
     attrs: isHtml ? attrTextRuns(source) : [],
     markup,
     elements,
@@ -878,6 +938,7 @@ function parse(source, { filePath, root, ext } = {}) {
 module.exports = {
   stripBetween,
   stripTags,
+  decodeEntities,
   visibleTextRuns,
   attrTextRuns,
   markupTokens,

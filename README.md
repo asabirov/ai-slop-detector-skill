@@ -96,7 +96,24 @@ judgment does not waive an existing CI gate.
 
 ## What it does today
 
-Three rule packs over one engine.
+Three rule packs over one engine, reading the page a browser would print.
+
+Every stream a rule reads as text — a page's visible runs, its prose, its
+paragraphs, its readable attributes, and the same for markdown and plain text —
+decodes a character entity to the character it prints, every HTML5 name and both
+numeric forms. So a dotted chain written `&middot;` and one typed with the dot are
+the same line. The scans that read markup for class names, selectors and tag
+shapes work on the page as written.
+
+In markup, a run ends at every element, so a value is measured on its own: the
+`<dd>` of a label and value pair is its own line, not part of the list around it.
+A phrasing element does not end a line, because it marks up words inside one, so
+`draft · <strong>2026</strong> · brainstorm` stays one chain, and so does the same
+line with an `<img>` icon between its dots. Any other element between the dots
+ends the line where the twelve tag names kept it whole, so a chain holding an
+inline `<svg>` icon, a `<relative-time>` or a `<label>` is read by the twelve and
+not here. A file the engine does not read as markup keeps the older, coarser
+split, because it has no elements to end a run at.
 
 - **Visual** reads markup and the CSS a page applies, including stylesheets it
   links from disk. Catches fake protocol URIs, monospace used as decoration,
