@@ -107,7 +107,9 @@ between two dots is the same shape as a bolded word between them, which is why `
 `wbr` are there. `svg` is not, and adding it alone would not help: an inline icon is drawn
 from `use`, `path` and `g`, and a chart's labels sit in `text`, so every one of those ends
 the run as well. An svg icon can only pass once its whole subtree is skipped, which is a
-change of its own. Until then an icon drawn that way ends the line. `span` and `a` are not, because they ended a run before this and a
+change of its own. So one shape is read less than before: a chain with an svg icon between
+its dots was one run under the twelve tag names and is two now. No page in the 9,712 swept
+carries that shape. `span` and `a` are not, because they ended a run before this and a
 kit's `<span>` around a value is how a value is set apart. `br` is not, because ending a line
 is what it is for. The list is exact, so a custom element ends a run whatever its name starts
 with; `<time-ago>` is not `time`. A file that is not markup keeps the twelve: it has no
