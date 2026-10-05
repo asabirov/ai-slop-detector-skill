@@ -846,13 +846,16 @@ function plainText(source, isHtml) {
       .trim();
     return [visible, ...attrTextRuns(source)].filter(Boolean).join(' ');
   }
-  // Markdown renders an entity too, so the same decode applies. No tags were
-  // matched here, so there is no pass left for a decoded `<` to reach.
-  return decodeEntities(withoutMarkdownCode(source))
-    .replace(/^\s{0,3}#{1,6}\s+/gm, '') // heading hashes
-    .replace(/^\s{0,3}[-*+]\s+/gm, '') // list bullets
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // links → link text
-    .trim();
+  // Markdown renders an entity too, so the same decode applies — after the
+  // syntax is stripped, not before. The other way round, a decoded character is
+  // read as syntax: CommonMark resolves an entity after block structure, so
+  // `&#35; x` is a paragraph printing `# x`, not a heading.
+  return decodeEntities(
+    withoutMarkdownCode(source)
+      .replace(/^\s{0,3}#{1,6}\s+/gm, '') // heading hashes
+      .replace(/^\s{0,3}[-*+]\s+/gm, '') // list bullets
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // links → link text
+  ).trim();
 }
 
 // Prose with code removed — fenced blocks and inline spans in markdown, <code>
@@ -876,10 +879,11 @@ function paragraphs(source, isHtml) {
     // reader meets on its own, so the density gates should score it that way.
     return [...visibleTextRuns(source), ...attrTextRuns(source)];
   }
-  const noCode = decodeEntities(stripFences(source, '\n'));
-  return noCode
+  // Split first, decode after: a decoded newline is inside a paragraph, not a
+  // break between two.
+  return stripFences(source, '\n')
     .split(/\n\s*\n/)
-    .map((p) => p.replace(/\s+/g, ' ').trim())
+    .map((p) => decodeEntities(p).replace(/\s+/g, ' ').trim())
     .filter(Boolean);
 }
 

@@ -84,11 +84,13 @@ values and the per-element text decoded; the visible runs, the prose and the par
 not, so `&middot;`, `&nbsp;` and even `&#8599;` reached a rule as written.
 
 The table holds the punctuation, the currency and the arrows these rules read, not HTML5's
-two thousand names. One pass resolves an entity and nothing reads the result again, so a
-produced `&` survives: `&#38;middot;` is the text `&middot;` on the page and stays that. A
-name outside the table, a code point past Unicode's last, and the surrogate range are left
-as written. The one stream that drops an unknown name rather than keeping it is the
-whole-page prose stream, which did that before, so no prose rule reads `&copy;` as a word.
+two thousand names. One pass resolves an entity, and it runs last, after the tags or the
+markdown syntax are gone, so nothing reads what it produced: `&#38;middot;` is the text
+`&middot;` on the page and stays that, and `&#35; x` is a paragraph printing `# x` rather
+than a heading. A name outside the table, a code point past Unicode's last, and the
+surrogate range are left as written. The one stream that drops an unknown name rather than
+keeping it is the whole-page prose stream, which did that before, so no prose rule reads
+`&copy;` as a word.
 
 `--level` accepts a number (`1`–`4`) or a name (`ban`, `recommended`, `strict`,
 `paranoid`). `--json` emits `{ verdict, level, files[], stats }` for chaining.
