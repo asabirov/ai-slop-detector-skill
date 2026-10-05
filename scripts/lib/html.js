@@ -104,6 +104,12 @@ function markupTokens(html) {
 // they contain, is typography doing its job rather than costume.
 const CODE_TAGS = new Set(['code', 'pre', 'kbd', 'samp', 'tt']);
 
+// A line a control writes when the reader uses it. `role="status"`, `role="alert"`
+// and `aria-live` all say the same thing: this text appears because of something
+// the reader just did, so the reader is looking at it.
+const LIVE_REGION =
+  /(?:^|\s)(?:role\s*=\s*["'](?:status|alert)["']|aria-live\s*=\s*["'](?:polite|assertive)["'])/i;
+
 const VOID_TAGS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
   'link', 'meta', 'param', 'source', 'track', 'wbr',
@@ -163,6 +169,7 @@ function markupElements(html) {
       // subtree can be read in the order a person reads it.
       chunks: [],
       style: styleAttr ? decodeEntities(styleAttr[1] ?? styleAttr[2]) : '',
+      live: LIVE_REGION.test(attrs),
       inTable: tag === 'td' || tag === 'th' || (parent >= 0 && out[parent].inTable),
       inCode: CODE_TAGS.has(tag) || (parent >= 0 && out[parent].inCode),
     };
@@ -339,6 +346,10 @@ const CHART_CLASS = /(?:^|[-_])(?:chart|graph|plot|sparkline)s?(?:$|[-_\d])/i;
 // is four words of prose and a note beside an Export button is still a note.
 const MUTE_TAGS = new Set(['button', 'input', 'select', 'textarea', 'a']);
 
+// The controls a reader operates. A link is not one of them: a link beside a
+// line does not make the line the link's own feedback.
+const CONTROL_TAGS = new Set(['button', 'input', 'select', 'textarea']);
+
 // A wrapper that is a section of the page is not the data: what follows it
 // starts something new rather than annotating it.
 const SECTION_TAGS = new Set(['section', 'nav', 'article', 'aside', 'main', 'header', 'footer', 'form']);
@@ -388,6 +399,7 @@ function blocksUnderData(elements) {
     const muted = new Set();
     let heading = false;
     let data = false;
+    let feedback = el.live;
     for (let k = i + 1; k < elements.length; k++) {
       let parent = elements[k].parent;
       while (parent > i) parent = elements[parent].parent;
@@ -395,6 +407,7 @@ function blocksUnderData(elements) {
       const child = elements[k];
       if (/^h[1-6]$/.test(child.tag)) heading = true;
       if (isDataBlock(child)) data = true;
+      if (child.live || CONTROL_TAGS.has(child.tag)) feedback = true;
       if (MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
         muted.add(k);
         continue;
@@ -411,7 +424,7 @@ function blocksUnderData(elements) {
       .replace(/\{[^{}]*\}/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    out.push({ el, above, text, heading, data, inside, parent: elements[el.parent] || null });
+    out.push({ el, above, text, heading, data, feedback, inside, parent: elements[el.parent] || null });
   }
   return out;
 }
@@ -550,11 +563,13 @@ function asideCandidate(elements, ends, i, heading, data) {
   const kept = [];
   const muted = new Set();
   let nested = LIST_TAGS.has(elements[i].tag) || ends[i] - i > ASIDE_MAX_NODES;
+  let feedback = elements[i].live;
   const stop = Math.min(ends[i], i + ASIDE_MAX_NODES + 1);
   for (let k = i; k < stop; k++) {
     const child = elements[k];
     if (k > i) {
       if (/^h[1-6]$/.test(child.tag) || isDataBlock(child) || LIST_TAGS.has(child.tag)) nested = true;
+      if (child.live || CONTROL_TAGS.has(child.tag)) feedback = true;
       if (MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
         muted.add(k);
         continue;
@@ -565,9 +580,13 @@ function asideCandidate(elements, ends, i, heading, data) {
   const inside = kept.map((k) => ({
     tag: elements[k].tag,
     classes: elements[k].classes,
+    live: elements[k].live,
+    // Its own words, not its subtree's: a wrapper's marker says nothing about a
+    // line it merely contains.
+    own: /\p{L}/u.test(elements[k].text),
     text: orderedText(kept.filter((j) => j >= k && j < ends[k]).flatMap((j) => elements[j].chunks)),
   }));
-  return { heading, data, nested, inside, text: inside[0].text };
+  return { heading, data, nested, feedback, inside, text: inside[0].text };
 }
 
 // Concatenated contents of every <style> block.

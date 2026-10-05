@@ -180,6 +180,32 @@ than naming its figure, a candidate that carries its own heading or its own tabl
 floor once the words inside its links and buttons are removed — which is what a
 pager is.
 
+A control's own feedback is also out, in both rules, on the half of each test that
+reads how a line is set. A line that is itself a live region — `role="status"`,
+`role="alert"`, `aria-live="polite"` or `"assertive"` — is feedback outright. A
+control merely sharing the block is weaker, and drops only a marker set on a
+wrapper: with a `<button>`, `<input>`, `<select>` or `<textarea>` in the block, the
+marker has to sit on the element that holds the words. `role` and `aria-live` are
+read off the raw attribute, so a token list (`role="status alert"`) and a JSX
+expression (`role={"status"}`) are not read. A link never counts: a link beside a
+line does not make the line the link's feedback.
+
+Two halves stay. A basis stated in words is a footnote however it is set. And a
+marker on the line itself still reads, so a card footer holding
+`<small class="text-muted">` and an Export button keeps failing, which is the
+commonest card a kit ships. What goes quiet is a plain line whose only marker is on
+a wrapper around it: `<div class="pay-foot"><button>Move</button><p>Saving a new
+time emails the owner.</p></div>`. The wrapper does not have to be named for the
+control; holding one is enough.
+
+"On the line itself" is its own text runs, not its subtree's, so a marked element
+whose words all sit in one inline child reads as a wrapper and goes quiet with a
+control in the block:
+`<small class="text-muted"><span>Updated nightly, so yesterday stays open.</span></small>`.
+Over 2,253 pages and components, no element under data has all its words in one
+inline child; reading it loosely, as any marked wrapper with no words of its own,
+finds five, four of them with a control.
+
 A `<ul>`, a `<dl>` and a bare `<svg>` are out of the rule, measured rather than
 assumed. Over 1,264 HTML files on one machine, every `<ul>` an earlier draft
 reached was a navigation menu or an ordinary bulleted list with the next paragraph
