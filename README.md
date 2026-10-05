@@ -110,10 +110,12 @@ Three rule packs over one engine.
   It reads one value holding two facts, `4 April · 3 days late` or
   `Unpaid · 3 days overdue`, where the older chain rule waited for a third dot.
   Two shapes count: a number on each side with the words around them changing, or
-  a state word of one or two words facing a number that opens its side and names
-  what it counts. So a time beside who did it stays silent, and so do a range, a
-  dimension, a label that happens to carry a number, a unit, and a count line
-  with the order it is in. Only a short value is read at all.
+  a word or two on one side with a number opening the other and naming what it
+  counts. The second shape reads a label joined to its own value, `Deposit ·
+  600 kr`, as a pair as well. A time facing a side with no number of its own
+  stays silent, a relative time included, and so do a range, a dimension, a label
+  that happens to carry a number, a unit, and a phrase of three words or more
+  facing a count. Only a short value is read at all.
   Native font stacks, numeric table data, a count line, a chart legend, a caption
   naming its figure, and a total, unit, byline or control beside a heading are
   allowed.

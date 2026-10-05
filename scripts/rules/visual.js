@@ -334,17 +334,21 @@ const STATE = /^\p{L}[\p{L}'’-]*(?:\s\p{L}[\p{L}'’-]*)?$/u;
 const QUANTITY = /^\d[\d.,]*\s\p{L}/u;
 
 // A time beside who or what did it is one event, not two facts: "28 March 09:40
-// · System", "Dana Lim · 4 October 2026". The time holds the digits, so the other
-// side holding none is the tell, and a stamp facing a second number — "4 April ·
-// 3 days late" — is still a pair.
+// · System", "Dana Lim · 4 October 2026", "Paid · 2 hours ago". The time holds
+// the digits, so the other side holding none is the tell, and a stamp facing a
+// second number — "4 April · 3 days late" — is still a pair. A clock, a month
+// with its day, and "ago" are the forms; a bare year is not, because "1999
+// items" is a count. The month needs a boundary on both ends, or "3 Marchers"
+// reads as a date.
+const MONTH =
+  '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun[e]?|jul[y]?|aug(?:ust)?' +
+  '|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\b';
 const STAMP = new RegExp(
   [
     '\\d{1,2}:\\d{2}',
-    '\\d{4}-\\d{2}-\\d{2}',
-    '\\b(?:19|20)\\d{2}\\b',
     '\\bago\\b',
-    '\\b\\d{1,2}\\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)',
-    '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\s+\\d{1,2}\\b',
+    `\\b\\d{1,2}\\s+${MONTH}`,
+    `${MONTH}\\s+\\d{1,2}\\b`,
   ].join('|'),
   'i'
 );
