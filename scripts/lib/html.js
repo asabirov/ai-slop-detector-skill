@@ -580,6 +580,10 @@ function asideCandidate(elements, ends, i, heading, data) {
   const inside = kept.map((k) => ({
     tag: elements[k].tag,
     classes: elements[k].classes,
+    live: elements[k].live,
+    // Its own words, not its subtree's: a wrapper's marker says nothing about a
+    // line it merely contains.
+    own: /\p{L}/u.test(elements[k].text),
     text: orderedText(kept.filter((j) => j >= k && j < ends[k]).flatMap((j) => elements[j].chunks)),
   }));
   return { heading, data, nested, feedback, inside, text: inside[0].text };

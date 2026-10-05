@@ -181,17 +181,21 @@ floor once the words inside its links and buttons are removed — which is what 
 pager is.
 
 A control's own feedback is also out, in both rules, on the half of each test that
-reads how the line is set. A candidate is feedback when it is a live region
-(`role="status"`, `role="alert"`, `aria-live="polite"` or `"assertive"`), or when it
-holds a live region or a `<button>`, `<input>`, `<select>` or `<textarea>`. A
-validation message or a line about what a button does is written for the reader who
-just used that control, so the charge these rules bring — nobody reads it — does not
-apply. A link does not count: a link beside a line does not make the line the link's
-feedback.
+reads how a line is set. A line that is itself a live region — `role="status"`,
+`role="alert"`, `aria-live="polite"` or `"assertive"` — is feedback outright. A
+control merely sharing the block is weaker, and drops only a marker set on a
+wrapper: with a `<button>`, `<input>`, `<select>` or `<textarea>` in the block, the
+marker has to sit on the element that holds the words. `role` and `aria-live` are
+read off the raw attribute, so a token list (`role="status alert"`) and a JSX
+expression (`role={"status"}`) are not read. A link never counts: a link beside a
+line does not make the line the link's feedback.
 
-The wording half still reads. A basis stated in words is a footnote however it is
-set, so a card footer holding `Amounts in EUR, VAT excluded.` and a Download button
-keeps failing, which is the shape the footnote rule was filed on.
+Two halves stay. A basis stated in words is a footnote however it is set. And a
+marker on the line itself still reads, so a card footer holding
+`<small class="text-muted">` and an Export button keeps failing, which is the
+commonest card a kit ships. What goes quiet is the plain line in a block named for
+its control: `<div class="pay-foot"><button>Move</button><p>Saving a new time emails
+the owner.</p></div>`.
 
 A `<ul>`, a `<dl>` and a bare `<svg>` are out of the rule, measured rather than
 assumed. Over 1,264 HTML files on one machine, every `<ul>` an earlier draft

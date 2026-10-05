@@ -78,6 +78,21 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     // holding a basis line and a Download button keeps reading on both rules.
     has(beside.replace('Saving a new time notifies the observer.', 'Amounts in EUR, VAT excluded.'), 'table-footnote');
     has(live.replace('The hall already holds a booking then.', 'Figures as of 1 April 2026.'), 'table-aside');
+    // A marker on the line that holds the words still counts, control or not. A
+    // card footer with a muted caption and an Export button is a footnote with a
+    // button next to it, which is the commonest card a kit ships.
+    has(
+      '<section><h2>Spend</h2><table><tbody><tr><td>12.5</td></tr></tbody></table>' +
+        '<div class="card-footer"><small class="text-muted">Updated nightly, so yesterday stays open.' +
+        '</small><button>Export</button></div></section>',
+      'table-footnote'
+    );
+    has(
+      '<section><h2>Revenue per unit</h2><div class="toolbar"><p class="lede">Past due, or holding up a ' +
+        'month close.</p><select><option>All</option></select></div>' +
+        '<table><tbody><tr><td>12.5</td></tr></tbody></table></section>',
+      'table-aside'
+    );
   });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
