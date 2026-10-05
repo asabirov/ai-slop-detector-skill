@@ -15,6 +15,7 @@ const {
   DECOR_ARROWS,
   EMOJI,
   stripTags,
+  decodeEntities,
   selectorApplies,
   selectorTargets,
   labelsAboveHeadings,
@@ -392,7 +393,7 @@ const emojiHeading = {
     const re = /<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi;
     let m;
     while ((m = re.exec(ctx.html)) !== null) {
-      const inner = stripTags(m[1]).replace(/\s+/g, ' ').trim();
+      const inner = decodeEntities(stripTags(m[1])).replace(/\s+/g, ' ').trim();
       if (inner && EMOJI.test(inner)) hits.push(inner.slice(0, 40));
     }
     return hits;

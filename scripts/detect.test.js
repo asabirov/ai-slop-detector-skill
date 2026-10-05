@@ -11,7 +11,9 @@ const {
   attrTextRuns,
   cssRules,
   plainText,
+  paragraphs,
   visibleTextRuns,
+  decodeEntities,
   stripTags,
   markupTokens,
   markupElements,
@@ -74,6 +76,21 @@ test('decodes the named entities a reader meets, not only the numeric ones', { t
   );
   assert.ok(plainText('<p>Total &euro;40 &hellip; done</p>', true).includes('€40 … done'));
   assert.ok(firedIds('slop-entities.html', 2).has('middot-chain'));
+  // Markdown prints an entity too, so the prose streams decode as well.
+  assert.strictEqual(plainText('a &middot; b &middot; c', false), 'a · b · c');
+  assert.deepStrictEqual(paragraphs('a &middot; b', false), ['a · b']);
+});
+
+// One pass, and only a character a reader can be shown. Three passes let a
+// produced ampersand be read again, so `&#38;middot;` — the text `&middot;` on
+// the page — became a dot nobody sees. A code point past Unicode's last one threw
+// out of the whole run, and a lone surrogate came back as half a character.
+test('decodes once, and leaves what it cannot resolve as written', { timeout: 1000 }, () => {
+  assert.deepStrictEqual(
+    visibleTextRuns('<p>&#38;middot; and &#x26;lt;b&#x26;gt;</p>'),
+    ['&middot; and &lt;b&gt;']
+  );
+  assert.strictEqual(decodeEntities('&#1114112; &#xD800; &#x26A;'), '&#1114112; &#xD800; ɪ');
 });
 
 test('a rule fires on prose that exists only in an attribute', () => {

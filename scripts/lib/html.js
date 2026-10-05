@@ -28,22 +28,38 @@ function stripTags(html) {
 // currency and the arrows a reader meets. A name that is not here stays as it is
 // written, which is what it did before.
 const NAMED = {
-  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+  nbsp: ' ', thinsp: ' ', ensp: ' ', emsp: ' ',
   middot: '·', bull: '•', mdash: '—', ndash: '–', hellip: '…', minus: '−',
-  times: '×', lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”', sbquo: '‚',
-  euro: '€', pound: '£', yen: '¥', cent: '¢', sup2: '²', sup3: '³', deg: '°',
-  larr: '←', uarr: '↑', rarr: '→', darr: '↓', harr: '↔',
+  times: '×', lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',
+  euro: '€', pound: '£', yen: '¥',
+  larr: '←', uarr: '↑', rarr: '→', darr: '↓', nearr: '↗',
 };
 
 // Called only on text that has already had its tags removed, and nothing
 // downstream reads the result as markup again. That order is the point: a `&lt;`
 // decoded while tags are still being matched would hand the next pass a `<` it
 // could close into a tag.
+//
+// One pass, not three. Three let a produced ampersand be read again: `&#38;middot;`
+// is the text `&middot;` on the page, and a numeric pass followed by a name pass
+// turned it into a dot nobody sees. An entity this engine cannot resolve — an
+// unknown name, a code point past the last one Unicode has — is left as written,
+// because a page is allowed to print the name and a bad code point must not take
+// the whole run down.
+const ENTITY = /&(?:#x([0-9a-f]+)|#(\d+)|([a-z][a-z0-9]*));/gi;
+
+// Past the last code point Unicode has, `String.fromCodePoint` throws; inside the
+// surrogate range it returns half a character, which breaks the next thing that
+// reads the string. Neither is a character a reader sees, so both stay written.
+const decodable = (code) => code >= 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff);
+
 function decodeEntities(text) {
-  return text
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
-    .replace(/&([a-z][a-z0-9]*);/gi, (whole, name) => NAMED[name.toLowerCase()] ?? whole);
+  return text.replace(ENTITY, (whole, hex, dec, name) => {
+    if (name !== undefined) return NAMED[name.toLowerCase()] ?? whole;
+    const code = hex !== undefined ? parseInt(hex, 16) : Number(dec);
+    return decodable(code) ? String.fromCodePoint(code) : whole;
+  });
 }
 
 function visibleTextRuns(html) {
@@ -823,7 +839,9 @@ function plainText(source, isHtml) {
       .trim();
     return [visible, ...attrTextRuns(source)].filter(Boolean).join(' ');
   }
-  return withoutMarkdownCode(source)
+  // Markdown renders an entity too, so the same decode applies. No tags were
+  // matched here, so there is no pass left for a decoded `<` to reach.
+  return decodeEntities(withoutMarkdownCode(source))
     .replace(/^\s{0,3}#{1,6}\s+/gm, '') // heading hashes
     .replace(/^\s{0,3}[-*+]\s+/gm, '') // list bullets
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // links → link text
@@ -851,7 +869,7 @@ function paragraphs(source, isHtml) {
     // reader meets on its own, so the density gates should score it that way.
     return [...visibleTextRuns(source), ...attrTextRuns(source)];
   }
-  const noCode = stripFences(source, '\n');
+  const noCode = decodeEntities(stripFences(source, '\n'));
   return noCode
     .split(/\n\s*\n/)
     .map((p) => p.replace(/\s+/g, ' ').trim())
@@ -893,6 +911,7 @@ function parse(source, { filePath, root, ext } = {}) {
 module.exports = {
   stripBetween,
   stripTags,
+  decodeEntities,
   visibleTextRuns,
   attrTextRuns,
   markupTokens,
