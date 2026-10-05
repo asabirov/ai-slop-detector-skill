@@ -68,6 +68,16 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     has('<p><span>14 · 1 lost</span></p>', 'middot-two-facts');
     has('<p><span>1 h · 30 min</span></p>', 'middot-two-facts');
   });
+  it('reads a state beside a quantity as two facts, and a label or a unit as one', { timeout: 1000 }, () => {
+    has('<p><span>Unpaid · 3 days overdue</span></p>', 'middot-two-facts');
+    has('<p><span>Overdue · 3 days</span></p>', 'middot-two-facts');
+    lacks('<p><span>radius 8 · shadow</span></p>', 'middot-two-facts');
+    lacks('<p><span>us-east-1 · degraded</span></p>', 'middot-two-facts');
+    lacks('<p><span>req/s · 15m avg</span></p>', 'middot-two-facts');
+    lacks('<p><span>events · 24h, hourly</span></p>', 'middot-two-facts');
+    lacks('<p><span>12 of 34 bookings · sorted by date</span></p>', 'middot-two-facts');
+    lacks('<p><span>Dana Lim · 4 October 2026</span></p>', 'middot-two-facts');
+  });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
   });
