@@ -59,6 +59,22 @@ describe('UI heuristics', { timeout: 1000 }, () => {
   it('lets inline radius override rounded-full', { timeout: 1000 }, () => {
     lacks('<button class="rounded-full" style="border-radius:4px">Read notes</button>', 'pill-radius');
   });
+  // A control's own feedback is not a line about the data. A live region reports
+  // back what the reader just did, and a sentence sitting with the button is
+  // about the button. Take the control away and the same line is a footnote
+  // again. A link is not a control.
+  it("keeps a control's own feedback out of the table rules", { timeout: 1000 }, () => {
+    const live =
+      '<section><h2>Move booking</h2><p class="hint" role="status">The hall already holds a booking then.</p>' +
+      '<table><tbody><tr><td>12.5</td></tr></tbody></table></section>';
+    lacks(live, 'table-aside');
+    has(live.replace(' role="status"', ''), 'table-aside');
+    const beside =
+      '<section><table><tbody><tr><td>12.5</td></tr></tbody></table>' +
+      '<div class="note"><button>Save</button><p>Saving a new time notifies the observer.</p></div></section>';
+    lacks(beside, 'table-footnote');
+    has(beside.replace('<button>Save</button>', '<a href="/save">Save</a>'), 'table-footnote');
+  });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
   });

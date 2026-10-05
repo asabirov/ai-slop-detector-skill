@@ -109,7 +109,9 @@ Three rule packs over one engine.
   as a table: `<DataTable/>` and `<LineChart/>` are what a screen actually ships.
   Native font stacks, numeric table data, a count line, a chart legend, a caption
   naming its figure, and a total, unit, byline or control beside a heading are
-  allowed.
+  allowed. So is a control's own feedback, which is not a line about the data: a
+  live region, or a line in the same block as a button or a field. A validation
+  message appears because the reader just acted, so the reader is looking at it.
 - **Text** reads visible prose plus the attributes a person actually reads
   (`title`, `alt`, `placeholder`, `aria-label`, `data-tip`, the meta
   description). Catches "not just X, but Y", hedge openers, sycophancy residue,

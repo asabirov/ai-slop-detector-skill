@@ -180,6 +180,14 @@ than naming its figure, a candidate that carries its own heading or its own tabl
 floor once the words inside its links and buttons are removed — which is what a
 pager is.
 
+A control's own feedback is also out, in both rules. The candidate is skipped when
+it is a live region (`role="status"`, `role="alert"`, `aria-live="polite"` or
+`"assertive"`), or when it holds a live region or a `<button>`, `<input>`,
+`<select>` or `<textarea>`. A validation message or a line about what a button
+does is written for the reader who just used that control, so the charge these
+rules bring — nobody reads it — does not apply. A link does not count as a
+control: a link beside a line does not make the line the link's feedback.
+
 A `<ul>`, a `<dl>` and a bare `<svg>` are out of the rule, measured rather than
 assumed. Over 1,264 HTML files on one machine, every `<ul>` an earlier draft
 reached was a navigation menu or an ordinary bulleted list with the next paragraph

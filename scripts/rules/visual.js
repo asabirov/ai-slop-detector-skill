@@ -176,8 +176,8 @@ const tableFootnote = {
   // heading or a table of its own means it is a section, not an annotation.
   test(ctx) {
     const hits = [];
-    for (const { el, above, text, heading, data, inside } of blocksUnderData(ctx.elements)) {
-      if (heading || data || COUNT_LINE.test(text)) continue;
+    for (const { el, above, text, heading, data, feedback, inside } of blocksUnderData(ctx.elements)) {
+      if (heading || data || feedback || COUNT_LINE.test(text)) continue;
       const words = (text.match(/\S+/g) || []).length;
       const basis = words >= BASIS_MIN_WORDS && BASIS.some((re) => re.test(text));
       const set =
@@ -240,8 +240,8 @@ const tableAside = {
   // that carries the marker, not the row holding it.
   test(ctx) {
     const hits = [];
-    for (const { heading, data, text, nested, inside } of blocksBesideHeading(ctx.elements)) {
-      if (nested || COUNT_LINE.test(text)) continue;
+    for (const { heading, data, text, nested, feedback, inside } of blocksBesideHeading(ctx.elements)) {
+      if (nested || feedback || COUNT_LINE.test(text)) continue;
       // No word floor on this tier, measured: one word recovers `<Basis>non-cash</Basis>`
       // beside an <h2> that already carries a `Non-cash` badge, and adds nothing over
       // the 2,285 files or the counter-cases. A letter, though — a basis holding only
