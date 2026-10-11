@@ -7,3 +7,8 @@ Write &#0008599; and &#x002197; here with <span>text</span>.
 <span title="Visit the site &nearr;">Update</span>
 
 <div>Read `&nearr;` here.</div>
+
+# Raw HTML boundary
+<span>
+\&nearr;
+</span>

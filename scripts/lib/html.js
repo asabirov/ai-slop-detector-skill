@@ -774,16 +774,23 @@ function stripFences(text, replacement) {
   const out = [];
   let fence = null;
   for (const line of text.split('\n')) {
+    let body = line;
+    let quoteDepth = 0;
+    while (/^ {0,3}>[ \t]?/.test(body)) {
+      body = body.replace(/^ {0,3}>[ \t]?/, '');
+      quoteDepth++;
+    }
+    if (fence && quoteDepth < fence.quoteDepth) fence = null;
     if (fence) {
-      if (fence.test(line)) fence = null;
+      if (fence.closing.test(body)) fence = null;
       continue;
     }
-    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(body);
     // A backtick fence's info string cannot itself contain a backtick, so an
     // inline ```span``` sitting on its own line stays prose.
     if (open && !(open[1][0] === '`' && open[2].includes('`'))) {
       const char = open[1][0] === '`' ? '\\`' : '~';
-      fence = new RegExp(`^ {0,3}${char}{${open[1].length},}\\s*$`);
+      fence = { closing: new RegExp(`^ {0,3}${char}{${open[1].length},}\\s*$`), quoteDepth };
       out.push(replacement);
       continue;
     }
@@ -797,13 +804,7 @@ function stripFences(text, replacement) {
 // is free to open a span of its own.
 function stripCodeSpans(text, replacement, protectedRanges = []) {
   const runs = [];
-  let rangeIndex = 0;
   for (let i = 0; i < text.length; i++) {
-    while (protectedRanges[rangeIndex]?.end <= i) rangeIndex++;
-    if (protectedRanges[rangeIndex]?.start <= i) {
-      i = protectedRanges[rangeIndex].end - 1;
-      continue;
-    }
     if (text[i] !== '`') continue;
     let len = 1;
     while (text[i + len] === '`') len++;
@@ -825,11 +826,19 @@ function stripCodeSpans(text, replacement, protectedRanges = []) {
   let out = '';
   let copied = 0;
   let k = 0;
+  let rangeIndex = 0;
   while (k < runs.length) {
     const open = runs[k];
+    while (protectedRanges[rangeIndex]?.end <= open.start) rangeIndex++;
+    // A tag protects an opener, but an earlier code span can close inside it.
+    if (protectedRanges[rangeIndex]?.start <= open.start || markdownEscaped(text, open.start)) {
+      k++;
+      continue;
+    }
     const peers = byLen.get(open.len);
     let c = cursor.get(open.len) || 0;
-    while (c < peers.length && peers[c] <= k) c++;
+    while (c < peers.length && (peers[c] <= k ||
+      markdownEscaped(text, runs[peers[c]].start))) c++;
     cursor.set(open.len, c);
     const close = c < peers.length ? runs[peers[c]] : null;
     if (!close || blankLineBetween(blanks, open.start + open.len, close.start)) {
@@ -853,35 +862,91 @@ function withoutMarkdownCode(source) {
 // Match CommonMark raw HTML tags. An attribute starts with an ASCII name and
 // has a valid quoted or unquoted value. Invalid angle text stays visible.
 const MARKDOWN_TAG = /<(?:\/[a-z][a-z0-9-]*[ \t\n]*|[a-z][a-z0-9-]*(?:[ \t\n]+[a-z_:][a-z0-9:._-]*(?:[ \t\n]*=[ \t\n]*(?:"[^"]*"|'[^']*'|[^ \t\n"'=<>`]+))?)*[ \t\n]*\/?)>/gi;
+// A raw block follows HTML lexical rules. Scan quoted attributes and textarea
+// content once so comment and tag spellings there cannot start new tokens.
+function rawHtmlTokens(source) {
+  const tokens = [];
+  for (let i = 0; i < source.length;) {
+    if (source.startsWith('<!--', i)) {
+      const close = /--!?>/g;
+      close.lastIndex = i + 4;
+      const end = close.exec(source);
+      const finish = end ? end.index + end[0].length : source.length;
+      tokens.push({ type: 'comment', index: i, end: finish, text: source.slice(i, finish) });
+      i = finish;
+      continue;
+    }
+    if (source[i] !== '<' || !/[a-z]/i.test(source[i + (source[i + 1] === '/' ? 2 : 1)] || '')) {
+      i++;
+      continue;
+    }
+    let quote = null;
+    let end = i + 1;
+    for (; end < source.length; end++) {
+      const char = source[end];
+      if (quote) {
+        if (char === quote) quote = null;
+      } else if (char === '"' || char === "'") quote = char;
+      else if (char === '>') break;
+    }
+    if (end === source.length) { i++; continue; }
+    end++;
+    const text = source.slice(i, end);
+    tokens.push({ type: 'tag', index: i, end, text });
+    i = end;
+    if (/^<textarea(?=[\s/>])/i.test(text)) {
+      const closing = /<\/textarea\s*>/gi;
+      closing.lastIndex = i;
+      const match = closing.exec(source);
+      if (match) {
+        tokens.push({ type: 'tag', index: match.index,
+          end: match.index + match[0].length, text: match[0] });
+        i = match.index + match[0].length;
+      } else i = source.length;
+    }
+  }
+  return tokens;
+}
 function markdownEscaped(source, offset) {
   let slashes = 0;
   while (source[offset - slashes - 1] === '\\') slashes++;
   return slashes % 2 === 1;
 }
 
-function markdownTagMatches(source) {
-  return [...source.matchAll(MARKDOWN_TAG)].filter((match) => !markdownEscaped(source, match.index));
+function markdownTagMatches(source, rawHtml = false) {
+  if (rawHtml) return rawHtmlTokens(source).filter((token) => token.type === 'tag')
+    .map((token) => Object.assign([token.text], { index: token.index }));
+  return [...source.matchAll(MARKDOWN_TAG)]
+    .filter((match) => !markdownEscaped(source, match.index) &&
+      !/\n[ \t]*\n/.test(match[0]));
 }
 
-function stripMarkdownTags(source) {
-  return source.replace(MARKDOWN_TAG, (tag, offset) => markdownEscaped(source, offset) ? tag : ' ');
+function stripMarkdownTags(source, rawHtml = false) {
+  const pieces = [];
+  let copied = 0;
+  for (const match of markdownTagMatches(source, rawHtml)) {
+    pieces.push(source.slice(copied, match.index), ' ');
+    copied = match.index + match[0].length;
+  }
+  pieces.push(source.slice(copied));
+  return pieces.join('');
 }
 
-function markdownAttributeRuns(source) {
-  return attrTextRuns(markdownTagMatches(source).map((match) => match[0]).join(' '));
+function markdownAttributeRuns(source, rawHtml = false) {
+  return attrTextRuns(markdownTagMatches(source, rawHtml).map((match) => match[0]).join(' '));
 }
 
 function markdownVisibleRuns(source, html) {
   const boundary = html ? BLOCK_ELEMENT : NON_MARKUP_BOUNDARY;
   const pieces = [];
   let start = 0;
-  for (const match of markdownTagMatches(source)) {
+  for (const match of markdownTagMatches(source, html)) {
     if (!boundary.test(match[0])) continue;
     pieces.push(source.slice(start, match.index));
     start = match.index + match[0].length;
   }
   pieces.push(source.slice(start));
-  return pieces.map((piece) => decodeEntities(stripMarkdownTags(piece),
+  return pieces.map((piece) => decodeEntities(stripMarkdownTags(piece, html),
     { markdownEscapes: !html }).replace(/\s+/g, ' ').trim()).filter(Boolean);
 }
 
@@ -895,8 +960,37 @@ function withoutMarkdownCodeAroundHtml(source) {
   return stripCodeSpans(unfenced, ' ', ranges);
 }
 
-function stripMarkdownHidden(source) {
-  const tags = markdownTagMatches(source);
+function stripMarkdownHidden(source, rawHtml) {
+  if (rawHtml) {
+    const tokens = rawHtmlTokens(source);
+    const ranges = [];
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i];
+      if (token.type === 'comment') {
+        ranges.push({ start: token.index, end: token.end });
+        continue;
+      }
+      const opening = /^<(script|style|code|pre)(?=[\s/>])/i.exec(token.text);
+      if (!opening) continue;
+      const closing = new RegExp(`^<\\/${opening[1]}\\s*>$`, 'i');
+      let end = source.length;
+      for (let j = i + 1; j < tokens.length; j++) {
+        if (tokens[j].type === 'tag' && closing.test(tokens[j].text)) {
+          end = tokens[j].end;
+          i = j;
+          break;
+        }
+      }
+      ranges.push({ start: token.index, end });
+      if (end === source.length) break;
+    }
+    let visible = source;
+    for (const range of ranges.reverse()) {
+      visible = visible.slice(0, range.start) + ' ' + visible.slice(range.end);
+    }
+    return visible;
+  }
+  const tags = markdownTagMatches(source, rawHtml);
   const ranges = [];
   for (let i = 0; i < tags.length; i++) {
     const opening = /^<([a-z][a-z0-9-]*)\b/i.exec(tags[i][0]);
@@ -917,14 +1011,24 @@ function stripMarkdownHidden(source) {
   }
   let hidden = source;
   for (const range of ranges.reverse()) hidden = hidden.slice(0, range.start) + ' ' + hidden.slice(range.end);
+  const tagRanges = markdownTagMatches(hidden);
+  const commentEnd = /--!?>/g;
   let comment = hidden.indexOf('<!--');
   while (comment !== -1) {
-    if (markdownEscaped(hidden, comment)) {
+    if (markdownEscaped(hidden, comment) || tagRanges.some((tag) =>
+      tag.index < comment && comment < tag.index + tag[0].length)) {
       comment = hidden.indexOf('<!--', comment + 4);
       continue;
     }
-    const close = hidden.indexOf('-->', comment + 4);
-    hidden = hidden.slice(0, comment) + ' ' + hidden.slice(close === -1 ? hidden.length : close + 3);
+    commentEnd.lastIndex = comment + 4;
+    const close = commentEnd.exec(hidden);
+    // CommonMark shows an invalid inline comment as text. A raw HTML block
+    // passes it to the browser, where --!> also ends the hidden comment.
+    if (!close || close[0] !== '-->') {
+      comment = hidden.indexOf('<!--', comment + 4);
+      continue;
+    }
+    hidden = hidden.slice(0, comment) + ' ' + hidden.slice(close ? close.index + close[0].length : hidden.length);
     comment = hidden.indexOf('<!--', comment + 1);
   }
   return hidden;
@@ -933,7 +1037,7 @@ function stripMarkdownHidden(source) {
 // Type 6 block tags can interrupt a paragraph. A complete tag on its own line
 // starts type 7 only after a paragraph boundary. Neither output nor search is
 // a CommonMark type 6 tag.
-const MARKDOWN_HTML_BLOCK = /^ {0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?=[\s/>])/i;
+const MARKDOWN_HTML_BLOCK = /^ {0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?=[\s/>]|$)/i;
 const MARKDOWN_HTML_TAG_LINE = new RegExp(`^ {0,3}${MARKDOWN_TAG.source}\\s*$`, 'i');
 const MARKDOWN_SPECIAL_BLOCK = /^ {0,3}<(script|pre|style|textarea)(?=[\s>])/i;
 function markdownContainer(line) {
@@ -945,7 +1049,8 @@ function markdownContainer(line) {
   }
   const list = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+/.exec(body);
   if (list) body = body.slice(list[0].length);
-  return { body, quoteDepth, list: !!list };
+  return { body, quoteDepth, list: !!list,
+    indent: /^ */.exec(body)[0].length, listIndent: list?.[0].length || 0 };
 }
 
 // Decide block boundaries on the original source. Removing backticks first can
@@ -957,6 +1062,10 @@ function markdownRegions(source) {
   let endMarker = null;
   let quoteDepth = 0;
   let inList = false;
+  let listIndent = 0;
+  let hiddenRaw = null;
+  let paragraphOpen = false;
+  let paragraphQuoteDepth = 0;
   let fence = null;
   const flush = () => {
     if (lines.length) regions.push({ kind, text: lines.join('\n') });
@@ -965,16 +1074,19 @@ function markdownRegions(source) {
   for (const line of source.split('\n')) {
     const container = markdownContainer(line);
     const blank = /^\s*$/.test(container.body);
-    if (kind === 'html' && ((endMarker === null && blank) ||
-      container.quoteDepth < quoteDepth || (inList && container.list))) {
+    if (kind === 'html' && !hiddenRaw && ((endMarker === null && blank) ||
+      container.quoteDepth < quoteDepth ||
+      (inList && (container.list || (!blank && container.indent < listIndent))))) {
       flush();
       kind = 'markdown';
       endMarker = null;
+      paragraphOpen = false;
     }
     if (kind === 'markdown') {
       if (fence) {
         lines.push(line);
         if (fence.test(container.body)) fence = null;
+        paragraphOpen = false;
         continue;
       }
       const openingFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(container.body);
@@ -982,27 +1094,56 @@ function markdownRegions(source) {
         const char = openingFence[1][0] === '`' ? '\\`' : '~';
         fence = new RegExp(`^ {0,3}${char}{${openingFence[1].length},}\\s*$`);
         lines.push(line);
+        paragraphOpen = false;
         continue;
       }
+      if (blank || container.list || container.quoteDepth !== paragraphQuoteDepth) paragraphOpen = false;
       const special = MARKDOWN_SPECIAL_BLOCK.exec(container.body);
       const startsTagBlock = MARKDOWN_HTML_TAG_LINE.test(container.body) &&
-        (container.list || !lines.length || /^\s*$/.test(markdownContainer(lines[lines.length - 1]).body));
+        !paragraphOpen;
       if (special || /^ {0,3}<!--/.test(container.body) ||
         MARKDOWN_HTML_BLOCK.test(container.body) || startsTagBlock) {
         flush();
         kind = 'html';
         quoteDepth = container.quoteDepth;
         inList = container.list;
-        if (special) endMarker = new RegExp(`</${special[1]}[ \\t\\n]*>`, 'i');
-        else if (/^ {0,3}<!--/.test(container.body)) endMarker = /-->/;
-        else endMarker = null;
+        listIndent = container.listIndent;
+        if (special) {
+          const closing = new RegExp(`</${special[1]}[ \\t\\n]*>`, 'i');
+          endMarker = (text) => closing.test(text);
+        } else if (/^ {0,3}<!--/.test(container.body)) {
+          // CommonMark keeps the block open until -->, even if a browser
+          // would end the comment at --!> inside that block.
+          endMarker = (text) => text.includes('-->');
+        } else {
+          endMarker = null;
+        }
+      }
+      if (kind === 'markdown') {
+        const setext = paragraphOpen && /^ {0,3}(?:=+|-+)[ \t]*$/.test(container.body);
+        paragraphOpen = !blank && !setext &&
+          !/^ {0,3}(?:#{1,6}(?:[ \t]|$)|(?:\*\s*){3,}$|(?:-\s*){3,}$|(?:_\s*){3,}$)/.test(container.body);
+        paragraphQuoteDepth = container.quoteDepth;
       }
     }
-    lines.push(kind === 'html' ? container.body : line);
-    if (kind === 'html' && endMarker?.test(container.body)) {
+    const rawLine = quoteDepth === 0 && !inList ? line : container.body;
+    lines.push(kind === 'html' ? rawLine : line);
+    if (kind === 'html') {
+      for (const token of rawHtmlTokens(rawLine)) {
+        if (token.type !== 'tag') continue;
+        if (hiddenRaw && new RegExp(`^<\\/${hiddenRaw}\\s*>$`, 'i').test(token.text)) {
+          hiddenRaw = null;
+        } else if (!hiddenRaw) {
+          const opening = /^<(code|pre)(?=[\s/>])/i.exec(token.text);
+          if (opening) hiddenRaw = opening[1].toLowerCase();
+        }
+      }
+    }
+    if (kind === 'html' && endMarker?.(container.body)) {
       flush();
       kind = 'markdown';
       endMarker = null;
+      paragraphOpen = false;
     }
   }
   flush();
@@ -1010,19 +1151,21 @@ function markdownRegions(source) {
 }
 
 function markdownStreams(source) {
+  source = source.replace(/\r\n?/g, '\n');
   const attrs = [];
   const chunks = [];
   const runs = [];
   const paras = [];
   for (const region of markdownRegions(source)) {
-    const body = stripMarkdownHidden(region.kind === 'html' ? region.text :
-      withoutMarkdownCodeAroundHtml(region.text));
-    attrs.push(...markdownAttributeRuns(body));
+    const rawHtml = region.kind === 'html';
+    const body = stripMarkdownHidden(rawHtml ? region.text :
+      withoutMarkdownCodeAroundHtml(region.text), rawHtml);
+    attrs.push(...markdownAttributeRuns(body, rawHtml));
     if (region.kind === 'html') {
       const htmlRuns = markdownVisibleRuns(body, true);
       runs.push(...htmlRuns);
       paras.push(...htmlRuns);
-      chunks.push(decodeEntities(stripMarkdownTags(body)));
+      chunks.push(decodeEntities(stripMarkdownTags(body, true)));
       continue;
     }
     const prose = body

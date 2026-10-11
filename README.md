@@ -118,7 +118,10 @@ Longer references stay literal in Markdown prose. Inside raw HTML blocks,
 HTML decodes them without these Markdown limits. The parser also reads
 human-readable attributes in raw HTML and excludes script, style, and code
 contents from Markdown prose. Autolinks and literal angle-bracket text remain
-visible to text rules.
+visible to text rules. A comment marker inside a quoted HTML attribute stays
+attribute data. Textarea content keeps tag and comment spellings as text.
+Raw HTML blocks can start after completed headings and fences. A raw HTML
+region ends when its list item ends.
 
 In markup, `p`, `div`, headings, `span`, `li`, table cells, `section`, `header`,
 `footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible text run. This keeps
@@ -158,7 +161,8 @@ Code is not prose. In Markdown regions, fenced blocks and inline code spans
 come out before the rules that judge decoration read them. Raw HTML blocks and
 readable HTML attributes keep backticks as text. Spans use matching runs of N
 backticks, and the HTML sniff runs after Markdown code removal. A Markdown
-file that names `<style>` in a code span stays Markdown.
+file that names `<style>` in a code span stays Markdown. An escaped backtick
+stays visible, and a fenced block inside a blockquote stays code.
 
 Four levels, each a superset of the one below: `ban`, `recommended` (default),
 `strict`, `paranoid`. Only `error` findings exit non-zero, so level 1 is the

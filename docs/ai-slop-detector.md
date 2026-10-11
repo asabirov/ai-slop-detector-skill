@@ -100,6 +100,8 @@ number of backslashes. An even number lets the reference decode. Markdown prose 
 1 to 7 decimal digits or 1 to 6 hexadecimal digits in a numeric reference. Longer forms
 stay literal there. Raw HTML blocks use HTML reference rules, including longer numeric forms.
 Markdown code syntax does not remove text from raw HTML blocks or readable attributes.
+Quoted HTML attributes keep comment markers as data. Textarea content keeps tag and
+comment spellings as text. Raw HTML ends when its Markdown list item ends.
 
 In markup, `p`, `div`, headings, `span`, `li`, `td`, `th`, `section`, `header`,
 `footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible run. The definition

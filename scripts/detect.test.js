@@ -272,6 +272,19 @@ test('keeps escaped hidden HTML openers visible in Markdown', { timeout: 1000 },
     .some((finding) => finding.rule === 'external-link-arrow'));
 });
 
+test('keeps text after an HTML comment ending with --!>', { timeout: 1000 }, () => {
+  for (const source of [
+    'Write <!-- hidden --!> ↗ here.',
+    '<div><!-- hidden --!> ↗ here.</div>',
+    '<!-- hidden --!>\n\nWrite \\&nearr; here.',
+  ]) {
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  assert.ok(!detect('<!-- ↗ -->', { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
 test('uses HTML references only inside valid raw HTML blocks', { timeout: 1000 }, () => {
   for (const source of [
     '> <div>Write \\&nearr; here.</div>',
@@ -293,12 +306,112 @@ test('uses HTML references only inside valid raw HTML blocks', { timeout: 1000 }
 
 test('preserves angle text with invalid HTML tag grammar', { timeout: 1000 }, () => {
   for (const source of ['Show <x @↗> here.', 'Show <x ↗> here.', 'Show </x ↗> here.',
-    'Show <span @↗> here.', '<div>Show <span @↗> here.</div>']) {
+    'Show <span @↗> here.']) {
     assert.ok(parse(source, { ext: 'md' }).codeless.includes('↗'), source);
     assert.ok(parse(source, { ext: 'md' }).runs.some((run) => run.includes('↗')), source);
     assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
       .some((finding) => finding.rule === 'external-link-arrow'), source);
   }
+  assert.ok(!detect('<div>Show <span @↗> here.</div>',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('lets a Markdown code span close inside tag-shaped text', { timeout: 1000 }, () => {
+  for (const source of ['`text\n<span title="`↗">', '`text\n<span title="`">↗`']) {
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  assert.ok(!detect('`text <span title="↗">`',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('keeps escaped backticks visible and hides quoted fences', { timeout: 1000 }, () => {
+  assert.ok(detect('Read \\`↗\\` here.',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(!detect('Read \\\\`↗` here.',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(!detect('> ~~~\n> ↗\n> ~~~',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('uses HTML syntax within a raw HTML block', { timeout: 1000 }, () => {
+  for (const source of ['<div>\n\\<script>↗</script>\n</div>',
+    '<div>\n\\<code>↗</code>\n</div>', '<div>\n\\<!-- ↗ -->\n</div>',
+    '<div>\n<span @↗>\n</span>\n</div>']) {
+    assert.ok(!detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  assert.ok(detect('Text \\<script>↗\\</script>',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('starts complete-tag HTML blocks after completed Markdown blocks', { timeout: 1000 }, () => {
+  for (const source of ['# Heading\n<span>\n\\&nearr;\n</span>',
+    '# Heading\n</span>\n\\&nearr;', '```\nvalue\n```\n<span>\n\\&nearr;\n</span>',
+    '---\n<span>\n\\&nearr;\n</span>', 'Heading\n===\n<span>\n\\&nearr;\n</span>',
+    'Text\n> <span>\n> \\&nearr;\n> </span>']) {
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  assert.ok(!detect('Text\n<span>\n\\&nearr;\n</span>',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('ends raw HTML when its Markdown list container ends', { timeout: 1000 }, () => {
+  assert.ok(!detect('- <div>\n  Text\n\\&nearr;',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(detect('- <div>\n  \\&nearr;\n  </div>',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('keeps comments inside HTML attribute values from hiding text', { timeout: 1000 }, () => {
+  for (const source of ['<div data-x="<!--">↗</div>',
+    '<div title="A <!-- marker">↗</div>']) {
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  assert.ok(!detect('<div><!-- ↗ --></div>',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('preserves literal markup and comments in textarea text', { timeout: 1000 }, () => {
+  for (const source of ['<textarea><code>↗</code></textarea>',
+    '<textarea><!-- ↗ --></textarea>', '<textarea>\n\n<script>↗</script>\n</textarea>']) {
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+});
+
+test('keeps HTML code hidden across a Markdown blank line', { timeout: 1000 }, () => {
+  assert.ok(!detect('<div><code>\n\n↗\n</code></div>',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('accepts type 6 HTML names and multiline opening prefixes', { timeout: 1000 }, () => {
+  for (const source of ['<search>\\&nearr;</search>', '<div\n>\\&nearr;</div>']) {
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+});
+
+test('limits Markdown tags to paragraphs and accepts CRLF whitespace', { timeout: 1000 }, () => {
+  assert.ok(detect('Read <x\n\ndata-x="↗"> text.',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(!detect('Read <x\r\ndata-x="↗"> text.',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
 });
 
 test('keeps boundary-prefix custom elements inside a visible run', { timeout: 1000 }, () => {
