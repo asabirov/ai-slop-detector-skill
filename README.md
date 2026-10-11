@@ -111,8 +111,10 @@ numeric forms. So a dotted chain written `&middot;` and one typed with the dot a
 the same line. Numeric C1 references use HTML's replacement glyphs, so `&#149;`
 reads as `•` and `&#146;` reads as `’`. The scans that read markup for class
 names, selectors and tag shapes work on the page as written.
-Markdown references after an odd number of backslashes stay literal. References
-after an even number of backslashes decode normally.
+Markdown references after an odd number of backslashes stay literal, even when
+the file contains raw HTML. References after an even number decode normally.
+Markdown accepts 1 to 7 decimal digits or 1 to 6 hexadecimal digits. Longer
+numeric references stay literal in Markdown but still decode in HTML.
 
 In markup, `p`, `div`, headings, `span`, `li`, table cells, `section`, `header`,
 `footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible text run. This keeps

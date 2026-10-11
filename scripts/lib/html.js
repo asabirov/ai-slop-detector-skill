@@ -61,6 +61,8 @@ function decodeEntities(text, { blankUnknown = false, markdownEscapes = false } 
       let slashes = 0;
       while (text[offset - slashes - 1] === '\\') slashes++;
       if (slashes % 2) return whole;
+      // CommonMark limits decimal references to seven digits and hex to six.
+      if ((hex !== undefined && hex.length > 6) || (dec !== undefined && dec.length > 7)) return whole;
     }
     if (name !== undefined) {
       const glyph = NAMED[name];
@@ -857,13 +859,11 @@ function plainText(source, isHtml) {
   // syntax is stripped, not before. The other way round, a decoded character is
   // read as syntax: CommonMark resolves an entity after block structure, so
   // `&#35; x` is a paragraph printing `# x`, not a heading.
-  return decodeEntities(
-    withoutMarkdownCode(source)
-      .replace(/^\s{0,3}#{1,6}\s+/gm, '') // heading hashes
-      .replace(/^\s{0,3}[-*+]\s+/gm, '') // list bullets
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1'), // links → link text
-    { markdownEscapes: true }
-  ).trim();
+  const visible = stripTags(withoutMarkdownCode(source)
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '') // heading hashes
+    .replace(/^\s{0,3}[-*+]\s+/gm, '') // list bullets
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')); // links → link text
+  return decodeEntities(visible, { markdownEscapes: true }).trim();
 }
 
 // Prose with code removed — fenced blocks and inline spans in markdown, <code>
@@ -891,7 +891,7 @@ function paragraphs(source, isHtml) {
   // break between two.
   return stripFences(source, '\n')
     .split(/\n\s*\n/)
-    .map((p) => decodeEntities(p, { markdownEscapes: true }).replace(/\s+/g, ' ').trim())
+    .map((p) => decodeEntities(stripTags(p), { markdownEscapes: true }).replace(/\s+/g, ' ').trim())
     .filter(Boolean);
 }
 
@@ -901,7 +901,9 @@ function paragraphs(source, isHtml) {
 // unresolved rather than silently skipped.
 function parse(source, { filePath, root, ext } = {}) {
   const isCss = ext === 'css' || (filePath && /\.css$/i.test(filePath));
-  const isHtml = !isCss && (['html', 'htm', 'jsx', 'tsx', 'vue', 'svelte', 'astro'].includes(ext) || looksLikeHtml(source));
+  const isMarkdown = ['md', 'markdown'].includes(ext);
+  const isHtml = !isCss && !isMarkdown &&
+    (['html', 'htm', 'jsx', 'tsx', 'vue', 'svelte', 'astro'].includes(ext) || looksLikeHtml(source));
   const elements = isHtml ? markupElements(source) : null;
   const utilities = elements ? require('./utilities').elementCss(elements) : '';
   const inline = isHtml ? cssBlocks(source) : '';

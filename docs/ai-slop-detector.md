@@ -95,8 +95,10 @@ does not list, a code point past Unicode's last, and the surrogate range are lef
 written, and so are the forms a browser accepts without the semicolon (`&amp` for `&`). The
 one stream that drops an unresolved name rather than keeping it is the whole-page prose
 stream of an HTML page, which did that before, so no prose rule reads it as a word; the
-markdown side keeps it. An escaped Markdown ampersand stays literal after an odd number of backslashes.
-An even number lets the reference decode. HTML references decode normally.
+markdown side keeps it. An escaped Markdown ampersand stays literal after an odd number of backslashes,
+even when the file contains raw HTML. An even number lets the reference decode.
+Markdown accepts 1 to 7 decimal digits or 1 to 6 hexadecimal digits in a numeric reference.
+Longer forms stay literal in Markdown. HTML references decode normally, including longer numeric forms.
 
 In markup, `p`, `div`, headings, `span`, `li`, `td`, `th`, `section`, `header`,
 `footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible run. The definition

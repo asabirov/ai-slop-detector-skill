@@ -15,6 +15,7 @@ const {
   paragraphs,
   visibleTextRuns,
   decodeEntities,
+  parse,
   stripTags,
   markupTokens,
   markupElements,
@@ -36,7 +37,7 @@ const run = (f, level) =>
     filePath: path.join(FIX, f),
   });
 
-const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop.js', 'slop-linked-css.html', 'slop-table-footnote.tsx', 'slop-entities.html', ...fs.readdirSync(FIX).filter((f) => f.startsWith('slop-ui-'))];
+const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop.js', 'slop-linked-css.html', 'slop-table-footnote.tsx', 'slop-entities.html', 'slop-entities.md', ...fs.readdirSync(FIX).filter((f) => f.startsWith('slop-ui-'))];
 const CLEAN_FIXTURES = ['clean.html', 'clean.md', 'clean.js'];
 
 function firedIds(file, level = 4) {
@@ -148,6 +149,41 @@ test('keeps escaped Markdown references literal with odd backslash counts', { ti
     }
   }
   assert.strictEqual(plainText('<p>Write &nearr; here.</p>', true), 'Write ↗ here.');
+});
+
+test('keeps Markdown escapes when prose shares a file with raw HTML', { timeout: 1000 }, () => {
+  for (const html of ['<span>text</span>', '\n\n<div>text</div>']) {
+    for (const count of [1, 2, 3, 4]) {
+      const source = `Write ${'\\'.repeat(count)}&nearr; here. ${html}`;
+      const ctx = parse(source, { ext: 'md' });
+      assert.strictEqual(ctx.isHtml, false, source);
+      assert.strictEqual(ctx.codeless.includes('↗'), count % 2 === 0, source);
+      assert.strictEqual(ctx.paragraphs[0].includes('↗'), count % 2 === 0, source);
+      assert.strictEqual(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+        .some((finding) => finding.rule === 'external-link-arrow'), count % 2 === 0, source);
+    }
+  }
+  assert.strictEqual(parse('<p>Write &nearr; here.</p>', { ext: 'html' }).codeless, 'Write ↗ here.');
+});
+
+test('limits Markdown numeric reference digits without limiting HTML', { timeout: 1000 }, () => {
+  for (const [reference, decodes] of [
+    ['&#8599;', true], ['&#0008599;', true], ['&#00008599;', false],
+    ['&#x2197;', true], ['&#x002197;', true], ['&#x00002197;', false],
+  ]) {
+    const source = `Write ${reference} here.`;
+    const expected = decodes ? '↗' : reference;
+    assert.ok(plainText(source, false).includes(expected), source);
+    assert.ok(paragraphs(source, false)[0].includes(expected), source);
+    assert.strictEqual(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), decodes, source);
+    assert.ok(plainText(`<p>${source}</p>`, true).includes('↗'), source);
+  }
+  const mixed = 'Write &#00008599; with <span>text</span>.';
+  assert.ok(parse(mixed, { ext: 'markdown' }).codeless.includes('&#00008599;'));
+  assert.ok(!detect(mixed, { level: 1, kind: 'artifact', ext: 'markdown' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(firedIds('slop-entities.md', 1).has('external-link-arrow'));
 });
 
 test('keeps boundary-prefix custom elements inside a visible run', { timeout: 1000 }, () => {
