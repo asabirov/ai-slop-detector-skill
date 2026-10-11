@@ -131,12 +131,24 @@ test('decodes every HTML5 name, and reads its case', { timeout: 1000 }, () => {
   assert.strictEqual(decodeEntities('&#X26;lt;'), '&lt;');
 });
 
-// ── one run per element, in markup only ─────────────────────────────────
-// Twelve tag names ended a run, so a `<dl>` of labels and values arrived as one
-// line and no rule that measures a value could reach `<dd>14 · 1 no-show</dd>`.
-// A file that is not markup keeps the twelve: it has no elements, and its
-// tag-shaped text is an accident.
-test('ends a run at every element in markup, and leaves other files alone', { timeout: 1000 }, () => {
+test('keeps inline SVG and label text in a visible chain', { timeout: 1000 }, () => {
+  for (const page of [
+    '<p>draft · <svg><use href="#icon"/></svg>2026 · brainstorm</p>',
+    '<p>draft · <label>2026</label> · brainstorm</p>',
+  ]) {
+    assert.deepStrictEqual(visibleTextRuns(page), ['draft · 2026 · brainstorm']);
+    const findings = detect(page, { level: 4, kind: 'artifact', ext: 'html' }).findings;
+    assert.ok(findings.some((finding) => finding.rule === 'middot-chain' &&
+      finding.span === 'draft · 2026 · brainstorm'), JSON.stringify(findings));
+  }
+  assert.deepStrictEqual(visibleTextRuns('<dl><dt>Release</dt><dd>draft · 2026 · brainstorm</dd><dd>beta · internal · preview</dd></dl>'), [
+    'Release', 'draft · 2026 · brainstorm', 'beta · internal · preview',
+  ]);
+});
+
+// Definition labels and values are separate runs. Inline markup stays in its
+// surrounding run so text rules can still read the complete line.
+test('separates definition values while preserving inline text', { timeout: 1000 }, () => {
   const dl = '<dl><dt>Bookings this year</dt><dd>14 &middot; 1 no-show</dd></dl>';
   assert.deepStrictEqual(visibleTextRuns(dl), ['Bookings this year', '14 · 1 no-show']);
   assert.deepStrictEqual(visibleTextRuns(dl, { markup: false }), ['Bookings this year 14 · 1 no-show']);
@@ -148,25 +160,16 @@ test('ends a run at every element in markup, and leaves other files alone', { ti
   assert.deepStrictEqual(visibleTextRuns('<p>draft · <img src="i.png" alt=""> 2026 · x</p>'), [
     'draft · 2026 · x',
   ]);
-  // A custom element is not phrasing, whatever its name starts with. A word
-  // boundary after the name read `<time-ago>` and `<s-badge>` as phrasing,
-  // because a hyphen is not a word character.
   assert.deepStrictEqual(visibleTextRuns('<p>draft · <time-ago>2026</time-ago> · x</p>'), [
-    'draft ·',
-    '2026',
-    '· x',
+    'draft · 2026 · x',
   ]);
-  // `svg` is a boundary, so an icon drawn that way ends the line where the twelve
-  // tag names kept it whole. Adding `svg` alone would not change that: `use`,
-  // `path` and `g` end a run too. These two pin the shape that is read less.
   assert.deepStrictEqual(visibleTextRuns('<p>one<svg><text>label</text></svg>two</p>'), [
     'one',
     'label',
     'two',
   ]);
   assert.deepStrictEqual(visibleTextRuns('<p>a · <svg><use href="#d"/></svg> b · c</p>'), [
-    'a ·',
-    'b · c',
+    'a · b · c',
   ]);
   // A <br> does end one, and a <span> around a value still sets it apart.
   assert.deepStrictEqual(visibleTextRuns('<p>a · b<br>c · d</p>'), ['a · b', 'c · d']);

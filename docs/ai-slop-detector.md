@@ -97,29 +97,14 @@ one stream that drops an unresolved name rather than keeping it is the whole-pag
 stream of an HTML page, which did that before, so no prose rule reads it as a word; the
 markdown side keeps it.
 
-A run ends at every element, so `<dd>14 · 1 no-show</dd>` is measured on its own. Twelve tag
-names used to end a run, and a `<dl>` of labels and values arrived as one line that no rule
-measuring a value could reach. A phrasing element is the exception, because it marks up words
-inside a line rather than ending one: `b`, `strong`, `i`, `em`, `code`, `small`, `sub`, `sup`,
-`mark`, `abbr`, `time`, `kbd`, `samp`, `var`, `cite`, `q`, `s`, `u`, `del`, `ins`, `bdi`,
-`bdo`, `ruby`, `rt`, `rp`, `data`, `dfn`, `img`, `wbr`, `big`, `tt` and `font`. An `<img>` icon
-between two dots is the same shape as a bolded word between them, which is why `img` and
-`wbr` are there. `svg` is not, and adding it alone would not help: an inline icon is drawn
-from `use`, `path` and `g`, and a chart's labels sit in `text`, so every one of those ends
-the run as well. An svg icon can only pass once its whole subtree is skipped, which is a
-change of its own.
-
-What the exact list costs is a chain whose items are separated by something else: an inline
-`<svg>` icon, a `<relative-time>` in a byline, a `<label>`. The twelve tag names read such a
-line as one run, and this reads it as two or three, so the chain goes unreported. The
-alternative was worse, because the twelve also read a whole `<dl>`, and a document, as one
-run. `span` and `a` are not, because they ended a run before this and a
-kit's `<span>` around a value is how a value is set apart. `br` is not, because ending a line
-is what it is for. The list is exact, so a custom element ends a run whatever its name starts
-with; `<time-ago>` is not `time`. A file that is not markup keeps the twelve: it has no
-elements, so its tag-shaped text is an accident — a markdown page's `<date or "—">`
-placeholder — and splitting on those moved noise around rather than removing it. What
-markdown needs is its lines, which is a separate defect.
+In markup, `p`, `div`, headings, `span`, `li`, `td`, `th`, `section`, `header`,
+`footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible run. The definition
+tags keep each value separate. The original twelve boundaries remain, including
+`span` and `a`. Other tags stay inside the run. Thus an inline `svg`, `label`, or
+custom element does not hide a dotted chain. The parser uses tag names without
+CSS layout or a DOM, so its runs only approximate displayed text. Files not read
+as markup keep the original twelve boundaries. This avoids splitting their
+tag-shaped text on the new definition and line-break tags.
 
 `--level` accepts a number (`1`–`4`) or a name (`ban`, `recommended`, `strict`,
 `paranoid`). `--json` emits `{ verdict, level, files[], stats }` for chaining.

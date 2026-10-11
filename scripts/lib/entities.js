@@ -4,12 +4,10 @@
 // the reader never sees, and a rule looking for a glyph has to see what the
 // browser prints. Six names were hand-picked before, so `&nearr;` got silence.
 //
-// Data, not logic: one line per name, the name without its semicolon, then its
-// code points in hex. Hex rather than the glyph, so the file is plain ASCII and a
-// diff shows which character moved. Neither half holds a space, so the first
-// space is the whole parse. `scripts/detect.test.js` counts the names and spot
-// checks a few; the case matters, because `&Aacute;` and `&aacute;` are
-// different letters.
+// Each line holds a case-sensitive name without `&` or `;`, then its code points
+// in uppercase hex. The first space separates the name from its code points.
+// Source: https://html.spec.whatwg.org/entities.json. Extract keys ending in `;`.
+// Remove their `&` and `;`, then write each `codepoints` array as uppercase hex.
 
 const TABLE = `
 AElig C6

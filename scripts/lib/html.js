@@ -68,39 +68,15 @@ function decodeEntities(text, { blankUnknown = false } = {}) {
   });
 }
 
-// Phrasing marks up words inside a line, so it does not end one: `draft ·
-// <strong>2026</strong> · brainstorm` is one chain, and splitting it at the bold
-// left three fragments and none. An `<img>` icon between the dots is the same
-// shape, so `img` and `wbr` are here too.
-//
-// What it costs: any other element between the dots ends the run, where the twelve
-// kept it whole — an inline `<svg>` icon, a `<relative-time>`, a `<label>`. The
-// reference says why adding `svg` here would not answer the icon case.
-//
-// `span` and `a` are out, because they ended a run before this and a kit's
-// `<span>` around a value is how a value is set apart, and `br` is out because
-// ending a line is what it is for.
-const PHRASING =
-  'b|strong|i|em|code|small|sub|sup|mark|abbr|time|kbd|samp|var|cite|q|s|u|del|ins' +
-  '|bdi|bdo|ruby|rt|rp|data|dfn|img|wbr|big|tt|font';
+// Keep inline markup inside a text run. Split definition labels and values, and
+// split at a line break. The earlier broad split hid chains containing SVG icons
+// and labels. This is a text approximation, not a DOM or CSS layout calculation.
+const BLOCK_ELEMENT = /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a|dl|dt|dd|br)\b[^>]*>/i;
+const NON_MARKUP_BOUNDARY = /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a)\b[^>]*>/i;
 
-// The guard after the name is `(?![a-z0-9-])`, not `\b`: a hyphen is not a word
-// character, so `\b` read every custom element starting with one of these names —
-// `<time-ago>`, `<s-badge>` — as phrasing.
-const ELEMENT = new RegExp(`<\\/?(?!(?:${PHRASING})(?![a-z0-9-]))[a-z][a-z0-9-]*\\b[^>]*>`, 'i');
-const BLOCK_ELEMENT = /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a)\b[^>]*>/i;
-
-// In markup every other element boundary ends a run. Twelve tag names used to, so
-// a value in a tag outside the list was read as part of its neighbours: a `<dl>`
-// arrived as one long line and no rule measuring a value could reach
-// `<dd>14 · 1 no-show</dd>`.
-//
-// A file that is not markup keeps the twelve. It has no elements, so a tag-shaped
-// run of its text is an accident, and splitting on those moved noise around rather
-// than removing it. Markdown needs its lines, which is a separate defect.
 function visibleTextRuns(html, { markup = true } = {}) {
   const body = stripBetween(stripBetween(html, 'style'), 'script');
-  const runs = body.split(markup ? ELEMENT : BLOCK_ELEMENT);
+  const runs = body.split(markup ? BLOCK_ELEMENT : NON_MARKUP_BOUNDARY);
   const out = [];
   for (const r of runs) {
     const t = decodeEntities(stripTags(r)).replace(/\s+/g, ' ').trim();
