@@ -386,6 +386,29 @@ describe('UI heuristics', { timeout: 1000 }, () => {
       has(`<h2>Totals</h2>${note}${table}`, 'table-aside');
     }
   });
+  it('ignores empty, numeric, and control-only table asides', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const candidate of ['<div></div>', '<div>123</div>', '<div><button>Export</button></div>']) {
+      lacks(`<h2>Reports</h2>${candidate}${table}`, 'table-aside');
+    }
+  });
+  it('keeps a note split across adjacent small elements', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const whole = '<div><small>Updated nightly, so yesterday stays open.</small><button>Export</button></div>';
+    const split = '<div><small>Updated nightly, so </small><small>yesterday stays open.</small><button>Export</button></div>';
+    for (const candidate of [whole, split]) has(table + candidate, 'table-footnote');
+    lacks(table + '<div><small>Updated nightly, so </small>yesterday stays open.<button>Export</button></div>', 'table-footnote');
+  });
+  it('keeps a live span separate from neighboring ordinary text', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const [status, action] of [['Ready.', 'Export'],
+      ['Saving a new time notifies the observer.', 'Save']]) {
+      const candidate = `<div class="text-muted"><span role="status">${status}</span> Updated nightly, so yesterday stays open.<button>${action}</button></div>`;
+      has(table + candidate, 'table-footnote');
+      has(`<h2>Reports</h2>${candidate}${table}`, 'table-aside');
+    }
+    lacks(table + '<div class="text-muted" role="status">Ready.<button>Export</button></div>', 'table-footnote');
+  });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
   });

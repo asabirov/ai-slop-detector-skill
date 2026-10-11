@@ -469,20 +469,21 @@ function noteLines(elements, ends, kept, controls) {
       const content = joinedText(line.map((event) => event.chunk));
       if (/\p{L}/u.test(content)) {
         const id = nextId++;
-        // A live region identifies action feedback even without a matching
-        // nearby label. A separate data line keeps its own record.
-        const feedback = isControlFeedback(content, controls) ||
-          (inLiveRegion && ACTION_FEEDBACK.test(content));
         const scopes = new Map();
         for (const event of line) {
           for (let p = event.owner; p >= 0; p = elements[p].parent) {
             if (!scopes.has(p)) scopes.set(p, []);
             scopes.get(p).push(event.chunk);
-            if (p === i) break;
+            if (p === i || elements[p].live) break;
           }
         }
         for (const [owner, chunks] of scopes) {
-          attach(owner, { id, order: line[0].pos, text: feedback ? '' : joinedText(chunks) });
+          const scopedText = joinedText(chunks);
+          // Feedback only empties its own scope. A live inline child must not
+          // empty ordinary text beside it on the same visible line.
+          const feedback = isControlFeedback(scopedText, controls) ||
+            (inLiveRegion && ACTION_FEEDBACK.test(scopedText));
+          attach(owner, { id, order: line[0].pos, text: feedback ? '' : scopedText, chunks, sourceOwner: owner });
         }
       }
       line = [];
@@ -492,6 +493,30 @@ function noteLines(elements, ends, kept, controls) {
       else line.push(event);
     }
     finish();
+  }
+  // Adjacent small elements can form one visible note. Join only their own
+  // chunks, and stop if the parent has ordinary text between the elements.
+  for (const i of kept) {
+    if (elements[i].tag !== 'small' || !notes.has(i)) continue;
+    const group = [i];
+    let last = i;
+    while (ends[last] < elements.length) {
+      const next = ends[last];
+      if (elements[next].tag !== 'small' || elements[next].parent !== elements[i].parent ||
+        !notes.has(next)) break;
+      const between = elements[elements[i].parent].chunks.filter(
+        ([pos]) => pos >= elements[last].end && pos < elements[next].start
+      );
+      if (between.some(([, value]) => /\S/u.test(value))) break;
+      group.push(next);
+      last = next;
+    }
+    if (group.length < 2) continue;
+    for (const [id, first] of notes.get(i)) {
+      const records = group.map((k) => notes.get(k).get(id));
+      if (records.some((record) => !record || !record.text)) continue;
+      first.text = joinedText(records.flatMap((record) => record.chunks));
+    }
   }
   for (let n = kept.length - 1; n >= 0; n--) {
     const i = kept[n];
@@ -505,13 +530,19 @@ function noteLines(elements, ends, kept, controls) {
   }
   // A single-line live region is feedback. A live wrapper with several lines
   // cannot exempt every line; matched action feedback already has empty text.
-  const liveLines = new Set();
-  for (const [i, lines] of notes) {
-    if (elements[i].live && lines.size === 1) liveLines.add(lines.keys().next().value);
-  }
   return new Map([...notes].map(([i, lines]) => [i,
     [...lines.values()].sort((a, b) => a.order - b.order)
-      .map((record) => ({ text: record.text, live: liveLines.has(record.id) }))]));
+      .map((record) => {
+        let live = false;
+        for (let p = record.sourceOwner; p >= 0; p = elements[p].parent) {
+          const ownerLines = notes.get(p);
+          if (elements[p].live && ownerLines?.size === 1 && ownerLines.has(record.id)) {
+            live = true;
+            break;
+          }
+        }
+        return { text: record.text, live };
+      })]));
 }
 
 // A wrapper that is a section of the page is not the data: what follows it
@@ -775,7 +806,7 @@ function asideCandidate(elements, ends, i, heading, data) {
     noteText: note.text,
     text: orderedText(kept.filter((j) => j >= k && j < ends[k]).flatMap((j) => elements[j].chunks)),
   })));
-  return { heading, data, nested, inside, text: inside[0].text,
+  return { heading, data, nested, inside, text: inside[0]?.text || '',
     basisText: orderedText(basisChunks) };
 }
 
