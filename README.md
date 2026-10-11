@@ -107,6 +107,11 @@ Three rule packs over one engine.
   whether or not a local design rule asks for the line — and so does a lede, group
   subtitle or "as of" line set beside the heading that names it. A component counts
   as a table: `<DataTable/>` and `<LineChart/>` are what a screen actually ships.
+  It reads one value holding two facts, `4 April · 3 days late`, where the
+  older chain rule waited for a third dot. A number on each side is what makes it
+  two facts, so a time beside who did it stays silent, and so do the same words
+  around the numbers, which is a dimension, a range or a pair of quarters. A
+  value with no word in it is arithmetic, and only a short value is read at all.
   Native font stacks, numeric table data, a count line, a chart legend, a caption
   naming its figure, and a total, unit, byline or control beside a heading are
   allowed.

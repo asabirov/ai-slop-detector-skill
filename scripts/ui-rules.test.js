@@ -19,6 +19,7 @@ const rules = [
   'bounce-easing', 'accent-bar', 'pill-radius', 'big-number-stat', 'emoji-icon',
   'family-ceiling', 'stock-display-face', 'mono-uppercase-label', 'accent-budget',
   'hairline-grid', 'double-edge', 'button-drift', 'everything-centred', 'stock-palette',
+  'middot-two-facts',
 ];
 
 describe('UI heuristics', { timeout: 1000 }, () => {
@@ -58,6 +59,14 @@ describe('UI heuristics', { timeout: 1000 }, () => {
   });
   it('lets inline radius override rounded-full', { timeout: 1000 }, () => {
     lacks('<button class="rounded-full" style="border-radius:4px">Read notes</button>', 'pill-radius');
+  });
+  it('reads one shape on both sides as one value and a changed word as a second fact', { timeout: 1000 }, () => {
+    lacks('<p><span>1920 px · 1080 px</span></p>', 'middot-two-facts');
+    lacks('<p><span>10 km/h · 20 km/h</span></p>', 'middot-two-facts');
+    lacks('<p><span>Q1 2024 · Q2 2024</span></p>', 'middot-two-facts');
+    lacks('<p><span>Step 1 · Step 2</span></p>', 'middot-two-facts');
+    has('<p><span>14 · 1 lost</span></p>', 'middot-two-facts');
+    has('<p><span>1 h · 30 min</span></p>', 'middot-two-facts');
   });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
@@ -108,6 +117,9 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     ['everything-centred', '<p style="text-align:center">North station</p><p>Records</p>'],
     ['everything-centred', '<style>body { text-align:center } p { text-align:left }</style><p>Records</p>'],
     ['stock-palette', '<body style="background:white;color:#ccff00">Records</body>'],
+    ['middot-two-facts', '<p><span>28 March 09:40 · System</span></p>'],
+    ['middot-two-facts', '<p><span>1920 px · 1080 px</span></p>'],
+    ['middot-two-facts', '<p><span>3 · 4 = 12</span></p>'],
   ];
   for (const [index, [rule, source]] of nearMisses.entries()) {
     it(`${rule} leaves near miss ${index + 1} alone`, { timeout: 1000 }, () => lacks(source, rule));
