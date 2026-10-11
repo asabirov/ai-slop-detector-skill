@@ -107,8 +107,17 @@ const CODE_TAGS = new Set(['code', 'pre', 'kbd', 'samp', 'tt']);
 // A line a control writes when the reader uses it. `role="status"`, `role="alert"`
 // and `aria-live` all say the same thing: this text appears because of something
 // the reader just did, so the reader is looking at it.
-const LIVE_REGION =
-  /(?:^|\s)(?:role\s*=\s*["'](?:status|alert)["']|aria-live\s*=\s*["'](?:polite|assertive)["'])/i;
+function hasLiveRegion(attrs) {
+  const attribute = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+  let match;
+  while ((match = attribute.exec(attrs)) !== null) {
+    const name = match[1].toLowerCase();
+    const value = (match[2] ?? match[3] ?? match[4] ?? '').toLowerCase();
+    if (name === 'role' && (value === 'status' || value === 'alert')) return true;
+    if (name === 'aria-live' && (value === 'polite' || value === 'assertive')) return true;
+  }
+  return false;
+}
 
 const VOID_TAGS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
@@ -155,6 +164,7 @@ function markupElements(html) {
     const classValue = classAttr ? (classAttr[1] ?? classAttr[2]) : '';
     const styleAttr = /(?:^|\s)style\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
     const idAttr = /\bid\s*=\s*"([^"]*)"/i.exec(attrs);
+    const typeAttr = /(?:^|\s)type\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
     const parent = stack.length ? stack[stack.length - 1] : -1;
     const el = {
       tag,
@@ -169,7 +179,8 @@ function markupElements(html) {
       // subtree can be read in the order a person reads it.
       chunks: [],
       style: styleAttr ? decodeEntities(styleAttr[1] ?? styleAttr[2]) : '',
-      live: LIVE_REGION.test(attrs),
+      live: hasLiveRegion(attrs),
+      inputType: typeAttr ? (typeAttr[1] ?? typeAttr[2]).toLowerCase() : '',
       inTable: tag === 'td' || tag === 'th' || (parent >= 0 && out[parent].inTable),
       inCode: CODE_TAGS.has(tag) || (parent >= 0 && out[parent].inCode),
     };
@@ -349,6 +360,20 @@ const MUTE_TAGS = new Set(['button', 'input', 'select', 'textarea', 'a']);
 // The controls a reader operates. A link is not one of them: a link beside a
 // line does not make the line the link's own feedback.
 const CONTROL_TAGS = new Set(['button', 'input', 'select', 'textarea']);
+// A control's own feedback describes that control's action. A nearby Export
+// button does not turn a sentence about saving into Export feedback.
+const ACTION_FEEDBACK = /^(saving|changing|moving|selecting|choosing|submitting|sending|filtering|searching)\b/i;
+
+function isControlFeedback(text, controls) {
+  const action = ACTION_FEEDBACK.exec(text)?.[1].toLowerCase().replace(/ing$/, '');
+  return Boolean(action && controls.some((label) =>
+    label.trim().split(/\s+/)[0].toLowerCase().replace(/e$/, '') === action
+  ));
+}
+
+function isOperableControl(el) {
+  return CONTROL_TAGS.has(el.tag) && !(el.tag === 'input' && el.inputType === 'hidden');
+}
 
 // A wrapper that is a section of the page is not the data: what follows it
 // starts something new rather than annotating it.
@@ -399,7 +424,7 @@ function blocksUnderData(elements) {
     const muted = new Set();
     let heading = false;
     let data = false;
-    let feedback = el.live;
+    const controls = [];
     for (let k = i + 1; k < elements.length; k++) {
       let parent = elements[k].parent;
       while (parent > i) parent = elements[parent].parent;
@@ -407,8 +432,8 @@ function blocksUnderData(elements) {
       const child = elements[k];
       if (/^h[1-6]$/.test(child.tag)) heading = true;
       if (isDataBlock(child)) data = true;
-      if (child.live || CONTROL_TAGS.has(child.tag)) feedback = true;
-      if (MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
+      if (isOperableControl(child)) controls.push(child.text);
+      if (child.live || MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
         muted.add(k);
         continue;
       }
@@ -424,6 +449,7 @@ function blocksUnderData(elements) {
       .replace(/\{[^{}]*\}/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+    const feedback = isControlFeedback(text, controls);
     out.push({ el, above, text, heading, data, feedback, inside, parent: elements[el.parent] || null });
   }
   return out;
@@ -563,14 +589,14 @@ function asideCandidate(elements, ends, i, heading, data) {
   const kept = [];
   const muted = new Set();
   let nested = LIST_TAGS.has(elements[i].tag) || ends[i] - i > ASIDE_MAX_NODES;
-  let feedback = elements[i].live;
+  const controls = [];
   const stop = Math.min(ends[i], i + ASIDE_MAX_NODES + 1);
   for (let k = i; k < stop; k++) {
     const child = elements[k];
     if (k > i) {
       if (/^h[1-6]$/.test(child.tag) || isDataBlock(child) || LIST_TAGS.has(child.tag)) nested = true;
-      if (child.live || CONTROL_TAGS.has(child.tag)) feedback = true;
-      if (MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
+      if (isOperableControl(child)) controls.push(child.text);
+      if (child.live || MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
         muted.add(k);
         continue;
       }
@@ -586,6 +612,7 @@ function asideCandidate(elements, ends, i, heading, data) {
     own: /\p{L}/u.test(elements[k].text),
     text: orderedText(kept.filter((j) => j >= k && j < ends[k]).flatMap((j) => elements[j].chunks)),
   }));
+  const feedback = isControlFeedback(inside[0].text, controls);
   return { heading, data, nested, feedback, inside, text: inside[0].text };
 }
 

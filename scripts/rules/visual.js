@@ -180,13 +180,9 @@ const tableFootnote = {
       if (heading || data || COUNT_LINE.test(text)) continue;
       const words = (text.match(/\S+/g) || []).length;
       const basis = words >= BASIS_MIN_WORDS && BASIS.some((re) => re.test(text));
-      // A control's own feedback answers the "set subordinate" half only, and a
-      // basis stated in words is a footnote however it is set. When a control
-      // merely shares the block, what drops out is a marker on a wrapper — the
-      // shape where the line itself is plain and the block is named for the
-      // control. A marker on the line that holds the words still counts, because
-      // a card footer with a muted caption and an Export button is a footnote
-      // with a button next to it, not a line about the button.
+      // A control's own action feedback answers the "set subordinate" half
+      // only. A basis stated in words is a footnote however it is set. A marker
+      // on the note itself still counts when a control shares the block.
       const set =
         !el.live &&
         words >= SET_MIN_WORDS &&
@@ -275,9 +271,9 @@ const tableAside = {
             ANNOTATION_TAG.test(e.tag) ||
             [...e.classes].some((c) => SUBORDINATE_CLASS.test(c) || ANNOTATION_CLASS.test(c)))
       );
-      // The mirror of the footnote rule's split. The candidate line being a live
-      // region is feedback outright; a control merely sharing the block only drops
-      // a marker set on a wrapper. A basis stated in words is read whatever marks it.
+      // The candidate line being a live region is feedback outright. Action
+      // feedback beside a control only drops a marker set on a wrapper. A basis
+      // stated in words is read whatever marks it.
       const marked = inside[0].live ? null : annotated || subordinate;
       const basis =
         words(text) >= SENTENCE_MIN_WORDS && BASIS.some((re) => re.test(text)) ? inside[0] : null;

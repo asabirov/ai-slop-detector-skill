@@ -59,10 +59,9 @@ describe('UI heuristics', { timeout: 1000 }, () => {
   it('lets inline radius override rounded-full', { timeout: 1000 }, () => {
     lacks('<button class="rounded-full" style="border-radius:4px">Read notes</button>', 'pill-radius');
   });
-  // A control's own feedback is not a line about the data. A live region reports
-  // back what the reader just did, and a sentence sitting with the button is
-  // about the button. Take the control away and the same line is a footnote
-  // again. A link is not a control.
+  // A live region reports what the reader just did. A sentence naming the
+  // button's action is feedback when that button shares its block. Take the
+  // button away and the same line is a footnote. A link is not a control.
   it("keeps a control's own feedback out of the table rules", { timeout: 1000 }, () => {
     const live =
       '<section><h2>Move booking</h2><p class="hint" role="status">The hall already holds a booking then.</p>' +
@@ -93,14 +92,34 @@ describe('UI heuristics', { timeout: 1000 }, () => {
         '<table><tbody><tr><td>12.5</td></tr></tbody></table></section>',
       'table-aside'
     );
-    // "On the line itself" is its own text runs. A marked element whose words all
-    // sit in one inline child reads as a wrapper, which is the documented edge.
-    lacks(
+    has(
       '<section><h2>Spend</h2><table><tbody><tr><td>12.5</td></tr></tbody></table>' +
         '<div class="wrap"><small class="text-muted"><span>Updated nightly, so yesterday stays open.' +
         '</span></small><button>Export</button></div></section>',
       'table-footnote'
     );
+  });
+  it('keeps unrelated controls and live siblings from hiding table notes', { timeout: 1000 }, () => {
+    const row = '<table><tbody><tr><td>12.5</td></tr></tbody></table>';
+    const note = '<div class="text-muted"><p>Updated nightly, so yesterday stays open.</p>';
+    for (const sibling of [
+      '<button>Export</button>', '<input type="hidden" value="x">',
+      '<p role="status">Export complete.</p>',
+    ]) has(`<section>${row}${note}${sibling}</div></section>`, 'table-footnote');
+    has(`<section>${row}<div class="note"><p>Saving the report notifies the observer.</p><button>Export</button></div></section>`, 'table-footnote');
+    const lede = '<div class="lede"><p>Past due, or holding up a month close.</p>';
+    for (const sibling of [
+      '<select><option>All</option></select>', '<input type="hidden" value="x">',
+      '<p role="status">Filter updated.</p>',
+    ]) has(`<section><h2>Overdue</h2>${lede}${sibling}</div>${row}</section>`, 'table-aside');
+  });
+  it('does not read quoted live-region text as an attribute', { timeout: 1000 }, () => {
+    const row = '<table><tbody><tr><td>12.5</td></tr></tbody></table>';
+    const line = 'Updated nightly, so yesterday stays open.';
+    has(`<section>${row}<p class="text-muted" title="Use role='status' for messages">${line}</p></section>`, 'table-footnote');
+    has(`<section>${row}<p class="text-muted" title="Set aria-live='polite' for messages">${line}</p></section>`, 'table-footnote');
+    lacks(`<section>${row}<p class="text-muted" role="status">${line}</p></section>`, 'table-footnote');
+    lacks(`<section>${row}<p class="text-muted" aria-live="polite">${line}</p></section>`, 'table-footnote');
   });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
