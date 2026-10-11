@@ -244,6 +244,61 @@ describe('UI heuristics', { timeout: 1000 }, () => {
       }
     }
   });
+  it('keeps a note marker on an inline child after grouping its line', { timeout: 1000 }, () => {
+    const line = '<div><p>Note: <small class="text-muted">Updated nightly, so yesterday stays open.</small></p><button>Export</button></div>';
+    has(`<table><tr><td>12</td></tr></table>${line}`, 'table-footnote');
+    has(`<h2>Totals</h2>${line}<table><tr><td>12</td></tr></table>`, 'table-aside');
+  });
+  it('groups inline siblings when their parent has no direct text', { timeout: 1000 }, () => {
+    const feedback = '<div class="text-muted"><p><span>Saving </span><strong>a new time notifies the observer.</strong></p><button>Save</button></div>';
+    const note = feedback.replace('<span>Saving </span><strong>a new time notifies the observer.</strong>',
+      '<span>Updated nightly, so </span><strong>yesterday stays open.</strong>');
+    for (const [line, flagged] of [[feedback, false], [note, true]]) {
+      const check = flagged ? has : lacks;
+      check(`<table><tr><td>12</td></tr></table>${line}`, 'table-footnote');
+      check(`<h2>Totals</h2>${line}<table><tr><td>12</td></tr></table>`, 'table-aside');
+    }
+  });
+  it('treats br as a boundary between feedback and a separate note', { timeout: 1000 }, () => {
+    const line = '<div class="text-muted">Saving a new time notifies the observer.<br>Updated nightly, so yesterday stays open.<button>Save</button></div>';
+    has(`<table><tr><td>12</td></tr></table>${line}`, 'table-footnote');
+    has(`<h2>Totals</h2>${line}<table><tr><td>12</td></tr></table>`, 'table-aside');
+  });
+  it('does not match hidden controls or controls inside hidden ancestors', { timeout: 1000 }, () => {
+    for (const control of ['<input hidden type="submit" value="Save">', '<span hidden><button>Save</button></span>']) {
+      const line = `<div class="note"><p>Saving a new time notifies the observer.</p>${control}<button>Export</button></div>`;
+      has(`<table><tr><td>12</td></tr></table>${line}`, 'table-footnote');
+      has(`<h2>Totals</h2>${line}<table><tr><td>12</td></tr></table>`, 'table-aside');
+    }
+  });
+  it('does not match selected options or textarea data as actions', { timeout: 1000 }, () => {
+    for (const control of ['<select><option>Save</option><option selected>Export</option></select>',
+      '<textarea>Save this note</textarea>']) {
+      const line = `<div class="note"><p>Saving a new time notifies the observer.</p>${control}<button>Export</button></div>`;
+      has(`<table><tr><td>12</td></tr></table>${line}`, 'table-footnote');
+      has(`<h2>Totals</h2>${line}<table><tr><td>12</td></tr></table>`, 'table-aside');
+    }
+  });
+  it('joins inline pieces of a visible button label without adding spaces', { timeout: 1000 }, () => {
+    const line = '<div class="note"><p>Saving a new time notifies the observer.</p><button><b>Sa</b>ve</button></div>';
+    lacks(`<table><tr><td>12</td></tr></table>${line}`, 'table-footnote');
+    lacks(`<h2>Totals</h2>${line}<table><tr><td>12</td></tr></table>`, 'table-aside');
+  });
+  it('keeps line and block boundaries inside button labels', { timeout: 1000 }, () => {
+    for (const button of ['<button>Save<br>Now</button>', '<button><div>Save</div><div>Now</div></button>']) {
+      const line = `<div class="note"><p>Saving a new time notifies the observer.</p>${button}</div>`;
+      lacks(`<table><tr><td>12</td></tr></table>${line}`, 'table-footnote');
+      lacks(`<h2>Totals</h2>${line}<table><tr><td>12</td></tr></table>`, 'table-aside');
+    }
+  });
+  it('keeps a separate note inside a live status wrapper', { timeout: 1000 }, () => {
+    const below = '<div class="text-muted" role="status"><p>Export complete.</p><p>Updated nightly, so yesterday stays open.</p></div>';
+    const above = '<div class="lede" role="status"><p>Filter updated.</p><p>Past due, or holding up a month close.</p></div>';
+    has(`<table><tr><td>12</td></tr></table>${below}`, 'table-footnote');
+    has(`<h2>Totals</h2>${above}<table><tr><td>12</td></tr></table>`, 'table-aside');
+    lacks(`<table><tr><td>12</td></tr></table><div class="text-muted" role="status"><p>The export completed for all selected rows.</p></div>`, 'table-footnote');
+    lacks(`<h2>Totals</h2><div class="lede" role="status"><p>The filter completed for all selected rows.</p></div><table><tr><td>12</td></tr></table>`, 'table-aside');
+  });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
   });

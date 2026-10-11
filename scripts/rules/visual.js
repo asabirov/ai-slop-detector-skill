@@ -183,7 +183,6 @@ const tableFootnote = {
       // A control's own feedback does not count as a subordinate line. A basis
       // still counts, and a separate note keeps its marker in the same block.
       const set =
-        !el.live &&
         !CAPTION_TAG.test(el.tag) &&
         inside.some(
           (e) =>
@@ -274,7 +273,7 @@ const tableAside = {
       );
       // Live status and action feedback do not count as subordinate lines.
       // Basis wording still counts inside a live region or its wrapper.
-      const marked = inside[0].live ? null : annotated || subordinate;
+      const marked = annotated || subordinate;
       const basis =
         words(basisText) >= SENTENCE_MIN_WORDS && BASIS.some((re) => re.test(basisText)) ? inside[0] : null;
       const line = marked || basis;

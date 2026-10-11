@@ -172,6 +172,7 @@ function markupElements(html) {
     const parent = stack.length ? stack[stack.length - 1] : -1;
     const el = {
       tag,
+      start: m.index,
       classes: new Set(classValue.trim().split(/\s+/).filter(Boolean)),
       id: idAttr ? idAttr[1].trim() : null,
       parent,
@@ -366,7 +367,7 @@ const MUTE_TAGS = new Set(['button', 'input', 'select', 'textarea', 'a']);
 
 // The controls a reader operates. A link is not one of them: a link beside a
 // line does not make the line the link's own feedback.
-const CONTROL_TAGS = new Set(['button', 'input', 'select', 'textarea']);
+const CONTROL_TAGS = new Set(['button', 'input']);
 // A control's own feedback describes that control's action. A nearby Export
 // button does not turn a sentence about saving into Export feedback.
 const ACTION_FEEDBACK = /^(saving|changing|moving|selecting|choosing|submitting|sending|filtering|searching)\b/i;
@@ -385,56 +386,80 @@ function isControlFeedback(text, controls) {
   }));
 }
 
-function isOperableControl(el) {
-  return CONTROL_TAGS.has(el.tag) && !(el.tag === 'input' && el.inputType === 'hidden');
+function isVisible(elements, i) {
+  for (let p = i; p >= 0; p = elements[p].parent) {
+    if (elements[p].hidden) return false;
+  }
+  return true;
+}
+
+function isOperableControl(elements, i) {
+  const el = elements[i];
+  return CONTROL_TAGS.has(el.tag) && isVisible(elements, i) &&
+    !(el.tag === 'input' && el.inputType === 'hidden');
 }
 
 function controlLabel(elements, ends, i) {
   const el = elements[i];
   return el.tag === 'input' ?
     (el.inputType === 'submit' || el.inputType === 'button' ? el.inputValue : '') :
-    orderedText(elements.slice(i, ends[i]).filter((child) => {
+    joinedText(elements.slice(i, ends[i]).filter((child) => {
       if (child.hidden || child.tag === 'svg') return false;
       for (let p = child.parent; p >= i; p = elements[p].parent) {
         if (elements[p].hidden || elements[p].tag === 'svg') return false;
       }
       return true;
-    }).flatMap((child) => child.chunks));
+    }).flatMap((child) => [
+      ...(child !== el && !INLINE_TAGS.has(child.tag) ? [[child.start, ' ']] : []),
+      ...child.chunks,
+    ]));
 }
 
-const INLINE_TAGS = new Set(['a', 'b', 'em', 'i', 'mark', 'small', 'span', 'strong', 'sub', 'sup', 'u']);
+const INLINE_TAGS = new Set(['a', 'b', 'code', 'em', 'i', 'mark', 'small', 'span', 'strong', 'sub', 'sup', 'u']);
 
-// Read one prose line with its inline children. Block children start new lines.
-function proseLine(elements, ends, kept, i) {
-  const chunks = [...elements[i].chunks];
-  for (let k = i + 1; k < ends[i]; k++) {
-    if (!kept.has(k)) continue;
-    let p = k;
-    while (p !== i && INLINE_TAGS.has(elements[p].tag)) p = elements[p].parent;
-    if (p === i) chunks.push(...elements[k].chunks);
-  }
-  return orderedText(chunks);
-}
-
-// Keep each eligible prose line under its wrappers. Feedback is judged as a
-// complete line, and a later short child cannot hide an earlier note.
+// A block starts a prose line. Inline descendants share that line, even when
+// the block has no direct text. A br ends it before feedback is classified.
 function noteLines(elements, ends, kept, controls) {
   const notes = new Map();
   const eligible = new Set(kept);
+  for (const i of kept) {
+    const parent = elements[i].parent;
+    if (INLINE_TAGS.has(elements[i].tag) && eligible.has(parent)) continue;
+    const events = [];
+    for (let k = i; k < ends[i]; k++) {
+      if (!eligible.has(k)) continue;
+      let p = k;
+      while (p !== i && (INLINE_TAGS.has(elements[p].tag) || elements[p].tag === 'br')) {
+        p = elements[p].parent;
+      }
+      if (p !== i) {
+        k = ends[p] - 1;
+        continue;
+      }
+      if (elements[k].tag === 'br') events.push({ pos: elements[k].start, break: true });
+      for (const chunk of elements[k].chunks) events.push({ pos: chunk[0], chunk, owner: k });
+    }
+    events.sort((a, b) => a.pos - b.pos);
+    let line = [];
+    const finish = () => {
+      const content = joinedText(line.map((event) => event.chunk));
+      if (/\p{L}/u.test(content) && !isControlFeedback(content, controls)) {
+        const owners = new Set([i]);
+        for (const event of line) {
+          for (let p = event.owner; p !== i; p = elements[p].parent) owners.add(p);
+        }
+        for (const owner of owners) notes.set(owner, [...(notes.get(owner) || []), content]);
+      }
+      line = [];
+    };
+    for (const event of events) {
+      if (event.break) finish();
+      else line.push(event);
+    }
+    finish();
+  }
   for (let n = kept.length - 1; n >= 0; n--) {
     const i = kept[n];
-    let covered = false;
-    for (let p = i; INLINE_TAGS.has(elements[p].tag) && elements[p].parent >= 0; p = elements[p].parent) {
-      const parent = elements[p].parent;
-      if (eligible.has(parent) && /\p{L}/u.test(elements[parent].text)) {
-        covered = true;
-        break;
-      }
-    }
-    if (!covered && /\p{L}/u.test(elements[i].text)) {
-      const line = proseLine(elements, ends, eligible, i);
-      if (!isControlFeedback(line, controls)) notes.set(i, [line, ...(notes.get(i) || [])]);
-    }
     const parent = elements[i].parent;
     if (notes.has(i) && eligible.has(parent)) {
       notes.set(parent, [...notes.get(i), ...(notes.get(parent) || [])]);
@@ -503,7 +528,7 @@ function blocksUnderData(elements) {
       const child = elements[k];
       if (/^h[1-6]$/.test(child.tag)) heading = true;
       if (isDataBlock(child)) data = true;
-      if (isOperableControl(child)) controls.push(controlLabel(elements, ends, k));
+      if (isOperableControl(elements, k)) controls.push(controlLabel(elements, ends, k));
       if (MUTE_TAGS.has(child.tag) || basisMuted.has(child.parent)) basisMuted.add(k);
       else basisChunks.push(...child.chunks);
       if (child.live || MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
@@ -524,7 +549,9 @@ function blocksUnderData(elements) {
       .trim();
     const notes = noteLines(elements, ends, inside, controls);
     out.push({ el, above, text, basisText: orderedText(basisChunks), heading, data,
-      inside: inside.flatMap((k) => (notes.get(k) || ['']).map((noteText) => ({ ...elements[k], noteText }))),
+      inside: inside.flatMap((k) => (notes.get(k) || ['']).map((noteText, n) => ({
+        ...elements[k], live: elements[k].live && n === 0, noteText,
+      }))),
       parent: elements[el.parent] || null });
   }
   return out;
@@ -650,6 +677,17 @@ function orderedText(chunks) {
     .trim();
 }
 
+// Inline tags do not insert a space between letters of one visible word.
+function joinedText(chunks) {
+  return chunks
+    .sort((a, b) => a[0] - b[0])
+    .map((chunk) => chunk[1])
+    .join('')
+    .replace(/\{[^{}]*\}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // A line about the data is a line. Past this many elements it is a block of
 // content, and reading each of its lines separately is quadratic in the subtree:
 // a candidate wrapping 15,000 nested divs took 79 seconds before this bound.
@@ -672,7 +710,7 @@ function asideCandidate(elements, ends, i, heading, data) {
     const child = elements[k];
     if (k > i) {
       if (/^h[1-6]$/.test(child.tag) || isDataBlock(child) || LIST_TAGS.has(child.tag)) nested = true;
-      if (isOperableControl(child)) controls.push(controlLabel(elements, ends, k));
+      if (isOperableControl(elements, k)) controls.push(controlLabel(elements, ends, k));
       if (MUTE_TAGS.has(child.tag) || basisMuted.has(child.parent)) basisMuted.add(k);
       else basisChunks.push(...child.chunks);
       if (child.live || MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
@@ -684,10 +722,10 @@ function asideCandidate(elements, ends, i, heading, data) {
     kept.push(k);
   }
   const notes = noteLines(elements, ends, kept, controls);
-  const inside = kept.flatMap((k) => (notes.get(k) || ['']).map((noteText) => ({
+  const inside = kept.flatMap((k) => (notes.get(k) || ['']).map((noteText, n) => ({
     tag: elements[k].tag,
     classes: elements[k].classes,
-    live: elements[k].live,
+    live: elements[k].live && n === 0,
     noteText,
     text: orderedText(kept.filter((j) => j >= k && j < ends[k]).flatMap((j) => elements[j].chunks)),
   })));
