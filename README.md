@@ -111,10 +111,14 @@ numeric forms. So a dotted chain written `&middot;` and one typed with the dot a
 the same line. Numeric C1 references use HTML's replacement glyphs, so `&#149;`
 reads as `•` and `&#146;` reads as `’`. The scans that read markup for class
 names, selectors and tag shapes work on the page as written.
-Markdown references after an odd number of backslashes stay literal, even when
-the file contains raw HTML. References after an even number decode normally.
-Markdown accepts 1 to 7 decimal digits or 1 to 6 hexadecimal digits. Longer
-numeric references stay literal in Markdown but still decode in HTML.
+Markdown prose keeps references literal after an odd number of backslashes,
+even when the file contains raw HTML. References after an even number decode.
+Markdown prose accepts 1 to 7 decimal digits or 1 to 6 hexadecimal digits.
+Longer references stay literal in Markdown prose. Inside raw HTML blocks,
+HTML decodes them without these Markdown limits. The parser also reads
+human-readable attributes in raw HTML and excludes script, style, and code
+contents from Markdown prose. Autolinks and literal angle-bracket text remain
+visible to text rules.
 
 In markup, `p`, `div`, headings, `span`, `li`, table cells, `section`, `header`,
 `footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible text run. This keeps

@@ -186,6 +186,63 @@ test('limits Markdown numeric reference digits without limiting HTML', { timeout
   assert.ok(firedIds('slop-entities.md', 1).has('external-link-arrow'));
 });
 
+test('hides raw HTML script, style, and code contents in Markdown', { timeout: 1000 }, () => {
+  for (const tag of ['script', 'style', 'code', 'pre']) {
+    const source = `<${tag}>const value = "↗";</${tag}>\n\nHello.`;
+    const ctx = parse(source, { ext: 'md' });
+    assert.ok(!ctx.codeless.includes('↗'), tag);
+    assert.ok(!ctx.text.includes('↗'), tag);
+    assert.ok(!ctx.paragraphs.some((p) => p.includes('↗')), tag);
+    assert.ok(!detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), tag);
+  }
+  const comment = '<!-- ↗ <span title="Visit the site &nearr;"> -->\n\nHello.';
+  const ctx = parse(comment, { ext: 'md' });
+  assert.ok(!ctx.codeless.includes('↗'));
+  assert.deepStrictEqual(ctx.attrs, []);
+});
+
+test('reads human-readable raw HTML attributes in Markdown', { timeout: 1000 }, () => {
+  const arrow = '<span title="Visit the site &nearr;">Update</span>';
+  const hedge = '<span title="It&rsquo;s important to note this.">Update</span>';
+  assert.deepStrictEqual(parse(arrow, { ext: 'md' }).attrs, ['Visit the site ↗']);
+  assert.ok(detect(arrow, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(detect(hedge, { level: 4, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'hedge-opener'));
+  assert.deepStrictEqual(parse('title="Visit the site &nearr;"', { ext: 'md' }).attrs, []);
+});
+
+test('uses HTML reference rules inside Markdown raw HTML blocks', { timeout: 1000 }, () => {
+  for (const reference of ['\\&nearr;', '&#00008599;', '&#x00002197;']) {
+    const block = `<div>Write ${reference} here.</div>`;
+    const prose = `Write ${reference} here.\n\n<span>Update</span>`;
+    assert.ok(parse(block, { ext: 'md' }).codeless.includes('↗'), reference);
+    assert.ok(detect(block, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), reference);
+    assert.ok(!detect(prose, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), reference);
+  }
+  const spanBlock = '<span>\nWrite \\&nearr; here.\n</span>';
+  assert.ok(parse(spanBlock, { ext: 'md' }).codeless.includes('↗'));
+  assert.ok(detect(spanBlock, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  const inlineSpan = 'Write \\&nearr; with <span>text</span>.';
+  assert.ok(!parse(inlineSpan, { ext: 'md' }).codeless.includes('↗'));
+  const spanInParagraph = 'Write here.\n<span>\n\\&nearr; stays literal.\n</span>';
+  assert.ok(!parse(spanInParagraph, { ext: 'md' }).codeless.includes('↗'));
+});
+
+test('keeps visible angle text and Markdown autolink labels', { timeout: 1000 }, () => {
+  for (const source of ['Show <↗> here.', 'Show \\<↗\\> here.',
+    '<https://example.com/↗>', '[https://example.com/↗](https://example.com/arrow)']) {
+    const ctx = parse(source, { ext: 'md' });
+    assert.ok(ctx.codeless.includes('↗'), source);
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+});
+
 test('keeps boundary-prefix custom elements inside a visible run', { timeout: 1000 }, () => {
   for (const tag of ['dt-label', 'dd-value', 'dl-label', 'br-icon']) {
     const page = `<p>draft · <${tag}>2026</${tag}> · brainstorm</p>`;

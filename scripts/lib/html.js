@@ -844,6 +844,92 @@ function withoutMarkdownCode(source) {
   return stripCodeSpans(stripFences(source, ' '), ' ');
 }
 
+// A Markdown autolink or literal angle-bracket phrase is visible text. Only
+// complete HTML tags are markup here. The boundary after a tag name prevents
+// `<https://...>` from being mistaken for an opening element.
+const MARKDOWN_TAG = /<\/?[a-z][a-z0-9-]*(?=[\s/>])(?:"[^"]*"|'[^']*'|[^'">])*?>/gi;
+function stripMarkdownTags(source) {
+  return source.replace(MARKDOWN_TAG, (tag, offset) => {
+    let slashes = 0;
+    while (source[offset - slashes - 1] === '\\') slashes++;
+    return slashes % 2 ? tag : ' ';
+  });
+}
+
+function markdownAttributeRuns(source) {
+  const tags = [];
+  for (const match of source.matchAll(MARKDOWN_TAG)) {
+    let slashes = 0;
+    while (source[match.index - slashes - 1] === '\\') slashes++;
+    if (slashes % 2 === 0) tags.push(match[0]);
+  }
+  return attrTextRuns(tags.join(' '));
+}
+
+// CommonMark passes block HTML through to the browser. References in those
+// blocks use HTML rules, while references in the surrounding prose use Markdown
+// escape and digit rules. A block-tag opening ends at the next blank line.
+const MARKDOWN_HTML_BLOCK = /^ {0,3}<(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|output|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?=[\s/>])/i;
+const MARKDOWN_HTML_TAG_LINE = /^ {0,3}<\/?[a-z][a-z0-9-]*(?=[\s/>])(?:"[^"]*"|'[^']*'|[^'">])*?>\s*$/i;
+function markdownRegions(source) {
+  const regions = [];
+  let kind = 'markdown';
+  let lines = [];
+  const flush = () => {
+    if (lines.length) regions.push({ kind, text: lines.join('\n') });
+    lines = [];
+  };
+  for (const line of source.split('\n')) {
+    if (kind === 'html' && /^\s*$/.test(line)) {
+      flush();
+      kind = 'markdown';
+    }
+    const startsTagBlock = MARKDOWN_HTML_TAG_LINE.test(line) &&
+      (!lines.length || /^\s*$/.test(lines[lines.length - 1]));
+    if (kind === 'markdown' && (MARKDOWN_HTML_BLOCK.test(line) || startsTagBlock)) {
+      flush();
+      kind = 'html';
+    }
+    lines.push(line);
+  }
+  flush();
+  return regions;
+}
+
+function markdownStreams(source) {
+  const body = ['style', 'script', 'code', 'pre'].reduce(stripBetween, withoutMarkdownCode(source))
+    .replace(/<!--[\s\S]*?-->/g, ' ');
+  const attrs = markdownAttributeRuns(body);
+  const chunks = [];
+  const runs = [];
+  const paras = [];
+  for (const region of markdownRegions(body)) {
+    if (region.kind === 'html') {
+      const htmlRuns = visibleTextRuns(region.text);
+      runs.push(...htmlRuns);
+      paras.push(...htmlRuns);
+      chunks.push(decodeEntities(stripTags(region.text)));
+      continue;
+    }
+    const prose = region.text
+      .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+      .replace(/^\s{0,3}[-*+]\s+/gm, '')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+    const visible = decodeEntities(stripMarkdownTags(prose), { markdownEscapes: true });
+    chunks.push(visible);
+    for (const run of prose.split(NON_MARKUP_BOUNDARY)) {
+      const text = decodeEntities(stripMarkdownTags(run), { markdownEscapes: true }).replace(/\s+/g, ' ').trim();
+      if (text) runs.push(text);
+    }
+    for (const paragraph of prose.split(/\n\s*\n/)) {
+      const text = decodeEntities(stripMarkdownTags(paragraph), { markdownEscapes: true })
+        .replace(/\s+/g, ' ').trim();
+      if (text) paras.push(text);
+    }
+  }
+  return { visible: chunks.join(' '), runs, paragraphs: [...paras, ...attrs], attrs };
+}
+
 // Visible prose as one string. For HTML: strip tags. For markdown/text: strip the
 // lightweight markup that would otherwise pollute prose rules (fences, list bullets,
 // heading hashes, link syntax) while keeping the words.
@@ -855,15 +941,8 @@ function plainText(source, isHtml) {
       .trim();
     return [visible, ...attrTextRuns(source)].filter(Boolean).join(' ');
   }
-  // Markdown renders an entity too, so the same decode applies — after the
-  // syntax is stripped, not before. The other way round, a decoded character is
-  // read as syntax: CommonMark resolves an entity after block structure, so
-  // `&#35; x` is a paragraph printing `# x`, not a heading.
-  const visible = stripTags(withoutMarkdownCode(source)
-    .replace(/^\s{0,3}#{1,6}\s+/gm, '') // heading hashes
-    .replace(/^\s{0,3}[-*+]\s+/gm, '') // list bullets
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')); // links → link text
-  return decodeEntities(visible, { markdownEscapes: true }).trim();
+  const { visible, attrs } = markdownStreams(source);
+  return [visible, ...attrs].filter(Boolean).join(' ').trim();
 }
 
 // Prose with code removed — fenced blocks and inline spans in markdown, <code>
@@ -889,10 +968,7 @@ function paragraphs(source, isHtml) {
   }
   // Split first, decode after: a decoded newline is inside a paragraph, not a
   // break between two.
-  return stripFences(source, '\n')
-    .split(/\n\s*\n/)
-    .map((p) => decodeEntities(stripTags(p), { markdownEscapes: true }).replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
+  return markdownStreams(source).paragraphs;
 }
 
 // Build a parse context once, hand it to every rule. `filePath` lets the CSS a
@@ -911,6 +987,7 @@ function parse(source, { filePath, root, ext } = {}) {
   const css = [isCss ? source : '', inline, linked.css, utilities].filter(Boolean).join('\n');
   const markup = isHtml ? markupTokens(source) : null;
   if (markup) for (const el of elements) for (const c of el.classes) markup.classes.add(c);
+  const markdown = !isHtml && !isCss ? markdownStreams(source) : null;
   return {
     html: source,
     isHtml,
@@ -918,14 +995,14 @@ function parse(source, { filePath, root, ext } = {}) {
     inlineCss: inline,
     linkedCss: linked.found,
     unresolvedCss: linked.unresolved,
-    runs: visibleTextRuns(source, { markup: isHtml }),
-    attrs: isHtml ? attrTextRuns(source) : [],
+    runs: markdown ? markdown.runs : visibleTextRuns(source, { markup: isHtml }),
+    attrs: markdown ? markdown.attrs : isHtml ? attrTextRuns(source) : [],
     markup,
     elements,
     cssRules: cssRules(css),
-    text: plainText(source, isHtml),
-    codeless: proseWithoutCode(source, isHtml),
-    paragraphs: paragraphs(source, isHtml),
+    text: markdown ? [markdown.visible, ...markdown.attrs].filter(Boolean).join(' ').trim() : plainText(source, isHtml),
+    codeless: markdown ? [markdown.visible, ...markdown.attrs].filter(Boolean).join(' ').trim() : proseWithoutCode(source, isHtml),
+    paragraphs: markdown ? markdown.paragraphs : paragraphs(source, isHtml),
   };
 }
 
