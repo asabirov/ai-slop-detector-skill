@@ -165,6 +165,7 @@ function markupElements(html) {
     const styleAttr = /(?:^|\s)style\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
     const idAttr = /\bid\s*=\s*"([^"]*)"/i.exec(attrs);
     const typeAttr = /(?:^|\s)type\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
+    const valueAttr = /(?:^|\s)value\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
     const parent = stack.length ? stack[stack.length - 1] : -1;
     const el = {
       tag,
@@ -181,6 +182,7 @@ function markupElements(html) {
       style: styleAttr ? decodeEntities(styleAttr[1] ?? styleAttr[2]) : '',
       live: hasLiveRegion(attrs),
       inputType: typeAttr ? (typeAttr[1] ?? typeAttr[2]).toLowerCase() : '',
+      inputValue: valueAttr ? decodeEntities(valueAttr[1] ?? valueAttr[2] ?? valueAttr[3]) : '',
       inTable: tag === 'td' || tag === 'th' || (parent >= 0 && out[parent].inTable),
       inCode: CODE_TAGS.has(tag) || (parent >= 0 && out[parent].inCode),
     };
@@ -363,16 +365,47 @@ const CONTROL_TAGS = new Set(['button', 'input', 'select', 'textarea']);
 // A control's own feedback describes that control's action. A nearby Export
 // button does not turn a sentence about saving into Export feedback.
 const ACTION_FEEDBACK = /^(saving|changing|moving|selecting|choosing|submitting|sending|filtering|searching)\b/i;
+const ACTION_ROOT = {
+  saving: 'save', changing: 'change', moving: 'move', selecting: 'select',
+  choosing: 'choose', submitting: 'submit', sending: 'send',
+  filtering: 'filter', searching: 'search',
+};
 
 function isControlFeedback(text, controls) {
-  const action = ACTION_FEEDBACK.exec(text)?.[1].toLowerCase().replace(/ing$/, '');
-  return Boolean(action && controls.some((label) =>
-    label.trim().split(/\s+/)[0].toLowerCase().replace(/e$/, '') === action
-  ));
+  const verb = ACTION_FEEDBACK.exec(text.trim())?.[1].toLowerCase();
+  const action = ACTION_ROOT[verb];
+  return Boolean(action && controls.some((label) => {
+    const first = label.trim().split(/\s+/)[0].toLowerCase();
+    return first === action || (action === 'save' && first === 'move');
+  }));
 }
 
 function isOperableControl(el) {
   return CONTROL_TAGS.has(el.tag) && !(el.tag === 'input' && el.inputType === 'hidden');
+}
+
+function controlLabel(elements, ends, i) {
+  const el = elements[i];
+  return el.tag === 'input' ?
+    (el.inputType === 'submit' || el.inputType === 'button' ? el.inputValue : '') :
+    subtreeText(elements, ends, i);
+}
+
+// A wrapper keeps a note only when one of its own prose lines is not feedback.
+// Read a line's full subtree so nested inline labels keep their word order.
+function noteLines(elements, ends, kept, controls) {
+  const notes = new Map();
+  for (let n = kept.length - 1; n >= 0; n--) {
+    const i = kept[n];
+    if (/\p{L}/u.test(elements[i].text)) {
+      const line = subtreeText(elements, ends, i);
+      if (!isControlFeedback(line, controls)) notes.set(i, line);
+    }
+    if (notes.has(i) && elements[i].parent >= 0 && !notes.has(elements[i].parent)) {
+      notes.set(elements[i].parent, notes.get(i));
+    }
+  }
+  return notes;
 }
 
 // A wrapper that is a section of the page is not the data: what follows it
@@ -404,6 +437,7 @@ function dataAbove(elements, lastChildOf, from) {
 function blocksUnderData(elements) {
   const out = [];
   if (!elements) return out;
+  const ends = subtreeEnds(elements);
   // One map answers both questions asked of it. Read before the write it is the
   // previous sibling of the element in hand; read for an element whose subtree
   // is already behind us it is that element's last child.
@@ -420,8 +454,10 @@ function blocksUnderData(elements) {
     // The candidate and everything prose-bearing under it. A note is often
     // wrapped: `<table/><div><p class="text-muted">…</p></div>` sets the note on
     // the <p>, and reading only the <div> saw no marker at all.
-    const inside = [el];
+    const inside = [i];
+    const basisChunks = el.chunks.slice();
     const muted = new Set();
+    const basisMuted = new Set();
     let heading = false;
     let data = false;
     const controls = [];
@@ -432,12 +468,14 @@ function blocksUnderData(elements) {
       const child = elements[k];
       if (/^h[1-6]$/.test(child.tag)) heading = true;
       if (isDataBlock(child)) data = true;
-      if (isOperableControl(child)) controls.push(child.text);
+      if (isOperableControl(child)) controls.push(controlLabel(elements, ends, k));
+      if (MUTE_TAGS.has(child.tag) || basisMuted.has(child.parent)) basisMuted.add(k);
+      else basisChunks.push(...child.chunks);
       if (child.live || MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
         muted.add(k);
         continue;
       }
-      inside.push(child);
+      inside.push(k);
       chunks.push(...child.chunks);
     }
     const text = chunks
@@ -449,8 +487,10 @@ function blocksUnderData(elements) {
       .replace(/\{[^{}]*\}/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    const feedback = isControlFeedback(text, controls);
-    out.push({ el, above, text, heading, data, feedback, inside, parent: elements[el.parent] || null });
+    const notes = noteLines(elements, ends, inside, controls);
+    out.push({ el, above, text, basisText: orderedText(basisChunks), heading, data,
+      inside: inside.map((k) => ({ ...elements[k], noteText: notes.get(k) || '' })),
+      parent: elements[el.parent] || null });
   }
   return out;
 }
@@ -581,39 +621,43 @@ function orderedText(chunks) {
 const ASIDE_MAX_NODES = 40;
 
 // One candidate: the element and everything prose-bearing under it, each with its
-// own text, because the line carrying the marker is the line to measure and to
+// note text, because the line carrying the marker is the line to measure and to
 // report. `<span class="total">12,400 <small>EUR</small></span>` is a total with
 // its unit, and reading the pair as one two-word note fired on `EUR`. Words a
 // reader operates rather than reads come out, and so does a brace run.
 function asideCandidate(elements, ends, i, heading, data) {
   const kept = [];
   const muted = new Set();
+  const basisMuted = new Set();
   let nested = LIST_TAGS.has(elements[i].tag) || ends[i] - i > ASIDE_MAX_NODES;
   const controls = [];
+  const basisChunks = [];
   const stop = Math.min(ends[i], i + ASIDE_MAX_NODES + 1);
   for (let k = i; k < stop; k++) {
     const child = elements[k];
     if (k > i) {
       if (/^h[1-6]$/.test(child.tag) || isDataBlock(child) || LIST_TAGS.has(child.tag)) nested = true;
-      if (isOperableControl(child)) controls.push(child.text);
+      if (isOperableControl(child)) controls.push(controlLabel(elements, ends, k));
+      if (MUTE_TAGS.has(child.tag) || basisMuted.has(child.parent)) basisMuted.add(k);
+      else basisChunks.push(...child.chunks);
       if (child.live || MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
         muted.add(k);
         continue;
       }
     }
+    if (k === i) basisChunks.push(...child.chunks);
     kept.push(k);
   }
+  const notes = noteLines(elements, ends, kept, controls);
   const inside = kept.map((k) => ({
     tag: elements[k].tag,
     classes: elements[k].classes,
     live: elements[k].live,
-    // Its own words, not its subtree's: a wrapper's marker says nothing about a
-    // line it merely contains.
-    own: /\p{L}/u.test(elements[k].text),
+    noteText: notes.get(k) || '',
     text: orderedText(kept.filter((j) => j >= k && j < ends[k]).flatMap((j) => elements[j].chunks)),
   }));
-  const feedback = isControlFeedback(inside[0].text, controls);
-  return { heading, data, nested, feedback, inside, text: inside[0].text };
+  return { heading, data, nested, inside, text: inside[0].text,
+    basisText: orderedText(basisChunks) };
 }
 
 // Concatenated contents of every <style> block.

@@ -109,12 +109,13 @@ Three rule packs over one engine.
   as a table: `<DataTable/>` and `<LineChart/>` are what a screen actually ships.
   Native font stacks, numeric table data, a count line, a chart legend, a caption
   naming its figure, and a total, unit, byline or control beside a heading are
-  allowed. So is a control's own feedback, which is not a line about the data: a
-  live region, or an action-feedback sentence with a control in the same block.
+  allowed. So is a control's own feedback: a live status line or a sentence whose
+  action matches a visible control label in the same block. Move booking can
+  produce Saving feedback. A separate note in that block still counts.
   A validation message appears because the reader just acted, so the reader is
   looking at it. An unrelated control or live-status sibling does not hide a
   note. A muted line with an Export button next to it is still a footnote, and
-  so is any line stating a basis.
+  so is any line stating a basis, including one inside a live status line.
 - **Text** reads visible prose plus the attributes a person actually reads
   (`title`, `alt`, `placeholder`, `aria-label`, `data-tip`, the meta
   description). Catches "not just X, but Y", hedge openers, sycophancy residue,

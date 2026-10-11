@@ -176,25 +176,26 @@ const tableFootnote = {
   // heading or a table of its own means it is a section, not an annotation.
   test(ctx) {
     const hits = [];
-    for (const { el, above, text, heading, data, feedback, inside } of blocksUnderData(ctx.elements)) {
+    for (const { el, above, text, basisText, heading, data, inside } of blocksUnderData(ctx.elements)) {
       if (heading || data || COUNT_LINE.test(text)) continue;
-      const words = (text.match(/\S+/g) || []).length;
-      const basis = words >= BASIS_MIN_WORDS && BASIS.some((re) => re.test(text));
-      // A control's own action feedback answers the "set subordinate" half
-      // only. A basis stated in words is a footnote however it is set. A marker
-      // on the note itself still counts when a control shares the block.
+      const basis = (basisText.match(/\S+/g) || []).length >= BASIS_MIN_WORDS &&
+        BASIS.some((re) => re.test(basisText));
+      // A control's own feedback does not count as a subordinate line. A basis
+      // still counts, and a separate note keeps its marker in the same block.
       const set =
         !el.live &&
-        words >= SET_MIN_WORDS &&
         !CAPTION_TAG.test(el.tag) &&
         inside.some(
           (e) =>
             !e.live &&
-            (!feedback || /\p{L}/u.test(e.text)) &&
+            (e.noteText.match(/\S+/g) || []).length >= SET_MIN_WORDS &&
             (FOOTNOTE_TAG.test(e.tag) || [...e.classes].some((c) => FOOTNOTE_CLASS.test(c)))
         );
       if (!set && !basis) continue;
-      hits.push(`under <${above.tag}>: ${text.slice(0, 90)}`);
+      const note = inside.find((e) => !e.live &&
+        (e.noteText.match(/\S+/g) || []).length >= SET_MIN_WORDS &&
+        (FOOTNOTE_TAG.test(e.tag) || [...e.classes].some((c) => FOOTNOTE_CLASS.test(c))));
+      hits.push(`under <${above.tag}>: ${(basis ? basisText : note?.noteText || text).slice(0, 90)}`);
     }
     return hits;
   },
@@ -249,40 +250,39 @@ const tableAside = {
   // that carries the marker, not the row holding it.
   test(ctx) {
     const hits = [];
-    for (const { heading, data, text, nested, feedback, inside } of blocksBesideHeading(ctx.elements)) {
+    for (const { heading, data, text, basisText, nested, inside } of blocksBesideHeading(ctx.elements)) {
       if (nested || COUNT_LINE.test(text)) continue;
       // No word floor on this tier, measured: one word recovers `<Basis>non-cash</Basis>`
       // beside an <h2> that already carries a `Non-cash` badge, and adds nothing over
       // the 2,285 files or the counter-cases. A letter, though — a basis holding only
       // `€794.00` is the value, not a line about it.
-      const own = (e) => !e.live && (!feedback || e.own);
+      const hasNote = (e) => !e.live && Boolean(e.noteText);
       const annotated = inside.find(
         (e) =>
-          own(e) &&
-          /\p{L}/u.test(e.text) &&
+          hasNote(e) &&
+          /\p{L}/u.test(e.noteText) &&
           (ANNOTATION_TAG.test(e.tag) || [...e.classes].some((c) => ANNOTATION_CLASS.test(c)))
       );
       const subordinate = inside.find(
         (e) =>
-          own(e) &&
-          words(e.text) >= SENTENCE_MIN_WORDS &&
-          SENTENCE.test(e.text) &&
+          hasNote(e) &&
+          words(e.noteText) >= SENTENCE_MIN_WORDS &&
+          SENTENCE.test(e.noteText) &&
           (SUBORDINATE_TAG.test(e.tag) ||
             ANNOTATION_TAG.test(e.tag) ||
             [...e.classes].some((c) => SUBORDINATE_CLASS.test(c) || ANNOTATION_CLASS.test(c)))
       );
-      // The candidate line being a live region is feedback outright. Action
-      // feedback beside a control only drops a marker set on a wrapper. A basis
-      // stated in words is read whatever marks it.
+      // Live status and action feedback do not count as subordinate lines.
+      // Basis wording still counts inside a live region or its wrapper.
       const marked = inside[0].live ? null : annotated || subordinate;
       const basis =
-        words(text) >= SENTENCE_MIN_WORDS && BASIS.some((re) => re.test(text)) ? inside[0] : null;
+        words(basisText) >= SENTENCE_MIN_WORDS && BASIS.some((re) => re.test(basisText)) ? inside[0] : null;
       const line = marked || basis;
       if (!line) continue;
       // Point at the marked line, not at the row holding it: a total with a basis
       // beside it is one candidate, and the basis is the half worth reading about.
       hits.push(
-        `beside <${heading.tag}> "${heading.text.slice(0, 40)}" above <${data.tag}>: ${line.text.slice(0, 70)}`
+        `beside <${heading.tag}> "${heading.text.slice(0, 40)}" above <${data.tag}>: ${(line === basis ? basisText : line.noteText).slice(0, 70)}`
       );
     }
     return hits;

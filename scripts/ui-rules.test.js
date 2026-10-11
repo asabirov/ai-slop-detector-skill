@@ -113,6 +113,64 @@ describe('UI heuristics', { timeout: 1000 }, () => {
       '<p role="status">Filter updated.</p>',
     ]) has(`<section><h2>Overdue</h2>${lede}${sibling}</div>${row}</section>`, 'table-aside');
   });
+  it('keeps Move booking and Save feedback out of both table rules', { timeout: 1000 }, () => {
+    const row = '<table><tbody><tr><td>12.5</td></tr></tbody></table>';
+    const line = '<div class="pay-foot"><button>Move booking</button><p>Saving a new room or time notifies the observer.</p></div>';
+    lacks(`<section>${row}${line}</section>`, 'table-footnote');
+    lacks(`<section><h2>Move booking</h2>${line}${row}</section>`, 'table-aside');
+  });
+  it('reads nested button text and submit input values as action labels', { timeout: 1000 }, () => {
+    const row = '<table><tbody><tr><td>12.5</td></tr></tbody></table>';
+    for (const control of ['<button><span>Save</span></button>', '<input type="submit" value="Save">']) {
+      const line = `<div class="note"><p>Saving a new time notifies the observer.</p>${control}</div>`;
+      lacks(`<section>${row}${line}</section>`, 'table-footnote');
+      lacks(`<section><h2>Times</h2>${line}${row}</section>`, 'table-aside');
+    }
+  });
+  it('matches each supported action with its feedback verb', { timeout: 1000 }, () => {
+    const row = '<table><tbody><tr><td>12.5</td></tr></tbody></table>';
+    for (const [label, verb] of [
+      ['Save', 'Saving'], ['Change', 'Changing'], ['Move', 'Moving'],
+      ['Select', 'Selecting'], ['Choose', 'Choosing'], ['Submit', 'Submitting'],
+      ['Send', 'Sending'], ['Filter', 'Filtering'], ['Search', 'Searching'],
+    ]) {
+      const line = `<div class="note"><p>${verb} the report notifies the observer.</p><button>${label}</button></div>`;
+      lacks(`<section>${row}${line}</section>`, 'table-footnote');
+      lacks(`<section><h2>Reports</h2>${line}${row}</section>`, 'table-aside');
+    }
+  });
+  it('keeps a separate note in the same wrapper as matching feedback', { timeout: 1000 }, () => {
+    const row = '<table><tbody><tr><td>12.5</td></tr></tbody></table>';
+    const line = '<div class="text-muted"><p>Saving a new time notifies the observer.</p>' +
+      '<p>Updated nightly, so yesterday stays open.</p><button>Save</button></div>';
+    has(`<section>${row}${line}</section>`, 'table-footnote');
+    has(`<section><h2>Reports</h2>${line}${row}</section>`, 'table-aside');
+  });
+  it('keeps inline styling on a note beside matching action feedback', { timeout: 1000 }, () => {
+    const row = '<table><tbody><tr><td>12.5</td></tr></tbody></table>';
+    const line = '<div><small class="text-muted">Saving a new time notifies the observer.</small><button>Save</button></div>';
+    lacks(`<section>${row}${line}</section>`, 'table-footnote');
+    lacks(`<section><h2>Reports</h2>${line}${row}</section>`, 'table-aside');
+    const nestedFeedback = line.replace('Saving a new time notifies the observer.',
+      '<span>Saving a new time notifies the observer.</span>');
+    lacks(`<section>${row}${nestedFeedback}</section>`, 'table-footnote');
+    lacks(`<section><h2>Reports</h2>${nestedFeedback}${row}</section>`, 'table-aside');
+    const note = line.replace('Saving a new time notifies the observer.', 'Updated nightly, so yesterday stays open.');
+    has(`<section>${row}${note}</section>`, 'table-footnote');
+    has(`<section><h2>Reports</h2>${note}${row}</section>`, 'table-aside');
+    const nestedNote = note.replace('Updated nightly, so yesterday stays open.',
+      '<span>Updated nightly, so yesterday stays open.</span>');
+    has(`<section>${row}${nestedNote}</section>`, 'table-footnote');
+    has(`<section><h2>Reports</h2>${nestedNote}${row}</section>`, 'table-aside');
+  });
+  it('reads basis wording inside a live region with or without a wrapper', { timeout: 1000 }, () => {
+    const row = '<table><tbody><tr><td>12.5</td></tr></tbody></table>';
+    const line = '<p role="status">Amounts in EUR, VAT excluded.</p>';
+    for (const note of [line, `<div>${line}</div>`]) {
+      has(`<section>${row}${note}</section>`, 'table-footnote');
+      has(`<section><h2>Reports</h2>${note}${row}</section>`, 'table-aside');
+    }
+  });
   it('does not read quoted live-region text as an attribute', { timeout: 1000 }, () => {
     const row = '<table><tbody><tr><td>12.5</td></tr></tbody></table>';
     const line = 'Updated nightly, so yesterday stays open.';
