@@ -158,6 +158,7 @@ function markupElements(html) {
       // Pop to the matching open tag; ignore a stray close.
       for (let i = stack.length - 1; i >= 0; i--) {
         if (out[stack[i]].tag === tag) {
+          for (let j = i; j < stack.length; j++) out[stack[j]].end = re.lastIndex;
           stack.length = i;
           break;
         }
@@ -173,6 +174,7 @@ function markupElements(html) {
     const el = {
       tag,
       start: m.index,
+      end: re.lastIndex,
       classes: new Set(classValue.trim().split(/\s+/).filter(Boolean)),
       id: idAttr ? idAttr[1].trim() : null,
       parent,
@@ -200,6 +202,7 @@ function markupElements(html) {
     out[stack[stack.length - 1]].text += run;
     out[stack[stack.length - 1]].chunks.push([previousEnd, run]);
   }
+  for (const i of stack) out[i].end = body.length;
   for (const el of out) {
     el.text = decodeEntities(el.text);
     for (const chunk of el.chunks) chunk[1] = decodeEntities(chunk[1]);
@@ -401,30 +404,49 @@ function isOperableControl(elements, i) {
 
 function controlLabel(elements, ends, i) {
   const el = elements[i];
-  return el.tag === 'input' ?
-    (el.inputType === 'submit' || el.inputType === 'button' ? el.inputValue : '') :
-    joinedText(elements.slice(i, ends[i]).filter((child) => {
-      if (child.hidden || child.tag === 'svg') return false;
-      for (let p = child.parent; p >= i; p = elements[p].parent) {
-        if (elements[p].hidden || elements[p].tag === 'svg') return false;
-      }
-      return true;
-    }).flatMap((child) => [
-      ...(child !== el && !INLINE_TAGS.has(child.tag) ? [[child.start, ' ']] : []),
-      ...child.chunks,
-    ]));
+  if (el.tag === 'input') {
+    return el.inputType === 'submit' || el.inputType === 'button' ? el.inputValue : '';
+  }
+  const visible = elements.slice(i, ends[i]).filter((child) => {
+    if (child.hidden || child.tag === 'svg') return false;
+    for (let p = child.parent; p >= i; p = elements[p].parent) {
+      if (elements[p].hidden || elements[p].tag === 'svg') return false;
+    }
+    return true;
+  });
+  const chunks = visible.flatMap((child) => child !== el && !INLINE_TAGS.has(child.tag) ?
+    // The closing space precedes direct text at the same source offset.
+    [[child.start, ' '], ...child.chunks, [child.end - 0.5, ' ']] : child.chunks);
+  return joinedText(chunks);
 }
 
-const INLINE_TAGS = new Set(['a', 'b', 'code', 'em', 'i', 'mark', 'small', 'span', 'strong', 'sub', 'sup', 'u']);
+const INLINE_TAGS = new Set([
+  'a', 'abbr', 'b', 'bdi', 'bdo', 'cite', 'code', 'data', 'del', 'dfn', 'em',
+  'i', 'ins', 'kbd', 'label', 'mark', 'meter', 'output', 'q', 'rb', 'rp', 'rt',
+  'rtc', 'ruby', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time',
+  'u', 'var', 'wbr',
+]);
 
-// A block starts a prose line. Inline descendants share that line, even when
-// the block has no direct text. A br ends it before feedback is classified.
+// Each visible line has one identity. Keep the text within each marker's own
+// subtree, so an empty or short inline marker cannot borrow nearby words.
 function noteLines(elements, ends, kept, controls) {
-  const notes = new Map();
+  const notes = new Map(); // element index -> line identity -> scoped line
   const eligible = new Set(kept);
+  let nextId = 0;
+  const attach = (owner, record) => {
+    if (!notes.has(owner)) notes.set(owner, new Map());
+    notes.get(owner).set(record.id, record);
+  };
   for (const i of kept) {
     const parent = elements[i].parent;
     if (INLINE_TAGS.has(elements[i].tag) && eligible.has(parent)) continue;
+    let inLiveRegion = false;
+    for (let p = i; p >= 0; p = elements[p].parent) {
+      if (elements[p].live) {
+        inLiveRegion = true;
+        break;
+      }
+    }
     const events = [];
     for (let k = i; k < ends[i]; k++) {
       if (!eligible.has(k)) continue;
@@ -433,6 +455,8 @@ function noteLines(elements, ends, kept, controls) {
         p = elements[p].parent;
       }
       if (p !== i) {
+        events.push({ pos: elements[p].start, break: true });
+        events.push({ pos: elements[p].end - 0.5, break: true });
         k = ends[p] - 1;
         continue;
       }
@@ -443,12 +467,23 @@ function noteLines(elements, ends, kept, controls) {
     let line = [];
     const finish = () => {
       const content = joinedText(line.map((event) => event.chunk));
-      if (/\p{L}/u.test(content) && !isControlFeedback(content, controls)) {
-        const owners = new Set([i]);
+      if (/\p{L}/u.test(content)) {
+        const id = nextId++;
+        // A live region identifies action feedback even without a matching
+        // nearby label. A separate data line keeps its own record.
+        const feedback = isControlFeedback(content, controls) ||
+          (inLiveRegion && ACTION_FEEDBACK.test(content));
+        const scopes = new Map();
         for (const event of line) {
-          for (let p = event.owner; p !== i; p = elements[p].parent) owners.add(p);
+          for (let p = event.owner; p >= 0; p = elements[p].parent) {
+            if (!scopes.has(p)) scopes.set(p, []);
+            scopes.get(p).push(event.chunk);
+            if (p === i) break;
+          }
         }
-        for (const owner of owners) notes.set(owner, [...(notes.get(owner) || []), content]);
+        for (const [owner, chunks] of scopes) {
+          attach(owner, { id, order: line[0].pos, text: feedback ? '' : joinedText(chunks) });
+        }
       }
       line = [];
     };
@@ -462,10 +497,21 @@ function noteLines(elements, ends, kept, controls) {
     const i = kept[n];
     const parent = elements[i].parent;
     if (notes.has(i) && eligible.has(parent)) {
-      notes.set(parent, [...notes.get(i), ...(notes.get(parent) || [])]);
+      if (!notes.has(parent)) notes.set(parent, new Map());
+      for (const [id, record] of notes.get(i)) {
+        if (!notes.get(parent).has(id)) notes.get(parent).set(id, record);
+      }
     }
   }
-  return notes;
+  // A single-line live region is feedback. A live wrapper with several lines
+  // cannot exempt every line; matched action feedback already has empty text.
+  const liveLines = new Set();
+  for (const [i, lines] of notes) {
+    if (elements[i].live && lines.size === 1) liveLines.add(lines.keys().next().value);
+  }
+  return new Map([...notes].map(([i, lines]) => [i,
+    [...lines.values()].sort((a, b) => a.order - b.order)
+      .map((record) => ({ text: record.text, live: liveLines.has(record.id) }))]));
 }
 
 // A wrapper that is a section of the page is not the data: what follows it
@@ -531,7 +577,7 @@ function blocksUnderData(elements) {
       if (isOperableControl(elements, k)) controls.push(controlLabel(elements, ends, k));
       if (MUTE_TAGS.has(child.tag) || basisMuted.has(child.parent)) basisMuted.add(k);
       else basisChunks.push(...child.chunks);
-      if (child.live || MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
+      if (MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
         muted.add(k);
         continue;
       }
@@ -549,8 +595,8 @@ function blocksUnderData(elements) {
       .trim();
     const notes = noteLines(elements, ends, inside, controls);
     out.push({ el, above, text, basisText: orderedText(basisChunks), heading, data,
-      inside: inside.flatMap((k) => (notes.get(k) || ['']).map((noteText, n) => ({
-        ...elements[k], live: elements[k].live && n === 0, noteText,
+      inside: inside.flatMap((k) => (notes.get(k) || []).map((note) => ({
+        ...elements[k], live: note.live, noteText: note.text,
       }))),
       parent: elements[el.parent] || null });
   }
@@ -713,7 +759,7 @@ function asideCandidate(elements, ends, i, heading, data) {
       if (isOperableControl(elements, k)) controls.push(controlLabel(elements, ends, k));
       if (MUTE_TAGS.has(child.tag) || basisMuted.has(child.parent)) basisMuted.add(k);
       else basisChunks.push(...child.chunks);
-      if (child.live || MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
+      if (MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
         muted.add(k);
         continue;
       }
@@ -722,11 +768,11 @@ function asideCandidate(elements, ends, i, heading, data) {
     kept.push(k);
   }
   const notes = noteLines(elements, ends, kept, controls);
-  const inside = kept.flatMap((k) => (notes.get(k) || ['']).map((noteText, n) => ({
+  const inside = kept.flatMap((k) => (notes.get(k) || []).map((note) => ({
     tag: elements[k].tag,
     classes: elements[k].classes,
-    live: elements[k].live && n === 0,
-    noteText,
+    live: note.live,
+    noteText: note.text,
     text: orderedText(kept.filter((j) => j >= k && j < ends[k]).flatMap((j) => elements[j].chunks)),
   })));
   return { heading, data, nested, inside, text: inside[0].text,

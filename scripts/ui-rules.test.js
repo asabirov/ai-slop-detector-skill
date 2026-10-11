@@ -299,6 +299,93 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     lacks(`<table><tr><td>12</td></tr></table><div class="text-muted" role="status"><p>The export completed for all selected rows.</p></div>`, 'table-footnote');
     lacks(`<h2>Totals</h2><div class="lede" role="status"><p>The filter completed for all selected rows.</p></div><table><tr><td>12</td></tr></table>`, 'table-aside');
   });
+  it('keeps the data note after Save or Export feedback below a table', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const feedback = '<p>Saving a new time notifies the observer.</p>';
+    const dataNote = '<p>Updated nightly, so yesterday stays open.</p>';
+    for (const label of ['Save', 'Export']) {
+      const wrapper = `<div class="text-muted" role="status">${feedback}${dataNote}<button>${label}</button></div>`;
+      const spans = scan(table + wrapper).findings.filter((finding) => finding.rule === 'table-footnote')
+        .map((finding) => finding.span);
+      assert.deepEqual(spans, ['under <table>: Updated nightly, so yesterday stays open.']);
+    }
+    lacks(table + `<div class="text-muted" role="status">${feedback}<button>Save</button></div>`, 'table-footnote');
+  });
+  it('keeps the data note after Save or Export feedback above a table', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const feedback = '<p>Saving a new time notifies the observer.</p>';
+    const dataNote = '<p>Updated nightly, so yesterday stays open.</p>';
+    for (const label of ['Save', 'Export']) {
+      const wrapper = `<div class="lede" role="status">${feedback}${dataNote}<button>${label}</button></div>`;
+      const spans = scan(`<h2>Totals</h2>${wrapper}${table}`).findings
+        .filter((finding) => finding.rule === 'table-aside').map((finding) => finding.span);
+      assert.deepEqual(spans, ['beside <h2> "Totals" above <table>: Updated nightly, so yesterday stays open.']);
+    }
+    lacks(`<h2>Totals</h2><div class="lede" role="status">${feedback}<button>Save</button></div>${table}`, 'table-aside');
+  });
+  it('keeps one live identity when status text has an inline child', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const sentence of ['The export completed for all selected rows.',
+      'The export completed for <span>all selected rows.</span>']) {
+      const line = `<p class="text-muted" role="status">${sentence}</p>`;
+      lacks(table + line, 'table-footnote');
+      lacks(`<h2>Totals</h2>${line}${table}`, 'table-aside');
+    }
+  });
+  it('finds a data note inside a nested live wrapper in either order', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const status = '<p>Export complete.</p>';
+    const note = '<p>Updated nightly, so yesterday stays open.</p>';
+    for (const lines of [status + note, note + status]) {
+      for (const wrap of [(content) => content, (content) => `<div>${content}</div>`]) {
+        const below = wrap(`<div class="text-muted" role="status">${lines}</div>`);
+        const above = wrap(`<div class="lede" role="status">${lines}</div>`);
+        has(table + below, 'table-footnote');
+        has(`<h2>Totals</h2>${above}${table}`, 'table-aside');
+      }
+    }
+  });
+  it('does not give an empty or short inline marker surrounding prose', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const line of [
+      '<div>Updated nightly, so yesterday stays open.</div>',
+      '<div>Updated nightly, so yesterday stays open.<small></small></div>',
+      '<div>Total revenue across all the selected rooms: <small>EUR.</small></div>',
+    ]) {
+      lacks(table + line, 'table-footnote');
+      lacks(`<h2>Totals</h2>${line}${table}`, 'table-aside');
+    }
+  });
+  it('splits prose before and after a block child', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const line of [
+      '<div class="text-muted">Saving a new time notifies the observer.<div>Ready</div>Updated nightly, so yesterday stays open.<button>Save</button></div>',
+      '<div class="text-muted">Saving a new time notifies the observer.<div>Ready</div>Updated <span>nightly, so yesterday stays open.</span><button>Save</button></div>',
+      '<div class="text-muted"><p>Saving a new time notifies the observer.</p><div>Ready</div><p>Updated nightly, so yesterday stays open.</p><button>Save</button></div>',
+    ]) {
+      has(table + line, 'table-footnote');
+      has(`<h2>Totals</h2>${line}${table}`, 'table-aside');
+    }
+  });
+  it('keeps the closing block boundary in a button label', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const button of ['<button><div>Save</div>now</button>', '<button>Save<div>now</div></button>']) {
+      const line = `<div class="note"><p>Saving a new time notifies the observer.</p>${button}</div>`;
+      lacks(table + line, 'table-footnote');
+      lacks(`<h2>Totals</h2>${line}${table}`, 'table-aside');
+    }
+  });
+  it('groups ordinary inline tags into their complete prose line', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const tag of ['span', 'abbr', 'bdi']) {
+      const feedback = `<div class="text-muted"><p><${tag}>Saving</${tag}> a new time notifies the observer.</p><button>Save</button></div>`;
+      const note = `<div class="text-muted"><p><${tag}>Updated nightly, so </${tag}>yesterday stays open.</p><button>Export</button></div>`;
+      lacks(table + feedback, 'table-footnote');
+      lacks(`<h2>Totals</h2>${feedback}${table}`, 'table-aside');
+      has(table + note, 'table-footnote');
+      has(`<h2>Totals</h2>${note}${table}`, 'table-aside');
+    }
+  });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
   });
