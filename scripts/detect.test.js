@@ -82,6 +82,20 @@ test('decodes the named entities a reader meets, not only the numeric ones', { t
   assert.deepStrictEqual(paragraphs('a &middot; b', false), ['a · b']);
 });
 
+test('reads numeric HTML replacement glyphs in visible text and attributes', { timeout: 1000 }, () => {
+  const page = '<p>Status &#149; 2026 &#x95; Active</p>' +
+    '<p>It&#146;s important to note this.</p>' +
+    '<span title="It&#x92;s crucial to remember the date.">Update</span>';
+  const findings = detect(page, { level: 4, kind: 'artifact', ext: 'html' }).findings;
+  assert.deepStrictEqual(visibleTextRuns(page).slice(0, 2), [
+    'Status • 2026 • Active',
+    'It’s important to note this.',
+  ]);
+  assert.deepStrictEqual(attrTextRuns(page), ['It’s crucial to remember the date.']);
+  assert.strictEqual(findings.filter((f) => f.rule === 'middot-chain').length, 1);
+  assert.strictEqual(findings.filter((f) => f.rule === 'hedge-opener').length, 2);
+});
+
 // One pass, and only a character a reader can be shown. Three passes let a
 // produced ampersand be read again, so `&#38;middot;` — the text `&middot;` on
 // the page — became a dot nobody sees. A code point past Unicode's last one threw

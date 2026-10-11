@@ -36,6 +36,15 @@ const ENTITY = /&(?:#[xX]([0-9a-fA-F]+)|#(\d+)|([A-Za-z][A-Za-z0-9]*));/g;
 // reads the string. Neither is a character a reader sees, so both stay written.
 const decodable = (code) => code >= 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff);
 
+// HTML replaces these numeric C1 references with the glyphs a browser shows.
+// Zero means the control has no replacement in the HTML numeric-reference table.
+const C1_REPLACEMENTS = [
+  0x20ac, 0, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021,
+  0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0, 0x017d, 0,
+  0, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014,
+  0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0, 0x017e, 0x0178,
+];
+
 // Called only on text whose tags, or whose markdown syntax, are already gone, and
 // it runs last, so nothing reads what it produced. That order is the point twice
 // over: a `&lt;` decoded while tags are still being matched would hand the next
@@ -54,7 +63,8 @@ function decodeEntities(text, { blankUnknown = false } = {}) {
       return blankUnknown ? ' ' : whole;
     }
     const code = hex !== undefined ? parseInt(hex, 16) : Number(dec);
-    return decodable(code) ? String.fromCodePoint(code) : whole;
+    if (!decodable(code)) return whole;
+    return String.fromCodePoint(C1_REPLACEMENTS[code - 0x80] || code);
   });
 }
 
