@@ -154,11 +154,11 @@ The boundary names must match complete tags, so `dt-label` and `dd-value` stay i
   Blank separators do not count toward length; individual block frames stay
   exempt. Essay and ratio measurements are unchanged.
 
-Code is not prose. Fenced blocks and inline code spans come out of a document
-before the rules that judge decoration read it, so a page can quote the pattern
-it explains. Spans are matched the way CommonMark matches them, a run of N
-backticks closing only on a run of N, and the HTML sniff is taken after that
-removal so a markdown file naming `<style>` in backticks is still markdown.
+Code is not prose. In Markdown regions, fenced blocks and inline code spans
+come out before the rules that judge decoration read them. Raw HTML blocks and
+readable HTML attributes keep backticks as text. Spans use matching runs of N
+backticks, and the HTML sniff runs after Markdown code removal. A Markdown
+file that names `<style>` in a code span stays Markdown.
 
 Four levels, each a superset of the one below: `ban`, `recommended` (default),
 `strict`, `paranoid`. Only `error` findings exit non-zero, so level 1 is the

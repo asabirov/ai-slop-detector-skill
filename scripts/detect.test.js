@@ -243,6 +243,64 @@ test('keeps visible angle text and Markdown autolink labels', { timeout: 1000 },
   }
 });
 
+test('keeps backticks and fence text visible inside raw HTML', { timeout: 1000 }, () => {
+  for (const source of [
+    '<div>Read `&nearr;` here.</div>',
+    '<div>\n```\n&nearr;\n```\n</div>',
+    '<span title="Read `&nearr;` here.">Update</span>',
+  ]) {
+    assert.ok(parse(source, { ext: 'md' }).codeless.includes('↗'), source);
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  const inline = '`value` <div>\\&nearr;</div>';
+  assert.ok(!detect(inline, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('keeps escaped hidden HTML openers visible in Markdown', { timeout: 1000 }, () => {
+  for (const tag of ['script', 'style', 'code', 'pre']) {
+    const escaped = `Write \\<${tag}>↗\\</${tag}> here.`;
+    const raw = `<div><${tag}>↗</${tag}></div>`;
+    assert.ok(detect(escaped, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), escaped);
+    assert.ok(!detect(raw, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), raw);
+  }
+  const comment = 'Write \\<!-- ↗ --> here.';
+  assert.ok(detect(comment, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('uses HTML references only inside valid raw HTML blocks', { timeout: 1000 }, () => {
+  for (const source of [
+    '> <div>Write \\&nearr; here.</div>',
+    '- <div>Write \\&nearr; here.</div>',
+    '</div>Write \\&nearr; here.',
+    '<textarea>\n\nWrite \\&nearr; here.\n</textarea>',
+  ]) {
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  for (const source of [
+    '<output>Write \\&nearr; here.</output>',
+    '<custom-tag @bad>\nWrite \\&nearr; here.\n</custom-tag>',
+  ]) {
+    assert.ok(!detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+});
+
+test('preserves angle text with invalid HTML tag grammar', { timeout: 1000 }, () => {
+  for (const source of ['Show <x @↗> here.', 'Show <x ↗> here.', 'Show </x ↗> here.',
+    'Show <span @↗> here.', '<div>Show <span @↗> here.</div>']) {
+    assert.ok(parse(source, { ext: 'md' }).codeless.includes('↗'), source);
+    assert.ok(parse(source, { ext: 'md' }).runs.some((run) => run.includes('↗')), source);
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+});
+
 test('keeps boundary-prefix custom elements inside a visible run', { timeout: 1000 }, () => {
   for (const tag of ['dt-label', 'dd-value', 'dl-label', 'br-icon']) {
     const page = `<p>draft · <${tag}>2026</${tag}> · brainstorm</p>`;

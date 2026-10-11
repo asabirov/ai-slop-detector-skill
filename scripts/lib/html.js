@@ -795,9 +795,15 @@ function stripFences(text, replacement) {
 // Inline code spans. A run of N backticks opens one and only a run of exactly N
 // closes it; a run that finds no partner is literal text, and the run after it
 // is free to open a span of its own.
-function stripCodeSpans(text, replacement) {
+function stripCodeSpans(text, replacement, protectedRanges = []) {
   const runs = [];
+  let rangeIndex = 0;
   for (let i = 0; i < text.length; i++) {
+    while (protectedRanges[rangeIndex]?.end <= i) rangeIndex++;
+    if (protectedRanges[rangeIndex]?.start <= i) {
+      i = protectedRanges[rangeIndex].end - 1;
+      continue;
+    }
     if (text[i] !== '`') continue;
     let len = 1;
     while (text[i + len] === '`') len++;
@@ -844,83 +850,188 @@ function withoutMarkdownCode(source) {
   return stripCodeSpans(stripFences(source, ' '), ' ');
 }
 
-// A Markdown autolink or literal angle-bracket phrase is visible text. Only
-// complete HTML tags are markup here. The boundary after a tag name prevents
-// `<https://...>` from being mistaken for an opening element.
-const MARKDOWN_TAG = /<\/?[a-z][a-z0-9-]*(?=[\s/>])(?:"[^"]*"|'[^']*'|[^'">])*?>/gi;
+// Match CommonMark raw HTML tags. An attribute starts with an ASCII name and
+// has a valid quoted or unquoted value. Invalid angle text stays visible.
+const MARKDOWN_TAG = /<(?:\/[a-z][a-z0-9-]*[ \t\n]*|[a-z][a-z0-9-]*(?:[ \t\n]+[a-z_:][a-z0-9:._-]*(?:[ \t\n]*=[ \t\n]*(?:"[^"]*"|'[^']*'|[^ \t\n"'=<>`]+))?)*[ \t\n]*\/?)>/gi;
+function markdownEscaped(source, offset) {
+  let slashes = 0;
+  while (source[offset - slashes - 1] === '\\') slashes++;
+  return slashes % 2 === 1;
+}
+
+function markdownTagMatches(source) {
+  return [...source.matchAll(MARKDOWN_TAG)].filter((match) => !markdownEscaped(source, match.index));
+}
+
 function stripMarkdownTags(source) {
-  return source.replace(MARKDOWN_TAG, (tag, offset) => {
-    let slashes = 0;
-    while (source[offset - slashes - 1] === '\\') slashes++;
-    return slashes % 2 ? tag : ' ';
-  });
+  return source.replace(MARKDOWN_TAG, (tag, offset) => markdownEscaped(source, offset) ? tag : ' ');
 }
 
 function markdownAttributeRuns(source) {
-  const tags = [];
-  for (const match of source.matchAll(MARKDOWN_TAG)) {
-    let slashes = 0;
-    while (source[match.index - slashes - 1] === '\\') slashes++;
-    if (slashes % 2 === 0) tags.push(match[0]);
-  }
-  return attrTextRuns(tags.join(' '));
+  return attrTextRuns(markdownTagMatches(source).map((match) => match[0]).join(' '));
 }
 
-// CommonMark passes block HTML through to the browser. References in those
-// blocks use HTML rules, while references in the surrounding prose use Markdown
-// escape and digit rules. A block-tag opening ends at the next blank line.
-const MARKDOWN_HTML_BLOCK = /^ {0,3}<(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|output|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?=[\s/>])/i;
-const MARKDOWN_HTML_TAG_LINE = /^ {0,3}<\/?[a-z][a-z0-9-]*(?=[\s/>])(?:"[^"]*"|'[^']*'|[^'">])*?>\s*$/i;
+function markdownVisibleRuns(source, html) {
+  const boundary = html ? BLOCK_ELEMENT : NON_MARKUP_BOUNDARY;
+  const pieces = [];
+  let start = 0;
+  for (const match of markdownTagMatches(source)) {
+    if (!boundary.test(match[0])) continue;
+    pieces.push(source.slice(start, match.index));
+    start = match.index + match[0].length;
+  }
+  pieces.push(source.slice(start));
+  return pieces.map((piece) => decodeEntities(stripMarkdownTags(piece),
+    { markdownEscapes: !html }).replace(/\s+/g, ' ').trim()).filter(Boolean);
+}
+
+// A tag's quoted backticks are HTML data. Code spans still remove complete
+// Markdown spans, including tags written inside those spans.
+function withoutMarkdownCodeAroundHtml(source) {
+  const unfenced = stripFences(source, ' ');
+  const ranges = markdownTagMatches(unfenced).map((match) => ({
+    start: match.index, end: match.index + match[0].length,
+  }));
+  return stripCodeSpans(unfenced, ' ', ranges);
+}
+
+function stripMarkdownHidden(source) {
+  const tags = markdownTagMatches(source);
+  const ranges = [];
+  for (let i = 0; i < tags.length; i++) {
+    const opening = /^<([a-z][a-z0-9-]*)\b/i.exec(tags[i][0]);
+    if (!opening || !['script', 'style', 'code', 'pre'].includes(opening[1].toLowerCase())) continue;
+    const name = opening[1].toLowerCase();
+    const start = tags[i].index;
+    let end = source.length;
+    const closing = new RegExp(`^<\\/${name}[ \\t\\n]*>$`, 'i');
+    for (let j = i + 1; j < tags.length; j++) {
+      if (closing.test(tags[j][0])) {
+        end = tags[j].index + tags[j][0].length;
+        i = j;
+        break;
+      }
+    }
+    ranges.push({ start, end });
+    if (end === source.length) break;
+  }
+  let hidden = source;
+  for (const range of ranges.reverse()) hidden = hidden.slice(0, range.start) + ' ' + hidden.slice(range.end);
+  let comment = hidden.indexOf('<!--');
+  while (comment !== -1) {
+    if (markdownEscaped(hidden, comment)) {
+      comment = hidden.indexOf('<!--', comment + 4);
+      continue;
+    }
+    const close = hidden.indexOf('-->', comment + 4);
+    hidden = hidden.slice(0, comment) + ' ' + hidden.slice(close === -1 ? hidden.length : close + 3);
+    comment = hidden.indexOf('<!--', comment + 1);
+  }
+  return hidden;
+}
+
+// Type 6 block tags can interrupt a paragraph. A complete tag on its own line
+// starts type 7 only after a paragraph boundary. Neither output nor search is
+// a CommonMark type 6 tag.
+const MARKDOWN_HTML_BLOCK = /^ {0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?=[\s/>])/i;
+const MARKDOWN_HTML_TAG_LINE = new RegExp(`^ {0,3}${MARKDOWN_TAG.source}\\s*$`, 'i');
+const MARKDOWN_SPECIAL_BLOCK = /^ {0,3}<(script|pre|style|textarea)(?=[\s>])/i;
+function markdownContainer(line) {
+  let body = line;
+  let quoteDepth = 0;
+  while (/^ {0,3}>[ \t]?/.test(body)) {
+    body = body.replace(/^ {0,3}>[ \t]?/, '');
+    quoteDepth++;
+  }
+  const list = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+/.exec(body);
+  if (list) body = body.slice(list[0].length);
+  return { body, quoteDepth, list: !!list };
+}
+
+// Decide block boundaries on the original source. Removing backticks first can
+// turn inline HTML into a false block and can erase HTML attribute values.
 function markdownRegions(source) {
   const regions = [];
   let kind = 'markdown';
   let lines = [];
+  let endMarker = null;
+  let quoteDepth = 0;
+  let inList = false;
+  let fence = null;
   const flush = () => {
     if (lines.length) regions.push({ kind, text: lines.join('\n') });
     lines = [];
   };
   for (const line of source.split('\n')) {
-    if (kind === 'html' && /^\s*$/.test(line)) {
+    const container = markdownContainer(line);
+    const blank = /^\s*$/.test(container.body);
+    if (kind === 'html' && ((endMarker === null && blank) ||
+      container.quoteDepth < quoteDepth || (inList && container.list))) {
       flush();
       kind = 'markdown';
+      endMarker = null;
     }
-    const startsTagBlock = MARKDOWN_HTML_TAG_LINE.test(line) &&
-      (!lines.length || /^\s*$/.test(lines[lines.length - 1]));
-    if (kind === 'markdown' && (MARKDOWN_HTML_BLOCK.test(line) || startsTagBlock)) {
+    if (kind === 'markdown') {
+      if (fence) {
+        lines.push(line);
+        if (fence.test(container.body)) fence = null;
+        continue;
+      }
+      const openingFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(container.body);
+      if (openingFence && !(openingFence[1][0] === '`' && openingFence[2].includes('`'))) {
+        const char = openingFence[1][0] === '`' ? '\\`' : '~';
+        fence = new RegExp(`^ {0,3}${char}{${openingFence[1].length},}\\s*$`);
+        lines.push(line);
+        continue;
+      }
+      const special = MARKDOWN_SPECIAL_BLOCK.exec(container.body);
+      const startsTagBlock = MARKDOWN_HTML_TAG_LINE.test(container.body) &&
+        (container.list || !lines.length || /^\s*$/.test(markdownContainer(lines[lines.length - 1]).body));
+      if (special || /^ {0,3}<!--/.test(container.body) ||
+        MARKDOWN_HTML_BLOCK.test(container.body) || startsTagBlock) {
+        flush();
+        kind = 'html';
+        quoteDepth = container.quoteDepth;
+        inList = container.list;
+        if (special) endMarker = new RegExp(`</${special[1]}[ \\t\\n]*>`, 'i');
+        else if (/^ {0,3}<!--/.test(container.body)) endMarker = /-->/;
+        else endMarker = null;
+      }
+    }
+    lines.push(kind === 'html' ? container.body : line);
+    if (kind === 'html' && endMarker?.test(container.body)) {
       flush();
-      kind = 'html';
+      kind = 'markdown';
+      endMarker = null;
     }
-    lines.push(line);
   }
   flush();
   return regions;
 }
 
 function markdownStreams(source) {
-  const body = ['style', 'script', 'code', 'pre'].reduce(stripBetween, withoutMarkdownCode(source))
-    .replace(/<!--[\s\S]*?-->/g, ' ');
-  const attrs = markdownAttributeRuns(body);
+  const attrs = [];
   const chunks = [];
   const runs = [];
   const paras = [];
-  for (const region of markdownRegions(body)) {
+  for (const region of markdownRegions(source)) {
+    const body = stripMarkdownHidden(region.kind === 'html' ? region.text :
+      withoutMarkdownCodeAroundHtml(region.text));
+    attrs.push(...markdownAttributeRuns(body));
     if (region.kind === 'html') {
-      const htmlRuns = visibleTextRuns(region.text);
+      const htmlRuns = markdownVisibleRuns(body, true);
       runs.push(...htmlRuns);
       paras.push(...htmlRuns);
-      chunks.push(decodeEntities(stripTags(region.text)));
+      chunks.push(decodeEntities(stripMarkdownTags(body)));
       continue;
     }
-    const prose = region.text
+    const prose = body
       .replace(/^\s{0,3}#{1,6}\s+/gm, '')
       .replace(/^\s{0,3}[-*+]\s+/gm, '')
       .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
     const visible = decodeEntities(stripMarkdownTags(prose), { markdownEscapes: true });
     chunks.push(visible);
-    for (const run of prose.split(NON_MARKUP_BOUNDARY)) {
-      const text = decodeEntities(stripMarkdownTags(run), { markdownEscapes: true }).replace(/\s+/g, ' ').trim();
-      if (text) runs.push(text);
-    }
+    runs.push(...markdownVisibleRuns(prose, false));
     for (const paragraph of prose.split(/\n\s*\n/)) {
       const text = decodeEntities(stripMarkdownTags(paragraph), { markdownEscapes: true })
         .replace(/\s+/g, ' ').trim();
