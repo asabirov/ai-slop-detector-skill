@@ -427,10 +427,11 @@ const INLINE_TAGS = new Set([
   'u', 'var', 'wbr',
 ]);
 
-// Each visible line has one identity. Keep the text within each marker's own
-// subtree, so an empty or short inline marker cannot borrow nearby words.
-function noteLines(elements, ends, kept, controls) {
+// Keep one identity for each visible line. Each text run also keeps its marker
+// and live scope, so neighboring prose cannot change a marked note.
+function noteLines(elements, ends, kept, controls, isMarked = () => false) {
   const notes = new Map(); // element index -> line identity -> scoped line
+  const visibleLines = [];
   const eligible = new Set(kept);
   let nextId = 0;
   const attach = (owner, record) => {
@@ -469,6 +470,7 @@ function noteLines(elements, ends, kept, controls) {
       const content = joinedText(line.map((event) => event.chunk));
       if (/\p{L}/u.test(content)) {
         const id = nextId++;
+        visibleLines.push({ id, events: line, root: i, inLiveRegion });
         const scopes = new Map();
         for (const event of line) {
           for (let p = event.owner; p >= 0; p = elements[p].parent) {
@@ -483,7 +485,7 @@ function noteLines(elements, ends, kept, controls) {
           // empty ordinary text beside it on the same visible line.
           const feedback = isControlFeedback(scopedText, controls) ||
             (inLiveRegion && ACTION_FEEDBACK.test(scopedText));
-          attach(owner, { id, order: line[0].pos, text: feedback ? '' : scopedText, chunks, sourceOwner: owner });
+          attach(owner, { id, order: line[0].pos, text: feedback ? '' : scopedText, sourceOwner: owner });
         }
       }
       line = [];
@@ -494,29 +496,52 @@ function noteLines(elements, ends, kept, controls) {
     }
     finish();
   }
-  // Adjacent small elements can form one visible note. Join only their own
-  // chunks, and stop if the parent has ordinary text between the elements.
-  for (const i of kept) {
-    if (elements[i].tag !== 'small' || !notes.has(i)) continue;
-    const group = [i];
-    let last = i;
-    while (ends[last] < elements.length) {
-      const next = ends[last];
-      if (elements[next].tag !== 'small' || elements[next].parent !== elements[i].parent ||
-        !notes.has(next)) break;
-      const between = elements[elements[i].parent].chunks.filter(
-        ([pos]) => pos >= elements[last].end && pos < elements[next].start
-      );
-      if (between.some(([, value]) => /\S/u.test(value))) break;
-      group.push(next);
-      last = next;
+  // A marked run can cross inline siblings and neutral wrappers. Plain words
+  // break it. Whitespace stays in it. Live text starts another scope.
+  for (const { id, events, root, inLiveRegion } of visibleLines) {
+    let group = [];
+    let gap = [];
+    let liveScope = null;
+    const finishGroup = () => {
+      if (!group.length) return;
+      const text = joinedText(group.map((event) => event.chunk));
+      const feedback = isControlFeedback(text, controls) ||
+        ((liveScope !== null || inLiveRegion) && ACTION_FEEDBACK.test(text));
+      const owners = new Set(group.flatMap((event) => event.markers));
+      for (const owner of owners) {
+        const record = notes.get(owner)?.get(id);
+        if (record) record.text = feedback ? '' : text;
+      }
+      group = [];
+      gap = [];
+    };
+    for (const event of events) {
+      const markers = [];
+      let eventLive = null;
+      for (let p = event.owner; p >= 0; p = elements[p].parent) {
+        if (isMarked(elements[p])) markers.push(p);
+        if (elements[p].live) {
+          eventLive = p;
+          break;
+        }
+        if (p === root) break;
+      }
+      const scoped = { ...event, markers };
+      if (!/\S/u.test(event.chunk[1])) {
+        if (group.length) gap.push(scoped);
+        continue;
+      }
+      if (!markers.length) {
+        finishGroup();
+        continue;
+      }
+      if (group.length && eventLive !== liveScope) finishGroup();
+      if (group.length) group.push(...gap);
+      gap = [];
+      liveScope = eventLive;
+      group.push(scoped);
     }
-    if (group.length < 2) continue;
-    for (const [id, first] of notes.get(i)) {
-      const records = group.map((k) => notes.get(k).get(id));
-      if (records.some((record) => !record || !record.text)) continue;
-      first.text = joinedText(records.flatMap((record) => record.chunks));
-    }
+    finishGroup();
   }
   for (let n = kept.length - 1; n >= 0; n--) {
     const i = kept[n];
@@ -571,7 +596,7 @@ function dataAbove(elements, lastChildOf, from) {
 // renders and what its subtree holds. A JSX expression is not prose: `{rows.map(
 // (r) => …)}` reaches this as text, and a brace run comes out before the words
 // are counted.
-function blocksUnderData(elements) {
+function blocksUnderData(elements, isMarked) {
   const out = [];
   if (!elements) return out;
   const ends = subtreeEnds(elements);
@@ -624,7 +649,7 @@ function blocksUnderData(elements) {
       .replace(/\{[^{}]*\}/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    const notes = noteLines(elements, ends, inside, controls);
+    const notes = noteLines(elements, ends, inside, controls, isMarked);
     out.push({ el, above, text, basisText: orderedText(basisChunks), heading, data,
       inside: inside.flatMap((k) => (notes.get(k) || []).map((note) => ({
         ...elements[k], live: note.live, noteText: note.text,
@@ -684,7 +709,7 @@ function subtreeEnds(elements) {
 // head row — `<div class="head"><h2>…</h2><span class="basis">…</span></div>`
 // followed by the table — so the walk leaves a named head row when it runs out of
 // siblings, and nothing else.
-function blocksBesideHeading(elements) {
+function blocksBesideHeading(elements, isMarked) {
   const out = [];
   if (!elements) return out;
   const childrenOf = new Map();
@@ -728,7 +753,7 @@ function blocksBesideHeading(elements) {
     }
     if (!data || !tail.length || tail.length > ASIDE_MAX) continue;
     const heading = { tag: elements[h].tag, text: subtreeText(elements, ends, h) };
-    for (const j of tail) out.push(asideCandidate(elements, ends, j, heading, data));
+    for (const j of tail) out.push(asideCandidate(elements, ends, j, heading, data, isMarked));
   }
   return out;
 }
@@ -775,7 +800,7 @@ const ASIDE_MAX_NODES = 40;
 // report. `<span class="total">12,400 <small>EUR</small></span>` is a total with
 // its unit, and reading the pair as one two-word note fired on `EUR`. Words a
 // reader operates rather than reads come out, and so does a brace run.
-function asideCandidate(elements, ends, i, heading, data) {
+function asideCandidate(elements, ends, i, heading, data, isMarked) {
   const kept = [];
   const muted = new Set();
   const basisMuted = new Set();
@@ -798,7 +823,7 @@ function asideCandidate(elements, ends, i, heading, data) {
     if (k === i) basisChunks.push(...child.chunks);
     kept.push(k);
   }
-  const notes = noteLines(elements, ends, kept, controls);
+  const notes = noteLines(elements, ends, kept, controls, isMarked);
   const inside = kept.flatMap((k) => (notes.get(k) || []).map((note) => ({
     tag: elements[k].tag,
     classes: elements[k].classes,

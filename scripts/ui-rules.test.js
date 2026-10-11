@@ -409,6 +409,50 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     }
     lacks(table + '<div class="text-muted" role="status">Ready.<button>Export</button></div>', 'table-footnote');
   });
+  it('keeps whitespace between marked inline pieces', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const gap of [' ', '\n']) {
+      const note = `<div><small>Updated nightly, so</small>${gap}<small>yesterday stays open.</small><button>Export</button></div>`;
+      for (const [html, rule] of [[table + note, 'table-footnote'],
+        [`<h2>Reports</h2>${note}${table}`, 'table-aside']]) {
+        const spans = scan(html).findings.filter((finding) => finding.rule === rule).map((finding) => finding.span);
+        assert.ok(spans.some((span) => span.includes('Updated nightly, so yesterday stays open.')));
+      }
+    }
+  });
+  it('groups marked spans through neutral inline wrappers', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const note of [
+      '<div><span class="text-muted">Updated nightly, so </span><span class="text-muted">yesterday stays open.</span><button>Export</button></div>',
+      '<div><span><small>Updated nightly, so </small></span><small>yesterday stays open.</small><button>Export</button></div>',
+    ]) {
+      has(table + note, 'table-footnote');
+      has(`<h2>Reports</h2>${note}${table}`, 'table-aside');
+    }
+    lacks(table + '<div><small>Updated nightly, so </small>yesterday stays open.<button>Export</button></div>', 'table-footnote');
+  });
+  it('keeps action feedback split across marked inline pieces', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const note of [
+      '<div><small>Saving </small><small>a new time notifies the observer.</small><button>Save</button></div>',
+      '<div><span class="text-muted">Saving </span><span class="text-muted">a new time notifies the observer.</span><button>Save</button></div>',
+    ]) {
+      lacks(table + note, 'table-footnote');
+      lacks(`<h2>Reports</h2>${note}${table}`, 'table-aside');
+    }
+  });
+  it('does not join live text to a marked ordinary note', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const status = 'The export completed for all selected rows.';
+    for (const live of ['role="status"', 'role="alert"', 'aria-live="polite"']) {
+      const split = `<div><small>Draft </small><small ${live}>${status}</small></div>`;
+      const nested = `<div><small>Draft <span ${live}>${status}</span></small></div>`;
+      for (const note of [split, nested]) {
+        lacks(table + note, 'table-footnote');
+        lacks(`<h2>Reports</h2>${note}${table}`, 'table-aside');
+      }
+    }
+  });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
   });

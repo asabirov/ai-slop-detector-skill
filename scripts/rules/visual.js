@@ -137,6 +137,8 @@ const FOOTNOTE_TAG = /^small$|(?:^|-)(?:basis|notes?|footnotes?|hint|disclaimer)
 const CAPTION_TAG = /^(?:fig)?caption$|(?:^|-)caption$/i;
 const FOOTNOTE_CLASS =
   /(?:^|[-_])(?:foot|footer|footnote|notes?|caption|hint|help|basis|disclaimer|fineprint|muted|subtle|meta)(?:$|[-_\d])/i;
+const isFootnoteMarker = (e) => FOOTNOTE_TAG.test(e.tag) ||
+  [...e.classes].some((c) => FOOTNOTE_CLASS.test(c));
 
 // The facts a footnote carries: what the numbers are counted in, what they leave
 // out, how they were rounded, where they came from, when they were taken. Kept
@@ -176,7 +178,7 @@ const tableFootnote = {
   // heading or a table of its own means it is a section, not an annotation.
   test(ctx) {
     const hits = [];
-    for (const { el, above, text, basisText, heading, data, inside } of blocksUnderData(ctx.elements)) {
+    for (const { el, above, text, basisText, heading, data, inside } of blocksUnderData(ctx.elements, isFootnoteMarker)) {
       if (heading || data || COUNT_LINE.test(text)) continue;
       const basis = (basisText.match(/\S+/g) || []).length >= BASIS_MIN_WORDS &&
         BASIS.some((re) => re.test(basisText));
@@ -188,12 +190,12 @@ const tableFootnote = {
           (e) =>
             !e.live &&
             (e.noteText.match(/\S+/g) || []).length >= SET_MIN_WORDS &&
-            (FOOTNOTE_TAG.test(e.tag) || [...e.classes].some((c) => FOOTNOTE_CLASS.test(c)))
+            isFootnoteMarker(e)
         );
       if (!set && !basis) continue;
       const note = inside.find((e) => !e.live &&
         (e.noteText.match(/\S+/g) || []).length >= SET_MIN_WORDS &&
-        (FOOTNOTE_TAG.test(e.tag) || [...e.classes].some((c) => FOOTNOTE_CLASS.test(c))));
+        isFootnoteMarker(e));
       hits.push(`under <${above.tag}>: ${(basis ? basisText : note?.noteText || text).slice(0, 90)}`);
     }
     return hits;
@@ -221,6 +223,8 @@ const ANNOTATION_CLASS = /(?:^|[-_])(?:basis|notes?|footnotes?|disclaimer|finepr
 const SUBORDINATE_TAG = /^small$/i;
 const SUBORDINATE_CLASS =
   /(?:^|[-_])(?:sub|subtitle|subhead(?:ing|line)?|description|lede|lead|dek|standfirst|tagline|intro|hint|help|muted|subtle|small)(?:$|[-_\d])/i;
+const isAsideMarker = (e) => ANNOTATION_TAG.test(e.tag) || SUBORDINATE_TAG.test(e.tag) ||
+  [...e.classes].some((c) => ANNOTATION_CLASS.test(c) || SUBORDINATE_CLASS.test(c));
 
 // A line that is merely set smaller has to be a sentence before this rule reads
 // it. Measured, not assumed: over 2,285 real HTML files the subordinate slot
@@ -249,7 +253,7 @@ const tableAside = {
   // that carries the marker, not the row holding it.
   test(ctx) {
     const hits = [];
-    for (const { heading, data, text, basisText, nested, inside } of blocksBesideHeading(ctx.elements)) {
+    for (const { heading, data, text, basisText, nested, inside } of blocksBesideHeading(ctx.elements, isAsideMarker)) {
       if (nested || COUNT_LINE.test(text)) continue;
       // No word floor on this tier, measured: one word recovers `<Basis>non-cash</Basis>`
       // beside an <h2> that already carries a `Non-cash` badge, and adds nothing over
