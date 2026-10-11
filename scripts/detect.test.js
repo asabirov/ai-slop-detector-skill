@@ -131,6 +131,38 @@ test('decodes every HTML5 name, and reads its case', { timeout: 1000 }, () => {
   assert.strictEqual(decodeEntities('&#X26;lt;'), '&lt;');
 });
 
+test('keeps escaped Markdown references literal with odd backslash counts', { timeout: 1000 }, () => {
+  for (const reference of ['&nearr;', '&#8599;', '&#x2197;']) {
+    for (const count of [1, 3]) {
+      const source = `Write ${'\\'.repeat(count)}${reference} to spell the reference.`;
+      assert.ok(plainText(source, false).includes(reference), source);
+      assert.ok(paragraphs(source, false)[0].includes(reference), source);
+      assert.ok(!detect(source, { level: 4, kind: 'artifact', ext: 'md' }).findings
+        .some((finding) => finding.rule === 'external-link-arrow'), source);
+    }
+    for (const count of [0, 2]) {
+      const source = `Write ${'\\'.repeat(count)}${reference} to spell the reference.`;
+      assert.ok(plainText(source, false).includes('↗'), source);
+      assert.ok(detect(source, { level: 4, kind: 'artifact', ext: 'md' }).findings
+        .some((finding) => finding.rule === 'external-link-arrow'), source);
+    }
+  }
+  assert.strictEqual(plainText('<p>Write &nearr; here.</p>', true), 'Write ↗ here.');
+});
+
+test('keeps boundary-prefix custom elements inside a visible run', { timeout: 1000 }, () => {
+  for (const tag of ['dt-label', 'dd-value', 'dl-label', 'br-icon']) {
+    const page = `<p>draft · <${tag}>2026</${tag}> · brainstorm</p>`;
+    assert.deepStrictEqual(visibleTextRuns(page), ['draft · 2026 · brainstorm'], tag);
+    assert.ok(detect(page, { level: 4, kind: 'artifact', ext: 'html' }).findings
+      .some((finding) => finding.rule === 'middot-chain'), tag);
+  }
+  assert.deepStrictEqual(visibleTextRuns('<dl><dt>Release</dt><dd>2026</dd></dl><p>a<br>b</p>'),
+    ['Release', '2026', 'a', 'b']);
+  assert.ok(run('slop-entities.html', 4).findings.some((finding) =>
+    finding.rule === 'middot-chain' && finding.span === 'alpha · custom · omega'));
+});
+
 test('keeps inline SVG and label text in a visible chain', { timeout: 1000 }, () => {
   for (const page of [
     '<p>draft · <svg><use href="#icon"/></svg>2026 · brainstorm</p>',

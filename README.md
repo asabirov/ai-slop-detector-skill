@@ -111,6 +111,8 @@ numeric forms. So a dotted chain written `&middot;` and one typed with the dot a
 the same line. Numeric C1 references use HTML's replacement glyphs, so `&#149;`
 reads as `•` and `&#146;` reads as `’`. The scans that read markup for class
 names, selectors and tag shapes work on the page as written.
+Markdown references after an odd number of backslashes stay literal. References
+after an even number of backslashes decode normally.
 
 In markup, `p`, `div`, headings, `span`, `li`, table cells, `section`, `header`,
 `footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible text run. This keeps
@@ -118,6 +120,7 @@ definition values separate. Other tags stay in the surrounding run, so inline
 `svg` and `label` content can still complete a chain. This split does not use
 CSS layout or a DOM, so it can differ from browser text boundaries. Files not
 read as markup use the earlier boundary list, without `dl`, `dt`, `dd`, or `br`.
+The boundary names must match complete tags, so `dt-label` and `dd-value` stay inline.
 
 - **Visual** reads markup and the CSS a page applies, including stylesheets it
   links from disk. Catches fake protocol URIs, monospace used as decoration,

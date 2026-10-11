@@ -95,15 +95,17 @@ does not list, a code point past Unicode's last, and the surrogate range are lef
 written, and so are the forms a browser accepts without the semicolon (`&amp` for `&`). The
 one stream that drops an unresolved name rather than keeping it is the whole-page prose
 stream of an HTML page, which did that before, so no prose rule reads it as a word; the
-markdown side keeps it.
+markdown side keeps it. An escaped Markdown ampersand stays literal after an odd number of backslashes.
+An even number lets the reference decode. HTML references decode normally.
 
 In markup, `p`, `div`, headings, `span`, `li`, `td`, `th`, `section`, `header`,
 `footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible run. The definition
 tags keep each value separate. The original twelve boundaries remain, including
 `span` and `a`. Other tags stay inside the run. Thus an inline `svg`, `label`, or
 custom element does not hide a dotted chain. The parser uses tag names without
-CSS layout or a DOM, so its runs only approximate displayed text. Files not read
-as markup keep the original twelve boundaries. This avoids splitting their
+CSS layout or a DOM, so its runs only approximate displayed text. A boundary
+name must match the full tag, so `dt-label`, `dd-value`, `dl-label`, and `br-icon`
+stay inline. Files not read as markup keep the original twelve boundaries. This avoids splitting their
 tag-shaped text on the new definition and line-break tags.
 
 `--level` accepts a number (`1`–`4`) or a name (`ban`, `recommended`, `strict`,

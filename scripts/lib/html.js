@@ -55,8 +55,13 @@ const C1_REPLACEMENTS = [
 // than run as a second pass over the result. As a second pass it ate the name a
 // numeric ampersand had just produced: `&#38;middot;` is the text `&middot;` on
 // the page, and the stream reported nothing at all.
-function decodeEntities(text, { blankUnknown = false } = {}) {
-  return text.replace(ENTITY, (whole, hex, dec, name) => {
+function decodeEntities(text, { blankUnknown = false, markdownEscapes = false } = {}) {
+  return text.replace(ENTITY, (whole, hex, dec, name, offset) => {
+    if (markdownEscapes) {
+      let slashes = 0;
+      while (text[offset - slashes - 1] === '\\') slashes++;
+      if (slashes % 2) return whole;
+    }
     if (name !== undefined) {
       const glyph = NAMED[name];
       if (glyph !== undefined) return glyph;
@@ -71,15 +76,15 @@ function decodeEntities(text, { blankUnknown = false } = {}) {
 // Keep inline markup inside a text run. Split definition labels and values, and
 // split at a line break. The earlier broad split hid chains containing SVG icons
 // and labels. This is a text approximation, not a DOM or CSS layout calculation.
-const BLOCK_ELEMENT = /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a|dl|dt|dd|br)\b[^>]*>/i;
-const NON_MARKUP_BOUNDARY = /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a)\b[^>]*>/i;
+const BLOCK_ELEMENT = /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a|dl|dt|dd|br)(?=[\s/>])[^>]*>/i;
+const NON_MARKUP_BOUNDARY = /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a)(?=[\s/>])[^>]*>/i;
 
 function visibleTextRuns(html, { markup = true } = {}) {
   const body = stripBetween(stripBetween(html, 'style'), 'script');
   const runs = body.split(markup ? BLOCK_ELEMENT : NON_MARKUP_BOUNDARY);
   const out = [];
   for (const r of runs) {
-    const t = decodeEntities(stripTags(r)).replace(/\s+/g, ' ').trim();
+    const t = decodeEntities(stripTags(r), { markdownEscapes: !markup }).replace(/\s+/g, ' ').trim();
     if (t) out.push(t);
   }
   return out;
@@ -856,7 +861,8 @@ function plainText(source, isHtml) {
     withoutMarkdownCode(source)
       .replace(/^\s{0,3}#{1,6}\s+/gm, '') // heading hashes
       .replace(/^\s{0,3}[-*+]\s+/gm, '') // list bullets
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // links → link text
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1'), // links → link text
+    { markdownEscapes: true }
   ).trim();
 }
 
@@ -885,7 +891,7 @@ function paragraphs(source, isHtml) {
   // break between two.
   return stripFences(source, '\n')
     .split(/\n\s*\n/)
-    .map((p) => decodeEntities(p).replace(/\s+/g, ' ').trim())
+    .map((p) => decodeEntities(p, { markdownEscapes: true }).replace(/\s+/g, ' ').trim())
     .filter(Boolean);
 }
 
