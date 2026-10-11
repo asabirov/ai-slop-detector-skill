@@ -190,11 +190,15 @@ control in the same block. The supported pairs are Save/Saving, Change/Changing,
 Move/Moving, Select/Selecting, Choose/Choosing, Submit/Submitting, Send/Sending,
 Filter/Filtering, and Search/Searching. Move booking also matches Saving because
 the reported booking action saves the new room or time. The parser reads nested
-button text and the visible value of a submit or button input. A link does not
-count as a control.
+visible button text and the value of a submit or button input. It reads quoted
+and unquoted `type` and `value` attributes at their actual boundaries. Hidden
+button text and SVG metadata do not name the action. A link does not count as a
+control.
 
 Feedback exempts its own line only. A different note in the same wrapper still
-counts. Styling on that note still counts when its words are in an inline child.
+counts, even when a short line follows it. Inline children form one prose line.
+Button text and live-region text do not become part of that prose. Styling on
+the note still counts when its words are in an inline child.
 For example, an Export button does not hide
 `<small class="text-muted"><span>Updated nightly, so yesterday stays open.</span></small>`.
 A basis stated in words counts even inside a live region or its wrapper.

@@ -107,16 +107,20 @@ const CODE_TAGS = new Set(['code', 'pre', 'kbd', 'samp', 'tt']);
 // A line a control writes when the reader uses it. `role="status"`, `role="alert"`
 // and `aria-live` all say the same thing: this text appears because of something
 // the reader just did, so the reader is looking at it.
-function hasLiveRegion(attrs) {
+function parseAttributes(attrs) {
   const attribute = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+  const values = new Map();
   let match;
   while ((match = attribute.exec(attrs)) !== null) {
-    const name = match[1].toLowerCase();
-    const value = (match[2] ?? match[3] ?? match[4] ?? '').toLowerCase();
-    if (name === 'role' && (value === 'status' || value === 'alert')) return true;
-    if (name === 'aria-live' && (value === 'polite' || value === 'assertive')) return true;
+    values.set(match[1].toLowerCase(), match[2] ?? match[3] ?? match[4] ?? '');
   }
-  return false;
+  return values;
+}
+
+function hasLiveRegion(attrs) {
+  const role = (attrs.get('role') || '').toLowerCase();
+  const live = (attrs.get('aria-live') || '').toLowerCase();
+  return role === 'status' || role === 'alert' || live === 'polite' || live === 'assertive';
 }
 
 const VOID_TAGS = new Set([
@@ -164,8 +168,7 @@ function markupElements(html) {
     const classValue = classAttr ? (classAttr[1] ?? classAttr[2]) : '';
     const styleAttr = /(?:^|\s)style\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
     const idAttr = /\bid\s*=\s*"([^"]*)"/i.exec(attrs);
-    const typeAttr = /(?:^|\s)type\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
-    const valueAttr = /(?:^|\s)value\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
+    const attributes = parseAttributes(attrs);
     const parent = stack.length ? stack[stack.length - 1] : -1;
     const el = {
       tag,
@@ -180,9 +183,11 @@ function markupElements(html) {
       // subtree can be read in the order a person reads it.
       chunks: [],
       style: styleAttr ? decodeEntities(styleAttr[1] ?? styleAttr[2]) : '',
-      live: hasLiveRegion(attrs),
-      inputType: typeAttr ? (typeAttr[1] ?? typeAttr[2]).toLowerCase() : '',
-      inputValue: valueAttr ? decodeEntities(valueAttr[1] ?? valueAttr[2] ?? valueAttr[3]) : '',
+      live: hasLiveRegion(attributes),
+      hidden: attributes.has('hidden') || (attributes.get('aria-hidden') || '').toLowerCase() === 'true' ||
+        /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\b/i.test(attributes.get('style') || ''),
+      inputType: (attributes.get('type') || '').toLowerCase(),
+      inputValue: decodeEntities(attributes.get('value') || ''),
       inTable: tag === 'td' || tag === 'th' || (parent >= 0 && out[parent].inTable),
       inCode: CODE_TAGS.has(tag) || (parent >= 0 && out[parent].inCode),
     };
@@ -388,21 +393,51 @@ function controlLabel(elements, ends, i) {
   const el = elements[i];
   return el.tag === 'input' ?
     (el.inputType === 'submit' || el.inputType === 'button' ? el.inputValue : '') :
-    subtreeText(elements, ends, i);
+    orderedText(elements.slice(i, ends[i]).filter((child) => {
+      if (child.hidden || child.tag === 'svg') return false;
+      for (let p = child.parent; p >= i; p = elements[p].parent) {
+        if (elements[p].hidden || elements[p].tag === 'svg') return false;
+      }
+      return true;
+    }).flatMap((child) => child.chunks));
 }
 
-// A wrapper keeps a note only when one of its own prose lines is not feedback.
-// Read a line's full subtree so nested inline labels keep their word order.
+const INLINE_TAGS = new Set(['a', 'b', 'em', 'i', 'mark', 'small', 'span', 'strong', 'sub', 'sup', 'u']);
+
+// Read one prose line with its inline children. Block children start new lines.
+function proseLine(elements, ends, kept, i) {
+  const chunks = [...elements[i].chunks];
+  for (let k = i + 1; k < ends[i]; k++) {
+    if (!kept.has(k)) continue;
+    let p = k;
+    while (p !== i && INLINE_TAGS.has(elements[p].tag)) p = elements[p].parent;
+    if (p === i) chunks.push(...elements[k].chunks);
+  }
+  return orderedText(chunks);
+}
+
+// Keep each eligible prose line under its wrappers. Feedback is judged as a
+// complete line, and a later short child cannot hide an earlier note.
 function noteLines(elements, ends, kept, controls) {
   const notes = new Map();
+  const eligible = new Set(kept);
   for (let n = kept.length - 1; n >= 0; n--) {
     const i = kept[n];
-    if (/\p{L}/u.test(elements[i].text)) {
-      const line = subtreeText(elements, ends, i);
-      if (!isControlFeedback(line, controls)) notes.set(i, line);
+    let covered = false;
+    for (let p = i; INLINE_TAGS.has(elements[p].tag) && elements[p].parent >= 0; p = elements[p].parent) {
+      const parent = elements[p].parent;
+      if (eligible.has(parent) && /\p{L}/u.test(elements[parent].text)) {
+        covered = true;
+        break;
+      }
     }
-    if (notes.has(i) && elements[i].parent >= 0 && !notes.has(elements[i].parent)) {
-      notes.set(elements[i].parent, notes.get(i));
+    if (!covered && /\p{L}/u.test(elements[i].text)) {
+      const line = proseLine(elements, ends, eligible, i);
+      if (!isControlFeedback(line, controls)) notes.set(i, [line, ...(notes.get(i) || [])]);
+    }
+    const parent = elements[i].parent;
+    if (notes.has(i) && eligible.has(parent)) {
+      notes.set(parent, [...notes.get(i), ...(notes.get(parent) || [])]);
     }
   }
   return notes;
@@ -489,7 +524,7 @@ function blocksUnderData(elements) {
       .trim();
     const notes = noteLines(elements, ends, inside, controls);
     out.push({ el, above, text, basisText: orderedText(basisChunks), heading, data,
-      inside: inside.map((k) => ({ ...elements[k], noteText: notes.get(k) || '' })),
+      inside: inside.flatMap((k) => (notes.get(k) || ['']).map((noteText) => ({ ...elements[k], noteText }))),
       parent: elements[el.parent] || null });
   }
   return out;
@@ -649,13 +684,13 @@ function asideCandidate(elements, ends, i, heading, data) {
     kept.push(k);
   }
   const notes = noteLines(elements, ends, kept, controls);
-  const inside = kept.map((k) => ({
+  const inside = kept.flatMap((k) => (notes.get(k) || ['']).map((noteText) => ({
     tag: elements[k].tag,
     classes: elements[k].classes,
     live: elements[k].live,
-    noteText: notes.get(k) || '',
+    noteText,
     text: orderedText(kept.filter((j) => j >= k && j < ends[k]).flatMap((j) => elements[j].chunks)),
-  }));
+  })));
   return { heading, data, nested, inside, text: inside[0].text,
     basisText: orderedText(basisChunks) };
 }

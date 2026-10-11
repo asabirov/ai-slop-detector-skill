@@ -111,7 +111,8 @@ Three rule packs over one engine.
   naming its figure, and a total, unit, byline or control beside a heading are
   allowed. So is a control's own feedback: a live status line or a sentence whose
   action matches a visible control label in the same block. Move booking can
-  produce Saving feedback. A separate note in that block still counts.
+  produce Saving feedback. Inline text stays in the same sentence. A separate
+  note in that block still counts, even when a short line follows it.
   A validation message appears because the reader just acted, so the reader is
   looking at it. An unrelated control or live-status sibling does not hide a
   note. A muted line with an Export button next to it is still a footnote, and

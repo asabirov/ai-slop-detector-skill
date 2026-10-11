@@ -179,6 +179,71 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     lacks(`<section>${row}<p class="text-muted" role="status">${line}</p></section>`, 'table-footnote');
     lacks(`<section>${row}<p class="text-muted" aria-live="polite">${line}</p></section>`, 'table-footnote');
   });
+  it('treats inline feedback as one line', { timeout: 1000 }, () => {
+    const row = '<table><tbody><tr><td>12.5</td></tr></tbody></table>';
+    const line = '<div class="text-muted"><p>Saving <strong>a new time notifies the observer.</strong></p><button>Save</button></div>';
+    lacks(`<section>${row}${line}</section>`, 'table-footnote');
+    lacks(`<section><h2>Times</h2>${line}${row}</section>`, 'table-aside');
+    const note = line.replace('Saving ', 'Updated ');
+    has(`<section>${row}${note}</section>`, 'table-footnote');
+    has(`<section><h2>Times</h2>${note}${row}</section>`, 'table-aside');
+  });
+  it('keeps an earlier note when the last child is short', { timeout: 1000 }, () => {
+    const row = '<table><tbody><tr><td>12.5</td></tr></tbody></table>';
+    const line = '<div class="text-muted"><p>Updated nightly, so yesterday stays open.</p><p>Draft</p><button>Save</button></div>';
+    has(`<section>${row}${line}</section>`, 'table-footnote');
+    has(`<section><h2>Times</h2>${line}${row}</section>`, 'table-aside');
+  });
+  it('does not add button or live text to a note', { timeout: 1000 }, () => {
+    const row = '<table><tbody><tr><td>12.5</td></tr></tbody></table>';
+    for (const line of [
+      '<div class="text-muted">Draft <button>Export all these rows to a file.</button></div>',
+      '<div class="text-muted">Ready <p role="status">Export complete for all rows.</p></div>',
+    ]) {
+      lacks(`<section>${row}${line}</section>`, 'table-footnote');
+      lacks(`<section><h2>Times</h2>${line}${row}</section>`, 'table-aside');
+    }
+  });
+  it('reads only real input type and value attributes', { timeout: 1000 }, () => {
+    const row = '<table><tbody><tr><td>12.5</td></tr></tbody></table>';
+    const controls = [
+      ['<input type="submit" title="Use value=\'Save\' for testing" value="Export">', true],
+      ['<input title="Use type=\'hidden\' for testing" type="submit" value="Save">', false],
+      ['<input type=submit value=Save>', false],
+    ];
+    for (const [control, flagged] of controls) {
+      const line = `<div class="note"><p>Saving a new time notifies the observer.</p>${control}</div>`;
+      const below = `<section>${row}${line}</section>`;
+      const above = `<section><h2>Times</h2>${line}${row}</section>`;
+      if (flagged) {
+        has(below, 'table-footnote');
+        has(above, 'table-aside');
+      } else {
+        lacks(below, 'table-footnote');
+        lacks(above, 'table-aside');
+      }
+    }
+  });
+  it('uses visible button text without hidden or SVG metadata', { timeout: 1000 }, () => {
+    const row = '<table><tbody><tr><td>12.5</td></tr></tbody></table>';
+    for (const [control, flagged] of [
+      ['<button><svg><title>Disk icon</title></svg><span>Save</span></button>', false],
+      ['<button><span hidden>Save</span><span>Export</span></button>', true],
+      ['<button><span aria-hidden="true">Save</span>Export</button>', true],
+      ['<button><span style="display:none">Save</span>Export</button>', true],
+    ]) {
+      const line = `<div class="note"><p>Saving a new time notifies the observer.</p>${control}</div>`;
+      const below = `<section>${row}${line}</section>`;
+      const above = `<section><h2>Times</h2>${line}${row}</section>`;
+      if (flagged) {
+        has(below, 'table-footnote');
+        has(above, 'table-aside');
+      } else {
+        lacks(below, 'table-footnote');
+        lacks(above, 'table-aside');
+      }
+    }
+  });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
   });
