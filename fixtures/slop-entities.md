@@ -16,3 +16,7 @@ Write &#0008599; and &#x002197; here with <span>text</span>.
 <div><script>const marker = "<!--";</script>↗</div>
 
 Read <script>const sample = "<textarea>";</script>↗ here.
+
+<style>p {font-family: monospace}</style><p>Hello</p>
+
+&#91;Read&#93;(a &middot; b &middot; c)

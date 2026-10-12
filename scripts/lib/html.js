@@ -1,8 +1,8 @@
 'use strict';
 
 // Dependency-free HTML/CSS parsing helpers for the slop detector.
-// Deliberately regex-based, not a real DOM: the checks are heuristic tells,
-// and staying dependency-free keeps the linter runnable anywhere Node is.
+// This is not a DOM. The checks are heuristic tells, and the linter runs
+// without a browser or package installation.
 
 function stripBetween(html, tag) {
   return html.replace(new RegExp(`<${tag}\\b[\\s\\S]*?</${tag}>`, 'gi'), ' ');
@@ -18,7 +18,36 @@ function stripBetween(html, tag) {
 // Eight places did this by hand, five with a space and three with the empty
 // string, which is exactly the split CodeQL flagged. One function now.
 function stripTags(html) {
-  return html.replace(/<[^>]+>/g, ' ');
+  const pieces = [];
+  let copied = 0;
+  while (true) {
+    const start = html.indexOf('<', copied);
+    if (start === -1) break;
+    let end = start + 1;
+    let quote = null;
+    let canOpenQuote = false;
+    for (; end < html.length; end++) {
+      const char = html[end];
+      if (quote) {
+        if (char === quote) quote = null;
+      } else if (char === '=') canOpenQuote = true;
+      else if (canOpenQuote && (char === '"' || char === "'")) {
+        quote = char;
+        canOpenQuote = false;
+      } else if (char === '>') break;
+      else if (canOpenQuote && !/\s/.test(char)) canOpenQuote = false;
+    }
+    if (end === html.length) break;
+    if (end > start + 1) {
+      pieces.push(html.slice(copied, start), ' ');
+      copied = end + 1;
+    } else {
+      pieces.push(html.slice(copied, end + 1));
+      copied = end + 1;
+    }
+  }
+  pieces.push(html.slice(copied));
+  return pieces.join('');
 }
 
 // Every stream a rule reads as text decodes its character entities, because a
@@ -78,17 +107,25 @@ function decodeEntities(text, { blankUnknown = false, markdownEscapes = false } 
 // Keep inline markup inside a text run. Split definition labels and values, and
 // split at a line break. The earlier broad split hid chains containing SVG icons
 // and labels. This is a text approximation, not a DOM or CSS layout calculation.
-const BLOCK_ELEMENT = /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a|dl|dt|dd|br)(?=[\s/>])[^>]*>/i;
-const NON_MARKUP_BOUNDARY = /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a)(?=[\s/>])[^>]*>/i;
+const BLOCK_ELEMENT = /^<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a|dl|dt|dd|br)(?=[\s/>])/i;
+const NON_MARKUP_BOUNDARY = /^<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a)(?=[\s/>])/i;
 
 function visibleTextRuns(html, { markup = true } = {}) {
   const body = stripBetween(stripBetween(html, 'style'), 'script');
-  const runs = body.split(markup ? BLOCK_ELEMENT : NON_MARKUP_BOUNDARY);
+  const boundary = markup ? BLOCK_ELEMENT : NON_MARKUP_BOUNDARY;
   const out = [];
-  for (const r of runs) {
-    const t = decodeEntities(stripTags(r), { markdownEscapes: !markup }).replace(/\s+/g, ' ').trim();
+  let copied = 0;
+  const addRun = (end) => {
+    const t = decodeEntities(stripTags(body.slice(copied, end)), { markdownEscapes: !markup })
+      .replace(/\s+/g, ' ').trim();
     if (t) out.push(t);
+  };
+  for (const token of rawHtmlTokens(body)) {
+    if (token.type !== 'tag' || !boundary.test(token.text)) continue;
+    addRun(token.index);
+    copied = token.end;
   }
+  addRun(body.length);
   return out;
 }
 
@@ -1253,8 +1290,11 @@ function markdownVisibleRuns(source, html, tokens = null) {
   const pieces = [];
   let copied = 0;
   const finish = () => {
-    const text = decodeEntities(pieces.join(''), { markdownEscapes: !html })
-      .replace(/\s+/g, ' ').trim();
+    let text = pieces.join('');
+    if (!html) text = text.replace(/^\s{0,3}#{1,6}\s+/, '')
+      .replace(/^\s{0,3}[-*+]\s+/, '')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+    text = decodeEntities(text, { markdownEscapes: !html }).replace(/\s+/g, ' ').trim();
     if (text) runs.push(text);
     pieces.length = 0;
   };
@@ -1535,6 +1575,10 @@ function markdownRegions(source) {
         paragraphOpen = false;
         continue;
       }
+      if (!paragraphOpen && /^ {4}/.test(blockBody)) {
+        pushLine(' '.repeat(line.length), lineStart);
+        continue;
+      }
       if (blank || container.list || effectiveQuoteDepth !== paragraphQuoteDepth) paragraphOpen = false;
       const special = MARKDOWN_SPECIAL_BLOCK.exec(blockBody);
       const startsTagBlock = MARKDOWN_HTML_TAG_LINE.test(blockBody) &&
@@ -1619,12 +1663,15 @@ function markdownStreams(source) {
   const chunks = [];
   const runs = [];
   const paras = [];
+  const markupPieces = [];
   let openHidden = null;
   let activeRaw = null;
   for (const region of markdownRegions(source)) {
     const rawHtml = region.kind === 'html';
     const prepared = rawHtml ? region.text : withoutMarkdownCodeAroundHtml(region.text, activeRaw);
     const scan = rawHtml ? scanRawHtml(prepared, activeRaw) : markdownInlineTags(prepared, activeRaw);
+    markupPieces.push(rawHtml ? prepared : scan.tokens.filter((token) => token.type === 'tag')
+      .map((token) => token.text).join(' '));
     activeRaw = scan.openRaw;
     const result = stripMarkdownHidden(prepared, rawHtml, scan.tokens, openHidden);
     const body = result.text;
@@ -1646,18 +1693,16 @@ function markdownStreams(source) {
       .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
     const visible = protectedText.restore(decodeEntities(prose, { markdownEscapes: true }));
     chunks.push(visible);
-    runs.push(...markdownVisibleRuns(protectedText.text, false, visibleTokens).map((run) =>
-      protectedText.restore(run)
-      .replace(/^\s{0,3}#{1,6}\s+/, '')
-      .replace(/^\s{0,3}[-*+]\s+/, '')
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')).filter(Boolean));
+    runs.push(...markdownVisibleRuns(protectedText.text, false, visibleTokens)
+      .map((run) => protectedText.restore(run)).filter(Boolean));
     for (const paragraph of prose.split(/\n\s*\n/)) {
       const text = protectedText.restore(decodeEntities(paragraph, { markdownEscapes: true }))
         .replace(/\s+/g, ' ').trim();
       if (text) paras.push(text);
     }
   }
-  return { visible: chunks.join(' '), runs, paragraphs: [...paras, ...attrs], attrs };
+  return { visible: chunks.join(' '), runs, paragraphs: [...paras, ...attrs], attrs,
+    markupSource: markupPieces.filter(Boolean).join('\n') };
 }
 
 // Visible prose as one string. For HTML: strip tags. For markdown/text: strip the
@@ -1710,14 +1755,16 @@ function parse(source, { filePath, root, ext } = {}) {
   const isMarkdown = ['md', 'markdown'].includes(ext);
   const isHtml = !isCss && !isMarkdown &&
     (['html', 'htm', 'jsx', 'tsx', 'vue', 'svelte', 'astro'].includes(ext) || looksLikeHtml(source));
-  const elements = isHtml ? markupElements(source) : null;
-  const utilities = elements ? require('./utilities').elementCss(elements) : '';
-  const inline = isHtml ? cssBlocks(source) : '';
-  const linked = isHtml ? linkedCss(source, { filePath, root }) : { css: '', found: [], unresolved: [] };
-  const css = [isCss ? source : '', inline, linked.css, utilities].filter(Boolean).join('\n');
-  const markup = isHtml ? markupTokens(source) : null;
-  if (markup) for (const el of elements) for (const c of el.classes) markup.classes.add(c);
   const markdown = !isHtml && !isCss ? markdownStreams(source) : null;
+  const markupSource = isMarkdown ? markdown.markupSource : source;
+  const hasMarkup = isHtml || (isMarkdown && markupSource.length > 0);
+  const elements = hasMarkup ? markupElements(markupSource) : null;
+  const utilities = elements ? require('./utilities').elementCss(elements) : '';
+  const inline = hasMarkup ? cssBlocks(markupSource) : '';
+  const linked = hasMarkup ? linkedCss(markupSource, { filePath, root }) : { css: '', found: [], unresolved: [] };
+  const css = [isCss ? source : '', inline, linked.css, utilities].filter(Boolean).join('\n');
+  const markup = hasMarkup ? markupTokens(markupSource) : null;
+  if (markup) for (const el of elements) for (const c of el.classes) markup.classes.add(c);
   return {
     html: source,
     isHtml,
@@ -1725,14 +1772,14 @@ function parse(source, { filePath, root, ext } = {}) {
     inlineCss: inline,
     linkedCss: linked.found,
     unresolvedCss: linked.unresolved,
-    runs: markdown ? markdown.runs : visibleTextRuns(source, { markup: isHtml }),
+    runs: isCss ? [source] : markdown ? markdown.runs : visibleTextRuns(source, { markup: isHtml }),
     attrs: markdown ? markdown.attrs : isHtml ? attrTextRuns(source) : [],
     markup,
     elements,
     cssRules: cssRules(css),
-    text: markdown ? [markdown.visible, ...markdown.attrs].filter(Boolean).join(' ').trim() : plainText(source, isHtml),
-    codeless: markdown ? [markdown.visible, ...markdown.attrs].filter(Boolean).join(' ').trim() : proseWithoutCode(source, isHtml),
-    paragraphs: markdown ? markdown.paragraphs : paragraphs(source, isHtml),
+    text: isCss ? source : markdown ? [markdown.visible, ...markdown.attrs].filter(Boolean).join(' ').trim() : plainText(source, isHtml),
+    codeless: isCss ? source : markdown ? [markdown.visible, ...markdown.attrs].filter(Boolean).join(' ').trim() : proseWithoutCode(source, isHtml),
+    paragraphs: isCss ? [source] : markdown ? markdown.paragraphs : paragraphs(source, isHtml),
   };
 }
 

@@ -152,6 +152,97 @@ test('keeps escaped Markdown references literal with odd backslash counts', { ti
   assert.strictEqual(plainText('<p>Write &nearr; here.</p>', true), 'Write ↗ here.');
 });
 
+test('keeps CSS references literal while decoding HTML attribute references', { timeout: 1000 }, () => {
+  for (const source of [
+    '.icon::after { content: "&nearr;"; }',
+    '/* Write &nearr; to encode the arrow. */\np { color: black; }',
+  ]) {
+    const ctx = parse(source, { ext: 'css' });
+    assert.ok(ctx.codeless.includes('&nearr;'), source);
+    assert.ok(ctx.runs.some((run) => run.includes('&nearr;')), source);
+    assert.ok(!detect(source, { level: 1, kind: 'artifact', ext: 'css' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  assert.strictEqual(parse('<p style="content: &nearr;">Hello.</p>', { ext: 'html' })
+    .elements[0].style, 'content: ↗');
+  assert.ok(!detect('.icon::after { content: "&rarr;"; }',
+    { level: 1, kind: 'artifact', ext: 'css' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('quoted tag data does not become visible prose', { timeout: 1000 }, () => {
+  const hidden = '<div data-note="> &nearr;">Hello.</div>';
+  const ctx = parse(hidden, { ext: 'html' });
+  assert.strictEqual(ctx.codeless, 'Hello.');
+  assert.deepStrictEqual(ctx.runs, ['Hello.']);
+  assert.deepStrictEqual(ctx.paragraphs, ['Hello.']);
+  assert.ok(!detect(hidden, { level: 1, kind: 'artifact', ext: 'html' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(!parse('<div data-note="&nearr;">Hello.</div>', { ext: 'html' })
+    .codeless.includes('↗'));
+  assert.ok(parse('<div title="Visit &nearr; now">Hello.</div>', { ext: 'html' })
+    .attrs.includes('Visit ↗ now'));
+  assert.strictEqual(stripTags("<div data-note=it's>hello</div>").trim(), 'hello');
+});
+
+test('strips many unfinished quoted tags within a bounded growth ratio', { timeout: 2000 }, () => {
+  const measure = (scan, count) => {
+    const source = '<a title="'.repeat(count);
+    const start = performance.now();
+    scan(source);
+    return performance.now() - start;
+  };
+  const median = (scan, count) => [measure(scan, count), measure(scan, count), measure(scan, count)]
+    .sort((a, b) => a - b)[1];
+  for (const scan of [stripTags, visibleTextRuns]) {
+    measure(scan, 500);
+    const small = median(scan, 500);
+    const large = median(scan, 2000);
+    assert.ok(large < 10 || large < small * 8,
+      `${scan.name} grew ${large / small} times on unfinished tags`);
+  }
+});
+
+test('reads CSS in Markdown raw HTML but not in a fence', { timeout: 1000 }, () => {
+  const raw = '<style>p {font-family: monospace}</style><p>Hello</p>';
+  const fenced = '```html\n' + raw + '\n```';
+  assert.ok(detect(raw, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+  assert.ok(!detect(fenced, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+  assert.ok(run('slop-entities.md', 1).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+  const inline = 'Hello <span style="font-family: monospace">world</span>.';
+  assert.ok(detect(inline, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+});
+
+test('keeps indented Markdown code literal without hiding paragraph continuations', { timeout: 1000 }, () => {
+  for (const source of ['    &nearr;', '\t&nearr;', '>     &nearr;']) {
+    assert.ok(!parse(source, { ext: 'md' }).codeless.includes('↗'), source);
+    assert.ok(!detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  const continuation = 'A paragraph starts here.\n    &nearr;';
+  assert.ok(parse(continuation, { ext: 'md' }).codeless.includes('↗'));
+  assert.ok(detect(continuation, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(!detect('```\n&nearr;\n```', { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('does not parse entity-produced brackets as Markdown links', { timeout: 1000 }, () => {
+  const visible = '&#91;Read&#93;(a &middot; b &middot; c)';
+  const link = '[Read](a &middot; b &middot; c)';
+  assert.deepStrictEqual(parse(visible, { ext: 'md' }).runs, ['[Read](a · b · c)']);
+  assert.ok(detect(visible, { level: 2, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'middot-chain'));
+  assert.ok(!detect(link, { level: 2, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'middot-chain'));
+  assert.ok(run('slop-entities.md', 2).findings
+    .some((finding) => finding.rule === 'middot-chain' && finding.span === '[Read](a · b · c)'));
+});
+
 test('keeps Markdown escapes when prose shares a file with raw HTML', { timeout: 1000 }, () => {
   for (const html of ['<span>text</span>', '\n\n<div>text</div>']) {
     for (const count of [1, 2, 3, 4]) {

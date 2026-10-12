@@ -104,20 +104,27 @@ judgment does not waive an existing CI gate.
 
 Three rule packs over one engine. The text parser approximates what a browser displays.
 
-Every stream a rule reads as text — a page's visible runs, its prose, its
+Every prose stream a rule reads — a page's visible runs, its prose, its
 paragraphs, its readable attributes, and the same for markdown and plain text —
 decodes semicolon-terminated character references, including every HTML5 name and both
 numeric forms. So a dotted chain written `&middot;` and one typed with the dot are
 the same line. Numeric C1 references use HTML's replacement glyphs, so `&#149;`
 reads as `•` and `&#146;` reads as `’`. The scans that read markup for class
 names, selectors and tag shapes work on the page as written.
+Standalone CSS keeps character references literal. HTML decodes references in
+style attributes before the visual rules read them. Quoted attribute data,
+including `>`, stays outside visible prose. Readable attributes have separate
+prose streams.
 Markdown prose keeps references literal after an odd number of backslashes,
 even when the file contains raw HTML. References after an even number decode.
 Markdown prose accepts 1 to 7 decimal digits or 1 to 6 hexadecimal digits.
 Longer references stay literal in Markdown prose. Inside raw HTML blocks,
 HTML decodes them without these Markdown limits. The parser also reads
 human-readable attributes in raw HTML, including single-quoted values.
-It excludes script, style, and code
+Raw HTML in Markdown still supplies markup and CSS to visual rules. Fenced
+HTML does not. Markdown syntax is removed before references are decoded, so
+an encoded bracket cannot turn visible text into a link destination.
+The parser excludes script, style, and code
 contents from Markdown prose. Autolinks and literal angle-bracket text remain
 visible to text rules. A comment marker inside a quoted HTML attribute stays
 attribute data. A raw HTML comment can end with `--!>`.
@@ -184,8 +191,8 @@ The boundary names must match complete tags, so `dt-label` and `dd-value` stay i
   Blank separators do not count toward length; individual block frames stay
   exempt. Essay and ratio measurements are unchanged.
 
-Code is not prose. In Markdown regions, fenced blocks and inline code spans
-come out before the rules that judge decoration read them. Raw HTML blocks and
+Code is not prose. In Markdown regions, fenced blocks, indented code blocks,
+and inline code spans come out before decoration rules read them. Raw HTML blocks and
 readable HTML attributes keep backticks as text. Spans use matching runs of N
 backticks, and the HTML sniff runs after Markdown code removal. A Markdown
 file that names `<style>` in a code span stays Markdown. An escaped backtick
