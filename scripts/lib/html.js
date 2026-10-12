@@ -811,13 +811,10 @@ function stripFences(text, replacement) {
     const container = markdownContainer(line);
     const blank = /^\s*$/.test(container.body);
     updateListStack(lists, container, blank);
-    let body = container.body;
+    const body = markdownBlockBody(container, lists);
     if (fence && (container.quoteDepth < fence.quoteDepth ||
-      lists.length < fence.listDepth || container.list)) fence = null;
+      (fence.listOwner && lists[fence.listDepth - 1] !== fence.listOwner))) fence = null;
     if (fence) {
-      if (fence.listIndent && container.indent >= fence.listIndent) {
-        body = body.slice(fence.listIndent);
-      }
       if (fence.closing.test(body)) fence = null;
       continue;
     }
@@ -828,7 +825,7 @@ function stripFences(text, replacement) {
       const char = open[1][0] === '`' ? '\\`' : '~';
       fence = { closing: new RegExp(`^ {0,3}${char}{${open[1].length},}\\s*$`),
         quoteDepth: container.quoteDepth, listDepth: lists.length,
-        listIndent: lists.at(-1)?.contentIndent || 0 };
+        listOwner: lists.at(-1) || null };
       out.push(replacement);
       continue;
     }
@@ -840,7 +837,7 @@ function stripFences(text, replacement) {
 // Inline code spans. A run of N backticks opens one and only a run of exactly N
 // closes it; a run that finds no partner is literal text, and the run after it
 // is free to open a span of its own.
-function stripCodeSpans(text, replacement, protectedRanges = []) {
+function stripCodeSpans(text, replacement, protectedRanges = [], onSpan = null) {
   const runs = [];
   for (let i = 0; i < text.length; i++) {
     if (text[i] !== '`') continue;
@@ -882,6 +879,7 @@ function stripCodeSpans(text, replacement, protectedRanges = []) {
       k++; // no partner inside this paragraph — the run is literal text
       continue;
     }
+    if (onSpan) onSpan(open.start, close.start + close.len);
     out += text.slice(copied, open.start) + replacement;
     copied = close.start + close.len;
     cursor.set(open.len, c + 1);
@@ -899,118 +897,93 @@ function withoutMarkdownCode(source) {
 // Match CommonMark raw HTML tags. An attribute starts with an ASCII name and
 // has a valid quoted or unquoted value. Invalid angle text stays visible.
 const MARKDOWN_TAG = /<(?:\/[a-z][a-z0-9-]*[ \t\n]*|[a-z][a-z0-9-]*(?:[ \t\n]+[a-z_:][a-z0-9:._-]*(?:[ \t\n]*=[ \t\n]*(?:"[^"]*"|'[^']*'|[^ \t\n"'=<>`]+))?)*[ \t\n]*\/?)>/gi;
-// One lexical state serves both line classification and text extraction.
-// Offsets refer to the unchanged input, including newlines inside attributes.
-function createRawHtmlScanner() {
-  let source = '';
+// Scan one immutable region. Offsets include newlines inside attributes.
+function scanRawHtml(source, initialRaw = null) {
   let cursor = 0;
-  let mode = 'data';
+  let mode = initialRaw === 'comment' ? 'comment' : initialRaw ? 'rawtext' : 'data';
   let start = 0;
   let quote = null;
   let canOpenQuote = false;
-  let rawName = null;
+  let commentOpenedHere = false;
+  let rawName = initialRaw === 'comment' ? null : initialRaw;
   const tokens = [];
-  const emit = (type, end, fresh) => {
+  const emit = (type, end) => {
     const token = { type, index: start, end, text: source.slice(start, end) };
     tokens.push(token);
-    fresh.push(token);
     cursor = end;
     mode = 'data';
   };
-  const feed = (chunk) => {
-    source += chunk;
-    const fresh = [];
-    while (cursor < source.length) {
-      if (mode === 'data') {
-        const next = source.indexOf('<', cursor);
-        if (next === -1) { cursor = source.length; break; }
-        const remaining = source.length - next;
-        if (remaining < 4 && '<!--'.startsWith(source.slice(next))) {
-          cursor = next;
-          break;
-        }
-        if (source.startsWith('<!--', next)) {
-          start = next;
-          cursor = next + 4;
-          mode = 'comment';
-          continue;
-        }
-        const nameStart = next + (source[next + 1] === '/' ? 2 : 1);
-        if (nameStart >= source.length) { cursor = next; break; }
-        if (!/[a-z]/i.test(source[nameStart])) { cursor = next + 1; continue; }
+  while (cursor < source.length) {
+    if (mode === 'data') {
+      const next = source.indexOf('<', cursor);
+      if (next === -1) break;
+      if (source.startsWith('<!--', next)) {
         start = next;
-        cursor = nameStart + 1;
-        quote = null;
-        canOpenQuote = false;
-        mode = 'tag';
+        cursor = next + 4;
+        commentOpenedHere = true;
+        mode = 'comment';
         continue;
       }
-      if (mode === 'tag') {
-        while (cursor < source.length) {
-          const char = source[cursor++];
-          if (quote) {
-            if (char === quote) quote = null;
-          } else if (char === '=') canOpenQuote = true;
-          else if (canOpenQuote && (char === '"' || char === "'")) {
-            quote = char;
-            canOpenQuote = false;
-          } else if (char === '>') {
-            emit('tag', cursor, fresh);
-            const opening = /^<(script|style|textarea)(?=[\s/>])/i.exec(tokens[tokens.length - 1].text);
-            if (opening && !/\/\s*>$/.test(tokens[tokens.length - 1].text)) {
-              rawName = opening[1].toLowerCase();
-              mode = 'rawtext';
-            }
-            break;
-          } else if (canOpenQuote && !/\s/.test(char)) canOpenQuote = false;
-        }
-        continue;
-      }
-      if (mode === 'comment') {
-        const shortEnd = source[start + 4] === '>' ? start + 5 :
-          source[start + 4] === '-' && source[start + 5] === '>' ? start + 6 : null;
-        if (shortEnd !== null) {
-          emit('comment', shortEnd, fresh);
-          continue;
-        }
-        const close = /--!?>/g;
-        close.lastIndex = cursor;
-        const match = close.exec(source);
-        if (match) emit('comment', match.index + match[0].length, fresh);
-        else {
-          cursor = Math.max(cursor, source.length - 3);
+      const nameStart = next + (source[next + 1] === '/' ? 2 : 1);
+      if (!/[a-z]/i.test(source[nameStart] || '')) { cursor = next + 1; continue; }
+      start = next;
+      cursor = nameStart + 1;
+      quote = null;
+      canOpenQuote = false;
+      mode = 'tag';
+      continue;
+    }
+    if (mode === 'tag') {
+      while (cursor < source.length) {
+        const char = source[cursor++];
+        if (quote) {
+          if (char === quote) quote = null;
+        } else if (char === '=') canOpenQuote = true;
+        else if (canOpenQuote && (char === '"' || char === "'")) {
+          quote = char;
+          canOpenQuote = false;
+        } else if (char === '>') {
+          emit('tag', cursor);
+          const opening = /^<(script|style|textarea)(?=[\s/>])/i.exec(tokens[tokens.length - 1].text);
+          if (opening && !/\/\s*>$/.test(tokens[tokens.length - 1].text)) {
+            rawName = opening[1].toLowerCase();
+            mode = 'rawtext';
+          }
           break;
-        }
+        } else if (canOpenQuote && !/\s/.test(char)) canOpenQuote = false;
+      }
+      continue;
+    }
+    if (mode === 'comment') {
+      const shortEnd = !commentOpenedHere ? null : source[start + 4] === '>' ? start + 5 :
+        source[start + 4] === '-' && source[start + 5] === '>' ? start + 6 : null;
+      if (shortEnd !== null) {
+        emit('comment', shortEnd);
         continue;
       }
-      const closing = new RegExp(`</${rawName}[ \\t\\n]*>`, 'gi');
-      closing.lastIndex = cursor;
-      const match = closing.exec(source);
-      if (match) {
-        start = match.index;
-        emit('tag', match.index + match[0].length, fresh);
-        rawName = null;
-      } else {
-        cursor = Math.max(cursor, source.length - rawName.length - 5);
-        break;
-      }
+      const close = /--!?>/g;
+      close.lastIndex = cursor;
+      const match = close.exec(source);
+      if (match) emit('comment', match.index + match[0].length);
+      else break;
+      continue;
     }
-    return fresh;
-  };
-  const finish = () => {
-    if (mode === 'comment') {
-      const fresh = [];
-      emit('comment', source.length, fresh);
-    }
-    return tokens;
-  };
-  return { feed, finish };
+    const closing = new RegExp(`</${rawName}[ \\t\\n]*>`, 'gi');
+    closing.lastIndex = cursor;
+    const match = closing.exec(source);
+    if (match) {
+      start = match.index;
+      emit('tag', match.index + match[0].length);
+      rawName = null;
+    } else break;
+  }
+  const openRaw = mode === 'comment' ? 'comment' : rawName;
+  if (mode === 'comment') emit('comment', source.length);
+  return { tokens, openRaw };
 }
 
 function rawHtmlTokens(source) {
-  const scanner = createRawHtmlScanner();
-  scanner.feed(source);
-  return scanner.finish();
+  return scanRawHtml(source).tokens;
 }
 function markdownEscaped(source, offset) {
   let slashes = 0;
@@ -1018,31 +991,152 @@ function markdownEscaped(source, offset) {
   return slashes % 2 === 1;
 }
 
-function markdownInlineTags(source) {
-  const candidates = [...source.matchAll(MARKDOWN_TAG)]
-    .filter((match) => !markdownEscaped(source, match.index) &&
-      !/\n[ \t]*\n/.test(match[0]));
+const MARKDOWN_TAG_AT = new RegExp(MARKDOWN_TAG.source, 'iy');
+
+function codeSpanCandidates(source) {
+  const lengths = new Map();
+  const byLength = new Map();
+  for (let i = 0; i < source.length; i++) {
+    if (source[i] !== '`') continue;
+    let length = 1;
+    while (source[i + length] === '`') length++;
+    lengths.set(i, length);
+    if (!byLength.has(length)) byLength.set(length, []);
+    byLength.get(length).push(i);
+    i += length - 1;
+  }
+  const cursors = new Map();
+  const blanks = blankLineOffsets(source);
+  return (start) => {
+    const length = lengths.get(start);
+    const peers = byLength.get(length);
+    let cursor = cursors.get(length) || 0;
+    while (cursor < peers.length && peers[cursor] <= start) cursor++;
+    cursors.set(length, cursor);
+    const close = peers[cursor];
+    return close !== undefined && !blankLineBetween(blanks, start + length, close) ?
+      close + length : null;
+  };
+}
+
+// The next token owns its complete source range. A spelling inside a comment
+// or raw-text element cannot open another element or a Markdown code span.
+function markdownInlineTags(source, initialRaw = null) {
   const tags = [];
+  const tokens = [];
   const textareaRanges = [];
-  let textareaStart = null;
-  for (const match of candidates) {
-    if (textareaStart !== null) {
-      if (/^<\/textarea[ \t\n]*>$/i.test(match[0])) {
-        textareaRanges.push({ start: textareaStart, end: match.index + match[0].length });
-        tags.push(match);
-        textareaStart = null;
+  const codeRanges = [];
+  const commentEnds = [...source.matchAll(/-->/g)].map((match) => match.index);
+  let commentCursor = 0;
+  let cursor = 0;
+  let rawName = initialRaw;
+  let rawStart = initialRaw ? 0 : null;
+  let rawContentStart = initialRaw === 'textarea' ? 0 : null;
+  const nextCodeSpan = codeSpanCandidates(source);
+  let nextTag = -2;
+  let nextTick = -2;
+  let rawCodeRanges = null;
+  let rawCodeCursor = 0;
+  const addTag = (text, index) => {
+    const match = Object.assign([text], { index });
+    tags.push(match);
+    tokens.push({ type: 'tag', index, end: index + text.length, text });
+  };
+  while (cursor < source.length) {
+    if (rawName) {
+      if (rawName === 'comment') {
+        while (commentEnds[commentCursor] < cursor) commentCursor++;
+        const end = commentEnds[commentCursor];
+        if (end === undefined) break;
+        const finish = end + 3;
+        tokens.push({ type: 'comment', index: rawStart, end: finish,
+          text: source.slice(rawStart, finish) });
+        commentCursor++;
+        cursor = finish;
+        rawName = null;
+        rawStart = null;
+        continue;
       }
+      const closing = new RegExp(`</${rawName}(?=[\\s/>])[^>]*>`, 'gi');
+      closing.lastIndex = cursor;
+      if (rawCodeRanges === null) {
+        rawCodeRanges = [];
+        if (source.includes('`')) stripCodeSpans(source, ' ', [], (start, end) => {
+          rawCodeRanges.push({ start, end });
+        });
+      }
+      let match;
+      while ((match = closing.exec(source)) !== null) {
+        while (rawCodeRanges[rawCodeCursor]?.end <= match.index) rawCodeCursor++;
+        if (!markdownEscaped(source, match.index) &&
+          !(rawCodeRanges[rawCodeCursor]?.start <= match.index)) break;
+      }
+      if (!match) break;
+      const finish = match.index + match[0].length;
+      if (rawName === 'textarea') textareaRanges.push({ start: rawContentStart, end: match.index });
+      addTag(match[0], match.index);
+      cursor = finish;
+      rawName = null;
+      rawStart = null;
+      rawContentStart = null;
       continue;
     }
-    tags.push(match);
-    if (/^<textarea(?=[\s/>])/i.test(match[0])) textareaStart = match.index;
+    if (nextTag === -2 || (nextTag !== -1 && nextTag < cursor)) {
+      nextTag = source.indexOf('<', cursor);
+    }
+    if (nextTick === -2 || (nextTick !== -1 && nextTick < cursor)) {
+      nextTick = source.indexOf('`', cursor);
+    }
+    if (nextTick !== -1 && (nextTag === -1 || nextTick < nextTag)) {
+      let length = 1;
+      while (source[nextTick + length] === '`') length++;
+      const end = !markdownEscaped(source, nextTick) ? nextCodeSpan(nextTick) : null;
+      if (end !== null) {
+        codeRanges.push({ start: nextTick, end });
+        cursor = end;
+      } else cursor = nextTick + length;
+      continue;
+    }
+    const next = nextTag;
+    if (next === -1) break;
+    if (markdownEscaped(source, next)) { cursor = next + 1; continue; }
+    if (source.startsWith('<!--', next)) {
+      while (commentEnds[commentCursor] !== undefined &&
+        commentEnds[commentCursor] < next + 4) commentCursor++;
+      const end = commentEnds[commentCursor];
+      if (end !== undefined) {
+        const finish = end + 3;
+        tokens.push({ type: 'comment', index: next, end: finish,
+          text: source.slice(next, finish) });
+        commentCursor++;
+        cursor = finish;
+        continue;
+      }
+      cursor = next + 4;
+      continue;
+    }
+    MARKDOWN_TAG_AT.lastIndex = next;
+    const match = MARKDOWN_TAG_AT.exec(source);
+    if (!match || /\n[ \t]*\n/.test(match[0])) { cursor = next + 1; continue; }
+    addTag(match[0], next);
+    const opening = /^<(script|style|textarea)(?=[\s/>])/i.exec(match[0]);
+    if (opening && !/\/\s*>$/.test(match[0])) {
+      rawName = opening[1].toLowerCase();
+      rawStart = next;
+      if (rawName === 'textarea') rawContentStart = next + match[0].length;
+    }
+    cursor = next + match[0].length;
   }
-  if (textareaStart !== null) textareaRanges.push({ start: textareaStart, end: source.length });
-  return { tags, textareaRanges };
+  if (rawName) {
+    if (rawName === 'textarea') textareaRanges.push({ start: rawContentStart, end: source.length });
+    if (rawName === 'comment') tokens.push({ type: 'comment', index: rawStart,
+      end: source.length, text: source.slice(rawStart) });
+  }
+  return { tags, tokens, textareaRanges, codeRanges, openRaw: rawName };
 }
 
 function markdownTagMatches(source, rawHtml = false, tokens = null) {
-  if (rawHtml) return (tokens || rawHtmlTokens(source)).filter((token) => token.type === 'tag')
+  if (tokens || rawHtml) return (tokens || rawHtmlTokens(source)).filter((token) => token.type === 'tag')
     .map((token) => Object.assign([token.text], { index: token.index }));
   return markdownInlineTags(source).tags;
 }
@@ -1060,7 +1154,7 @@ function stripMarkdownTags(source, rawHtml = false, tokens = null) {
 
 function markdownAttributeRuns(source, rawHtml = false, tokens = null) {
   if (rawHtml) return attrTextRuns(source, tokens || rawHtmlTokens(source));
-  return attrTextRuns(markdownTagMatches(source).map((match) => match[0]).join(' '));
+  return attrTextRuns(markdownTagMatches(source, false, tokens).map((match) => match[0]).join(' '));
 }
 
 function markdownVisibleRuns(source, html, tokens = null) {
@@ -1087,12 +1181,10 @@ function markdownVisibleRuns(source, html, tokens = null) {
 
 // A tag's quoted backticks are HTML data. Code spans still remove complete
 // Markdown spans, including tags written inside those spans.
-function withoutMarkdownCodeAroundHtml(source) {
+function withoutMarkdownCodeAroundHtml(source, initialRaw = null) {
   const unfenced = stripFences(source, ' ');
-  const ranges = markdownTagMatches(unfenced).map((match) => ({
-    start: match.index, end: match.index + match[0].length,
-  }));
-  return stripCodeSpans(unfenced, ' ', ranges);
+  const { codeRanges } = markdownInlineTags(unfenced, initialRaw);
+  return maskSourceRanges(unfenced, codeRanges);
 }
 
 function maskSourceRanges(source, ranges) {
@@ -1110,46 +1202,10 @@ function maskSourceRanges(source, ranges) {
   return pieces.join('');
 }
 
-function markdownHiddenTokens(source) {
-  const { tags, textareaRanges } = markdownInlineTags(source);
-  const comments = [];
-  const commentEnd = /--!?>/g;
-  let tagCursor = 0;
-  let textareaCursor = 0;
-  let comment = source.indexOf('<!--');
-  while (comment !== -1) {
-    while (tags[tagCursor] && tags[tagCursor].index + tags[tagCursor][0].length <= comment) tagCursor++;
-    while (textareaRanges[textareaCursor]?.end <= comment) textareaCursor++;
-    const tag = tags[tagCursor];
-    const area = textareaRanges[textareaCursor];
-    const protectedText = (tag && tag.index < comment) ||
-      (area && area.start < comment);
-    if (!markdownEscaped(source, comment) && !protectedText) {
-      commentEnd.lastIndex = comment + 4;
-      const close = commentEnd.exec(source);
-      if (close && close[0] === '-->') {
-        comments.push({ type: 'comment', index: comment,
-          end: close.index + close[0].length,
-          text: source.slice(comment, close.index + close[0].length) });
-        comment = source.indexOf('<!--', close.index + close[0].length);
-        continue;
-      }
-    }
-    comment = source.indexOf('<!--', comment + 4);
-  }
-  let commentCursor = 0;
-  const validTags = tags.filter((tag) => {
-    while (comments[commentCursor]?.end <= tag.index) commentCursor++;
-    return !(comments[commentCursor] && comments[commentCursor].index <= tag.index);
-  }).map((tag) => ({ type: 'tag', index: tag.index,
-    end: tag.index + tag[0].length, text: tag[0] }));
-  return [...validTags, ...comments].sort((a, b) => a.index - b.index);
-}
-
 // Both region types use the same ordered tag and comment events. The active
 // HTML exclusion survives a Markdown block boundary while reference policy changes.
 function stripMarkdownHidden(source, rawHtml, sourceTokens = null, openHidden = null) {
-  const tokens = rawHtml ? (sourceTokens || rawHtmlTokens(source)) : markdownHiddenTokens(source);
+  const tokens = sourceTokens || (rawHtml ? rawHtmlTokens(source) : markdownInlineTags(source).tokens);
   const ranges = [];
   let hidden = openHidden;
   let start = hidden ? 0 : null;
@@ -1216,7 +1272,7 @@ function markdownContainer(line) {
     const marker = !list && /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+/.exec(body);
     if (marker) {
       list = true;
-      markerIndent = leading;
+      markerIndent = indent;
       listIndent = marker[0].length;
       body = body.slice(listIndent);
       continue;
@@ -1235,6 +1291,13 @@ function updateListStack(lists, container, blank) {
     contentIndent: container.listIndent });
 }
 
+function markdownBlockBody(container, lists) {
+  if (container.list || !lists.length) return container.body;
+  const indent = lists.at(-1).contentIndent;
+  const available = /^ */.exec(container.body)[0].length;
+  return container.indent >= indent ? container.body.slice(Math.min(indent, available)) : container.body;
+}
+
 // Decide block boundaries on the original source. Removing backticks first can
 // turn inline HTML into a false block and can erase HTML attribute values.
 function markdownRegions(source) {
@@ -1245,8 +1308,8 @@ function markdownRegions(source) {
   let quoteDepth = 0;
   let inList = false;
   let listDepth = 0;
+  let listOwner = null;
   const lists = [];
-  let rawScanner = null;
   let paragraphOpen = false;
   let paragraphQuoteDepth = 0;
   let fence = null;
@@ -1259,8 +1322,7 @@ function markdownRegions(source) {
   const flush = () => {
     if (lines.length) {
       const text = lines.join('\n');
-      regions.push({ kind, text, start: regionStart, end: regionStart + text.length,
-        tokens: kind === 'html' ? rawScanner.finish() : null });
+      regions.push({ kind, text, start: regionStart, end: regionStart + text.length });
     }
     lines = [];
   };
@@ -1270,54 +1332,50 @@ function markdownRegions(source) {
     const container = markdownContainer(line);
     const blank = /^\s*$/.test(container.body);
     updateListStack(lists, container, blank);
+    const blockBody = markdownBlockBody(container, lists);
     if (kind === 'html' && ((endMarker === null && blank) ||
       container.quoteDepth < quoteDepth ||
-      (inList && (container.list || lists.length < listDepth)))) {
+      (inList && lists[listDepth - 1] !== listOwner))) {
       flush();
       kind = 'markdown';
       endMarker = null;
-      rawScanner = null;
       paragraphOpen = false;
     }
     if (kind === 'markdown') {
       if (fence && (container.quoteDepth < fence.quoteDepth ||
-        lists.length < fence.listDepth || container.list)) fence = null;
+        (fence.listOwner && lists[fence.listDepth - 1] !== fence.listOwner))) fence = null;
       if (fence) {
         pushLine(line, lineStart);
-        let body = container.body;
-        if (fence.listIndent && container.indent >= fence.listIndent) {
-          body = body.slice(fence.listIndent);
-        }
-        if (fence.closing.test(body)) fence = null;
+        if (fence.closing.test(blockBody)) fence = null;
         paragraphOpen = false;
         continue;
       }
-      const openingFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(container.body);
+      const openingFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(blockBody);
       if (openingFence && !(openingFence[1][0] === '`' && openingFence[2].includes('`'))) {
         const char = openingFence[1][0] === '`' ? '\\`' : '~';
         fence = { closing: new RegExp(`^ {0,3}${char}{${openingFence[1].length},}\\s*$`),
           quoteDepth: container.quoteDepth, listDepth: lists.length,
-          listIndent: lists.at(-1)?.contentIndent || 0 };
+          listOwner: lists.at(-1) || null };
         pushLine(line, lineStart);
         paragraphOpen = false;
         continue;
       }
       if (blank || container.list || container.quoteDepth !== paragraphQuoteDepth) paragraphOpen = false;
-      const special = MARKDOWN_SPECIAL_BLOCK.exec(container.body);
-      const startsTagBlock = MARKDOWN_HTML_TAG_LINE.test(container.body) &&
+      const special = MARKDOWN_SPECIAL_BLOCK.exec(blockBody);
+      const startsTagBlock = MARKDOWN_HTML_TAG_LINE.test(blockBody) &&
         !paragraphOpen;
-      if (special || /^ {0,3}<!--/.test(container.body) ||
-        MARKDOWN_HTML_BLOCK.test(container.body) || startsTagBlock) {
+      if (special || /^ {0,3}<!--/.test(blockBody) ||
+        MARKDOWN_HTML_BLOCK.test(blockBody) || startsTagBlock) {
         flush();
         kind = 'html';
-        rawScanner = createRawHtmlScanner();
         quoteDepth = container.quoteDepth;
         inList = lists.length > 0;
         listDepth = lists.length;
+        listOwner = lists.at(-1) || null;
         if (special) {
           const closing = new RegExp(`</${special[1]}[ \\t\\n]*>`, 'i');
           endMarker = (text) => closing.test(text);
-        } else if (/^ {0,3}<!--/.test(container.body)) {
+        } else if (/^ {0,3}<!--/.test(blockBody)) {
           // CommonMark keeps the block open until -->, even if a browser
           // would end the comment at --!> inside that block.
           endMarker = (text) => text.includes('-->');
@@ -1326,28 +1384,46 @@ function markdownRegions(source) {
         }
       }
       if (kind === 'markdown') {
-        const setext = paragraphOpen && /^ {0,3}(?:=+|-+)[ \t]*$/.test(container.body);
+        const setext = paragraphOpen && /^ {0,3}(?:=+|-+)[ \t]*$/.test(blockBody);
         paragraphOpen = !blank && !setext &&
-          !/^ {0,3}(?:#{1,6}(?:[ \t]|$)|(?:\*\s*){3,}$|(?:-\s*){3,}$|(?:_\s*){3,}$)/.test(container.body);
+          !/^ {0,3}(?:#{1,6}(?:[ \t]|$)|(?:\*\s*){3,}$|(?:-\s*){3,}$|(?:_\s*){3,}$)/.test(blockBody);
         paragraphQuoteDepth = container.quoteDepth;
       }
     }
     const rawLine = kind === 'html' && (quoteDepth > 0 || inList) ?
-      ' '.repeat(line.length - container.body.length) + container.body : line;
+      ' '.repeat(line.length - blockBody.length) + blockBody : line;
     pushLine(kind === 'html' ? rawLine : line, lineStart);
     if (kind === 'html') {
-      rawScanner.feed((lines.length > 1 ? '\n' : '') + rawLine);
-      if (endMarker?.(container.body)) {
+      if (endMarker?.(blockBody)) {
         flush();
         kind = 'markdown';
         endMarker = null;
-        rawScanner = null;
         paragraphOpen = false;
       }
     }
   }
   flush();
   return regions;
+}
+
+function protectTextareaCodeEntities(source, textareaRanges) {
+  if (!textareaRanges.length) return { text: source, restore: (value) => value };
+  let sentinel = '\ue000';
+  while (source.includes(sentinel)) sentinel = String.fromCharCode(sentinel.charCodeAt(0) + 1);
+  const chars = source.split('');
+  let changed = false;
+  for (const area of textareaRanges) {
+    stripCodeSpans(source.slice(area.start, area.end), ' ', [], (from, to) => {
+      for (let i = area.start + from; i < area.start + to; i++) {
+        if (chars[i] === '&') {
+          chars[i] = sentinel;
+          changed = true;
+        }
+      }
+    });
+  }
+  return changed ? { text: chars.join(''), restore: (value) => value.replaceAll(sentinel, '&') } :
+    { text: source, restore: (value) => value };
 }
 
 function markdownStreams(source) {
@@ -1357,14 +1433,17 @@ function markdownStreams(source) {
   const runs = [];
   const paras = [];
   let openHidden = null;
+  let activeRaw = null;
   for (const region of markdownRegions(source)) {
     const rawHtml = region.kind === 'html';
-    const prepared = rawHtml ? region.text : withoutMarkdownCodeAroundHtml(region.text);
-    const result = stripMarkdownHidden(prepared, rawHtml, region.tokens, openHidden);
+    const prepared = rawHtml ? region.text : withoutMarkdownCodeAroundHtml(region.text, activeRaw);
+    const scan = rawHtml ? scanRawHtml(prepared, activeRaw) : markdownInlineTags(prepared, activeRaw);
+    activeRaw = scan.openRaw;
+    const result = stripMarkdownHidden(prepared, rawHtml, scan.tokens, openHidden);
     const body = result.text;
     openHidden = result.hidden;
-    const visibleTokens = rawHtml ? region.tokens.filter((token) =>
-      token.end <= body.length && body[token.index] === '<') : null;
+    const visibleTokens = scan.tokens.filter((token) =>
+      token.end <= body.length && body[token.index] === '<');
     attrs.push(...markdownAttributeRuns(body, rawHtml, visibleTokens));
     if (region.kind === 'html') {
       const htmlRuns = markdownVisibleRuns(body, true, visibleTokens);
@@ -1373,15 +1452,20 @@ function markdownStreams(source) {
       chunks.push(decodeEntities(stripMarkdownTags(body, true, visibleTokens)));
       continue;
     }
-    const prose = body
+    const protectedText = protectTextareaCodeEntities(body, scan.textareaRanges);
+    const prose = stripMarkdownTags(protectedText.text, false, visibleTokens)
       .replace(/^\s{0,3}#{1,6}\s+/gm, '')
       .replace(/^\s{0,3}[-*+]\s+/gm, '')
       .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
-    const visible = decodeEntities(stripMarkdownTags(prose), { markdownEscapes: true });
+    const visible = protectedText.restore(decodeEntities(prose, { markdownEscapes: true }));
     chunks.push(visible);
-    runs.push(...markdownVisibleRuns(prose, false));
+    runs.push(...markdownVisibleRuns(protectedText.text, false, visibleTokens).map((run) =>
+      protectedText.restore(run)
+      .replace(/^\s{0,3}#{1,6}\s+/, '')
+      .replace(/^\s{0,3}[-*+]\s+/, '')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')).filter(Boolean));
     for (const paragraph of prose.split(/\n\s*\n/)) {
-      const text = decodeEntities(stripMarkdownTags(paragraph), { markdownEscapes: true })
+      const text = protectedText.restore(decodeEntities(paragraph, { markdownEscapes: true }))
         .replace(/\s+/g, ' ').trim();
       if (text) paras.push(text);
     }

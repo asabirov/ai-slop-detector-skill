@@ -14,3 +14,5 @@ Write &#0008599; and &#x002197; here with <span>text</span>.
 </span>
 
 <div><script>const marker = "<!--";</script>↗</div>
+
+Read <script>const sample = "<textarea>";</script>↗ here.

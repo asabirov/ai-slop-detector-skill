@@ -104,7 +104,10 @@ Quoted HTML attributes keep comment markers as data. Textarea content keeps tag 
 comment spellings as text. Raw HTML ends when its Markdown list item ends.
 HTML tag and comment state persists across source lines. A code element can stay
 hidden after a Markdown block boundary, while the new block uses Markdown reference
-rules. Malformed HTML tags across a Markdown blank line remain approximate.
+rules. Script, style, and textarea text also retains its lexical state across that
+boundary. A marker-shaped line inside an active fence or raw HTML block stays in
+that block. Markdown code syntax does not take ownership of an earlier comment
+or textarea. Malformed HTML tags across a Markdown blank line remain approximate.
 
 In markup, `p`, `div`, headings, `span`, `li`, `td`, `th`, `section`, `header`,
 `footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible run. The definition

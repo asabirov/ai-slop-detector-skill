@@ -5,6 +5,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { performance } = require('node:perf_hooks');
 const { detect, resolveLevel, kindForPath, SEVERITY, VERDICT_ICON, LEVELS } = require('./detect');
 const { RULES } = require('./rules');
 const { NAMED } = require('./lib/entities');
@@ -484,6 +485,84 @@ test('ends raw HTML and fences with their list or quote containers', { timeout: 
 test('scans many unfinished HTML prefixes within its budget', { timeout: 1000 }, () => {
   const ctx = parse('<div>\n' + '<a '.repeat(3000), { ext: 'md' });
   assert.ok(ctx.isHtml === false);
+});
+
+test('keeps inline comments and raw text owners separate', { timeout: 1000 }, () => {
+  const script = parse('Read <script>const x="<textarea>";</script>↗ here.', { ext: 'md' });
+  assert.deepStrictEqual(script.runs, ['Read ↗ here.']);
+  assert.deepStrictEqual(script.attrs, []);
+  for (const source of ['Text <!-- <textarea> --> <code>↗</code> tail',
+    'Text <!-- <textarea> --> <!-- ↗ --> tail']) {
+    const ctx = parse(source, { ext: 'md' });
+    assert.deepStrictEqual(ctx.runs, ['Text tail'], source);
+    assert.deepStrictEqual(ctx.attrs, [], source);
+  }
+  for (const name of ['script', 'style']) {
+    assert.strictEqual(markdownArrow(`<div><${name}>\n\n<!-- </${name}> -->\n↗`), true, name);
+  }
+});
+
+test('resolves comment and textarea ownership before Markdown code', { timeout: 1000 }, () => {
+  assert.strictEqual(markdownArrow('Text <!-- ` --> ↗ ` tail'), true);
+  assert.strictEqual(markdownArrow('Read <textarea>`↗`</textarea> here.'), true);
+  assert.strictEqual(markdownArrow('<div><textarea>\n\n<code>↗</code>\n</textarea></div>'), true);
+  assert.strictEqual(markdownArrow('Read <textarea>`&nearr;`</textarea> here.'), false);
+});
+
+test('keeps source offsets while it separates readable attributes', { timeout: 1000 }, () => {
+  const ctx = parse('<div><!-- hidden --><span title="Visit the site ↗">text</span></div>',
+    { ext: 'md' });
+  assert.deepStrictEqual(ctx.runs, ['text']);
+  assert.deepStrictEqual(ctx.attrs, ['Visit the site ↗']);
+  assert.deepStrictEqual(ctx.paragraphs, ['text', 'Visit the site ↗']);
+});
+
+test('removes ordered-list continuation indentation before block checks', { timeout: 1000 }, () => {
+  assert.strictEqual(markdownArrow('10. item\n\n    ~~~\n    ↗\n    ~~~'), false);
+  assert.strictEqual(markdownArrow('10. item\n\n    <div>\n    \\&nearr;\n    </div>'), true);
+  assert.strictEqual(markdownArrow('1. item\n\n   ~~~\n   ↗\n   ~~~'), false);
+  assert.strictEqual(markdownArrow('> ~~~\n> - ↗\n> ~~~'), false);
+  assert.strictEqual(markdownArrow('- <div>\n  - text\n  \\&nearr;\n  </div>'), true);
+  assert.strictEqual(markdownArrow('- <textarea>\n  - text\n  \\&nearr;\n  </textarea>'), true);
+});
+
+test('scans unfinished comments and many raw lines with bounded growth', { timeout: 2000 }, () => {
+  const median = (source) => {
+    parse(source, { ext: 'md' });
+    const times = [];
+    for (let i = 0; i < 5; i++) {
+      const start = performance.now();
+      parse(source, { ext: 'md' });
+      times.push(performance.now() - start);
+    }
+    return times.sort((a, b) => a - b)[2];
+  };
+  const commentSmall = median('Read ' + '<!-- '.repeat(16000));
+  const commentLarge = median('Read ' + '<!-- '.repeat(32000));
+  const lineSmall = median('<div>\n' + 'a\n'.repeat(16000));
+  const lineLarge = median('<div>\n' + 'a\n'.repeat(32000));
+  assert.ok(commentLarge < commentSmall * 2.8,
+    `unfinished comments grew ${commentLarge / commentSmall} times`);
+  assert.ok(lineLarge < lineSmall * 2.8,
+    `short raw lines grew ${lineLarge / lineSmall} times`);
+});
+
+test('scans multiline unfinished raw tokens with bounded growth', { timeout: 2000 }, () => {
+  const measure = (source) => {
+    parse(source, { ext: 'md' });
+    const times = [];
+    for (let i = 0; i < 3; i++) {
+      const start = performance.now();
+      parse(source, { ext: 'md' });
+      times.push(performance.now() - start);
+    }
+    return times.sort((a, b) => a - b)[1];
+  };
+  for (const opener of ['<!--\n', '<a title="']) {
+    const small = measure('<div>\n' + opener + 'abc\n'.repeat(12000));
+    const large = measure('<div>\n' + opener + 'abc\n'.repeat(24000));
+    assert.ok(large < small * 3.2, `${opener} grew ${large / small} times`);
+  }
 });
 
 test('keeps boundary-prefix custom elements inside a visible run', { timeout: 1000 }, () => {
