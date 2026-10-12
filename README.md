@@ -127,15 +127,23 @@ Raw HTML blocks can start after completed headings and fences. Script, style,
 and textarea state stays active across a Markdown block boundary. A list-shaped
 line inside an active fence or raw HTML block keeps that block open. A raw HTML
 region ends when its list item ends. The parser determines Markdown leaf blocks
-before it reads inline comments, tags, and code spans. An ordered marker other
-than `1.` or `1)` cannot interrupt an open paragraph. A line without a quote
-marker can continue a quoted paragraph. An ATX or setext heading ends its inline
-block before the next paragraph starts. A fence treats extra quote markers as
-content after it removes its owning container prefix. Short `<!-->` and
+before it reads inline comments, tags, and code spans. Sibling list items end
+separate inline blocks, including items numbered `2.` or `02.`.
+A new ordered list interrupts an open paragraph only with content and a start
+value of one, including `01.`. An empty marker cannot interrupt a paragraph.
+A line without its list indentation or quote marker can continue a paragraph.
+Such a lazy line keeps its list owner. A setext underline must belong to that
+owner and retain the quote markers. An unindented `===` stays paragraph text
+inside a list. An ATX or setext heading ends its inline block before the next
+paragraph starts. A fence treats extra quote markers as content after it removes
+its owning container prefix. Fence indentation expands tabs at source columns
+before it removes that prefix. Short `<!-->` and
 `<!--->` comments end before later code spans. Backticks in tags and comments
 do not open code spans. In raw HTML blocks, script and style closing tags can
-contain quoted `>` characters, attributes, or a trailing slash. Inline raw
-closes accept a form-feed separator. Vertical tab and nonbreaking space are not
+contain quoted `>` characters, attributes, or a trailing slash. A quote inside
+an unquoted attribute value stays data and does not hide the next `>`.
+A rejected Markdown closing candidate cannot consume a nested valid close.
+Inline raw closes accept a form-feed separator. Vertical tab and nonbreaking space are not
 closing-tag separators. The text parser remains approximate for malformed HTML
 tags across a blank line and unfinished tags at the end of a file. Malformed
 HTML nesting also remains approximate. Some raw HTML block closers with a

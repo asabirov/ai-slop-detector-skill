@@ -110,14 +110,20 @@ rules. Script, style, and textarea text also retains its lexical state across th
 boundary. A marker-shaped line inside an active fence or raw HTML block stays in
 that block. Markdown code syntax does not take ownership of an earlier comment
 or textarea. The parser determines Markdown leaf blocks before it reads inline
-syntax. An ordered marker other than `1.` or `1)` does not interrupt an open
-paragraph. A line without a quote marker can continue a quoted paragraph.
-An ATX or setext heading ends its inline block before the next paragraph starts.
+syntax. Sibling items end separate inline blocks, regardless of their numeric
+start. A new ordered list interrupts a paragraph only with content and a start
+value of one, including `01.`. Empty markers do not interrupt paragraphs.
+Lazy continuation lines retain their list owner but cannot become setext
+underlines. A setext underline must retain the owning list indentation and quote
+markers. An ATX or setext heading ends its inline block before the next paragraph.
 A fence keeps extra quote markers as content after it removes its owning prefix.
+It expands tabs at source columns before it removes that prefix.
 Short inline comments close before later code spans. Backticks in tags
 and comments do not open code spans. In raw HTML blocks, script and style
-closing tags with attributes or a trailing slash restore later text. The README records the
-parser's remaining malformed HTML limits.
+closing tags with attributes or a trailing slash restore later text.
+Quotes inside unquoted values stay data. Quoted values can contain `>`.
+A rejected Markdown close leaves a nested valid close available.
+The README records the parser's remaining malformed HTML limits.
 
 In markup, `p`, `div`, headings, `span`, `li`, `td`, `th`, `section`, `header`,
 `footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible run. The definition

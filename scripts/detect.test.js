@@ -38,7 +38,7 @@ const run = (f, level) =>
     filePath: path.join(FIX, f),
   });
 
-const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop.js', 'slop-linked-css.html', 'slop-table-footnote.tsx', 'slop-entities.html', 'slop-entities.md', ...fs.readdirSync(FIX).filter((f) => f.startsWith('slop-ui-'))];
+const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop.js', 'slop-linked-css.html', 'slop-table-footnote.tsx', 'slop-entities.html', 'slop-entities.md', 'slop-html-ownership.md', ...fs.readdirSync(FIX).filter((f) => f.startsWith('slop-ui-'))];
 const CLEAN_FIXTURES = ['clean.html', 'clean.md', 'clean.js'];
 
 function firedIds(file, level = 4) {
