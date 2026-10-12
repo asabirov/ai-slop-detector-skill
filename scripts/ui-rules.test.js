@@ -168,6 +168,21 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     has(nested('background:none, none white'), 'nested-cards');
     has(nested('background-image:none, linear-gradient(navy, white)'), 'nested-cards');
   });
+  it('keeps painted colors with CSS line breaks', { timeout: 1000 }, () => {
+    for (const space of [' ', '\t', '\n', '\r']) {
+      has(nested(`background:rgb(0${space}0 128)`), 'nested-cards');
+      has(nested(`background:color-mix(in srgb,${space}navy, white)`), 'nested-cards');
+      lacks(nested(`background:rgb(0${space}0 128 / 0)`), 'nested-cards');
+    }
+  });
+  it('keeps painted images with CSS line breaks', { timeout: 1000 }, () => {
+    for (const space of [' ', '\t', '\n', '\r']) {
+      has(nested(`background:linear-gradient(navy,${space}white)`), 'nested-cards');
+      has(nested(`background-image:none, linear-gradient(navy,${space}white)`), 'nested-cards');
+    }
+    lacks(nested('background:none, none transparent'), 'nested-cards');
+    lacks(nested('background:center / 100% 100% transparent'), 'nested-cards');
+  });
 
   it('reads gradient clipping and glass from inline styles', { timeout: 1000 }, () => {
     const source = '<h1 style="background:linear-gradient(90deg, purple, pink);background-clip:text">Notes</h1><section style="backdrop-filter:blur(8px)">Records</section>';

@@ -137,7 +137,7 @@ function paintedBackground(v) {
         if (!token || backgroundLayout.has(token) || backgroundLength.test(token) || backgroundMath.test(token)) return false;
         if (invisibleColor(token)) return false;
         // A remaining token can be a color or image. Function arguments stay together.
-        return /^(?:#[a-f0-9]+|[a-z][a-z-]*(?:\(.*\))?)$/.test(token);
+        return /^(?:#[a-f0-9]+|[a-z][a-z-]*(?:\(.*\))?)$/s.test(token);
       }));
 }
 const paintedBorder = (v) => !!v && splitOutsideFunctions(v, 'whitespace')
