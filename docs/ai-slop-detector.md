@@ -79,6 +79,62 @@ build output is a gate nobody can act on.
 `scripts/detect.js` takes exactly one file and is the older entry point; `bin/slop-detector.js`
 is the same engine over many.
 
+Text reaches a rule decoded, which the README states as the spec. Before, only attribute
+values and the per-element text decoded, and only six names; the visible runs, the prose and
+the paragraphs did not, so `&middot;`, `&nbsp;` and even `&#8599;` reached a rule as written.
+The table is now the standard's own, in `scripts/lib/entities.js`.
+
+One place outside the text streams decodes: the `style` attribute, before it is read as CSS,
+because that is what a browser does with it.
+
+One pass resolves an entity, and it runs last, after the tags or the markdown syntax are
+gone, so nothing reads what it produced: `&#38;middot;` is the text `&middot;` on the page
+and stays that, and `&#35; x` is a paragraph printing `# x` rather than a heading. Names are
+case-sensitive, because `&Aacute;` and `&aacute;` are different letters. A name the standard
+does not list, a code point past Unicode's last, and the surrogate range are left as
+written, and so are the forms a browser accepts without the semicolon (`&amp` for `&`). The
+one stream that drops an unresolved name rather than keeping it is the whole-page prose
+stream of an HTML page, which did that before, so no prose rule reads it as a word; the
+markdown side keeps it. In Markdown prose, an escaped ampersand stays literal after an odd
+number of backslashes. An even number lets the reference decode. Markdown prose accepts
+1 to 7 decimal digits or 1 to 6 hexadecimal digits in a numeric reference. Longer forms
+stay literal there. Raw HTML blocks use HTML reference rules, including longer numeric forms.
+Markdown code syntax does not remove text from raw HTML blocks or readable attributes.
+Quoted HTML attributes keep comment markers as data. Textarea content keeps tag and
+comment spellings as text. A raw HTML comment accepts `--!>` as an end marker.
+If Markdown escapes that sequence in a new paragraph, the HTML comment stays open.
+Raw HTML ends when its Markdown list item ends.
+HTML tag and comment state persists across source lines. A code element can stay
+hidden after a Markdown block boundary, while the new block uses Markdown reference
+rules. Script, style, and textarea text also retains its lexical state across that
+boundary. A marker-shaped line inside an active fence or raw HTML block stays in
+that block. Markdown code syntax does not take ownership of an earlier comment
+or textarea. The parser determines Markdown leaf blocks before it reads inline
+syntax. Sibling items end separate inline blocks, regardless of their numeric
+start. A new ordered list interrupts a paragraph only with content and a start
+value of one, including `01.`. Empty markers do not interrupt paragraphs.
+Lazy continuation lines retain their list owner but cannot become setext
+underlines. A setext underline must retain the owning list indentation and quote
+markers. An ATX or setext heading ends its inline block before the next paragraph.
+A fence keeps extra quote markers as content after it removes its owning prefix.
+It expands tabs at source columns before it removes that prefix.
+Short inline comments close before later code spans. Backticks in tags
+and comments do not open code spans. In raw HTML blocks, script and style
+closing tags with attributes or a trailing slash restore later text.
+Quotes inside unquoted values stay data. Quoted values can contain `>`.
+A rejected Markdown close leaves a nested valid close available.
+The README records the parser's remaining malformed HTML limits.
+
+In markup, `p`, `div`, headings, `span`, `li`, `td`, `th`, `section`, `header`,
+`footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible run. The definition
+tags keep each value separate. The original twelve boundaries remain, including
+`span` and `a`. Other tags stay inside the run. Thus an inline `svg`, `label`, or
+custom element does not hide a dotted chain. The parser uses tag names without
+CSS layout or a DOM, so its runs only approximate displayed text. A boundary
+name must match the full tag, so `dt-label`, `dd-value`, `dl-label`, and `br-icon`
+stay inline. Files not read as markup keep the original twelve boundaries. This avoids splitting their
+tag-shaped text on the new definition and line-break tags.
+
 `--level` accepts a number (`1`–`4`) or a name (`ban`, `recommended`, `strict`,
 `paranoid`). `--json` emits `{ verdict, level, files[], stats }` for chaining.
 
