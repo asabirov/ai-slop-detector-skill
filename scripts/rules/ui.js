@@ -124,14 +124,19 @@ function invisibleColor(value) {
   }
   return false;
 }
-const paintedBackground = (v) => !!v && !/^(?:none|inherit|initial|unset)$/.test(v) &&
-  !(splitOutsideFunctions(v, 'whitespace').length === 1 && invisibleColor(v));
-const paintedBorder = (v) => !!v && /\b(?:solid|dashed|dotted|double|groove|ridge|inset|outset)\b/.test(v) &&
-  !/\b(?:none|hidden)\b/.test(v) && !/^0(?:px|rem|em)?(?:\s|$)/.test(v) && !invisibleColor(v);
+const backgroundLayout = new Set(['none', 'center', 'top', 'right', 'bottom', 'left', 'repeat',
+  'no-repeat', 'repeat-x', 'repeat-y', 'space', 'round', 'scroll', 'fixed', 'local',
+  'border-box', 'padding-box', 'content-box', 'cover', 'contain', 'auto']);
+const paintedBackground = (v) => !!v && !/^(?:inherit|initial|unset)$/.test(v) &&
+  splitOutsideFunctions(v, 'whitespace').flatMap((token) => splitOutsideFunctions(token, '/'))
+    .some((token) => token && !backgroundLayout.has(token) && !invisibleColor(token));
+const paintedBorder = (v) => !!v && splitOutsideFunctions(v, 'whitespace')
+  .some((token) => /^(?:solid|dashed|dotted|double|groove|ridge|inset|outset)$/.test(token)) &&
+  !/^0(?:px|rem|em)?(?:\s|$)/.test(v) && !invisibleColor(v);
 function paintedLonghandBorder(p) {
-  if (!p['border-width'] || !p['border-style']) return false;
+  if (!p['border-style']) return false;
   const expand = (values) => [values[0], values[1] || values[0], values[2] || values[0], values[3] || values[1] || values[0]];
-  const widths = expand(p['border-width'].split(/\s+/));
+  const widths = expand((p['border-width'] || 'medium').split(/\s+/));
   const styles = expand(p['border-style'].split(/\s+/));
   const colors = p['border-color'] ? expand(splitOutsideFunctions(p['border-color'], 'whitespace')) : [];
   return widths.some((width, side) => !/^0(?:\.0+)?(?:px|rem|em)?$/.test(width) &&

@@ -193,8 +193,12 @@ CSS cascade resolution, and contrast checks need a rendered review. See the
 declaration gives the element a border, background, or box shadow. A rounded
 element with one of those styles also counts, even without a card-like class.
 The rule expands the side values in `border-width`, `border-style`, and
-`border-color` across CSS whitespace outside color functions. It ignores
-transparent color tokens and explicit zero alpha in RGB, HSL, HWB, Lab, LCH,
+`border-color` across CSS whitespace outside color functions. An omitted
+`border-width` uses the initial medium width when a visible style is set.
+The rule checks border styles outside color functions, so a missing color
+channel does not disable a solid border. It ignores transparent color tokens,
+nonpainting background shorthands such as `none transparent` and
+`transparent center`, and explicit zero alpha in RGB, HSL, HWB, Lab, LCH,
 OKLab, OKLCH, and `color()` values. It checks shadow lengths outside balanced
 color functions and ignores shadows with zero geometry. Complex color
 expressions remain painted when their final alpha is unknown.

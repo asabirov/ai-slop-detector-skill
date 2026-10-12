@@ -124,6 +124,27 @@ describe('UI heuristics', { timeout: 1000 }, () => {
       has(nested(`box-shadow:0 3px ${color}`), 'nested-cards');
     }
   });
+  it('keeps a solid border when its color has a missing channel', { timeout: 1000 }, () => {
+    lacks(nested('border:3px none navy'), 'nested-cards');
+    lacks(nested('border:3px hidden navy'), 'nested-cards');
+    has(nested('border:3px solid rgb(0 0 0 / 1)'), 'nested-cards');
+    for (const color of ['rgb(none 0 0 / 1)', 'lab(50 none none)', 'color-mix(in srgb, rgb(none 0 0), navy)']) {
+      has(nested(`border:3px solid ${color}`), 'nested-cards');
+    }
+  });
+  it('uses the initial border width when a visible style omits it', { timeout: 1000 }, () => {
+    lacks(nested('border-style:none;border-color:navy'), 'nested-cards');
+    lacks(nested('border-width:0;border-style:solid;border-color:navy'), 'nested-cards');
+    has(nested('border-width:3px;border-style:solid;border-color:navy'), 'nested-cards');
+    has(nested('border-style:solid;border-color:navy'), 'nested-cards');
+    has(fs.readFileSync(path.join(fixtures, 'slop-ui-nested-cards-initial-border.html'), 'utf8'), 'nested-cards');
+  });
+  it('ignores background shorthand tokens that do not paint', { timeout: 1000 }, () => {
+    has(nested('background:none white'), 'nested-cards');
+    lacks(nested('background:transparent'), 'nested-cards');
+    lacks(nested('background:none transparent'), 'nested-cards');
+    lacks(nested('background:transparent center'), 'nested-cards');
+  });
 
   it('reads gradient clipping and glass from inline styles', { timeout: 1000 }, () => {
     const source = '<h1 style="background:linear-gradient(90deg, purple, pink);background-clip:text">Notes</h1><section style="backdrop-filter:blur(8px)">Records</section>';
