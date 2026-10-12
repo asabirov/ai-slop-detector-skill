@@ -4,8 +4,30 @@
 // This is not a DOM. The checks are heuristic tells, and the linter runs
 // without a browser or package installation.
 
+// A quoted closing spelling is attribute data. Only complete tag tokens can
+// end a hidden range, and an unfinished hidden element runs to the file end.
 function stripBetween(html, tag) {
-  return html.replace(new RegExp(`<${tag}\\b[\\s\\S]*?</${tag}>`, 'gi'), ' ');
+  const ranges = [];
+  let depth = 0;
+  let start = 0;
+  for (const token of rawHtmlTokens(html)) {
+    if (token.type !== 'tag' || token.name !== tag) continue;
+    if (token.closing) {
+      if (depth && --depth === 0) ranges.push({ start, end: token.end });
+    } else if (!token.selfClosing) {
+      if (!depth) start = token.index;
+      depth++;
+    }
+  }
+  if (depth) ranges.push({ start, end: html.length });
+  const pieces = [];
+  let copied = 0;
+  for (const range of ranges) {
+    pieces.push(html.slice(copied, range.start), ' ');
+    copied = range.end;
+  }
+  pieces.push(html.slice(copied));
+  return pieces.join('');
 }
 
 // Visible text as it roughly renders, one run per element-ish boundary.
@@ -20,31 +42,9 @@ function stripBetween(html, tag) {
 function stripTags(html) {
   const pieces = [];
   let copied = 0;
-  while (true) {
-    const start = html.indexOf('<', copied);
-    if (start === -1) break;
-    let end = start + 1;
-    let quote = null;
-    let canOpenQuote = false;
-    for (; end < html.length; end++) {
-      const char = html[end];
-      if (quote) {
-        if (char === quote) quote = null;
-      } else if (char === '=') canOpenQuote = true;
-      else if (canOpenQuote && (char === '"' || char === "'")) {
-        quote = char;
-        canOpenQuote = false;
-      } else if (char === '>') break;
-      else if (canOpenQuote && !/\s/.test(char)) canOpenQuote = false;
-    }
-    if (end === html.length) break;
-    if (end > start + 1) {
-      pieces.push(html.slice(copied, start), ' ');
-      copied = end + 1;
-    } else {
-      pieces.push(html.slice(copied, end + 1));
-      copied = end + 1;
-    }
+  for (const token of rawHtmlTokens(html)) {
+    pieces.push(html.slice(copied, token.index), ' ');
+    copied = token.end;
   }
   pieces.push(html.slice(copied));
   return pieces.join('');
@@ -206,15 +206,16 @@ function markupTokens(html) {
   const classes = new Set();
   const ids = new Set();
   const tags = new Set();
-  let m;
-  const classRe = /\bclass\s*=\s*"([^"]*)"/gi;
-  while ((m = classRe.exec(body)) !== null) {
-    for (const c of m[1].split(/\s+/)) if (c) classes.add(c);
+  for (const token of rawHtmlTokens(body)) {
+    if (token.type !== 'tag' || token.closing) continue;
+    tags.add(token.name);
+    for (const [name, value] of tagAttributes(token.text)) {
+      if (name === 'class' || name === 'classname') {
+        for (const c of (value || '').split(/\s+/)) if (c) classes.add(c);
+      }
+      if (name === 'id' && value?.trim()) ids.add(value.trim());
+    }
   }
-  const idRe = /\bid\s*=\s*"([^"]*)"/gi;
-  while ((m = idRe.exec(body)) !== null) if (m[1].trim()) ids.add(m[1].trim());
-  const tagRe = /<([a-z][a-z0-9-]*)\b/gi;
-  while ((m = tagRe.exec(body)) !== null) tags.add(m[1].toLowerCase());
   return { classes, ids, tags };
 }
 
@@ -227,8 +228,8 @@ const VOID_TAGS = new Set([
   'link', 'meta', 'param', 'source', 'track', 'wbr',
 ]);
 
-// Every element the page carries, each with the tag chain above it. Still a
-// regex, not a DOM — but a stack of open tags is enough to answer the one
+// Every element the page carries, each with the tag chain above it. This is
+// not a DOM, but a stack of tokenized tags is enough to answer the one
 // question the mono rule needs: what does this selector land on, and does that
 // element sit inside a <code>. `inCode` is true for the code elements
 // themselves and for everything nested in one, because font-family inherits:
@@ -238,40 +239,41 @@ const VOID_TAGS = new Set([
 // calling something code, which is the quiet direction; a page whose <code>
 // never closes has a bigger problem than this rule.
 function markupElements(html) {
-  const body = stripBetween(stripBetween(html, 'style'), 'script').replace(/<!--[\s\S]*?-->/g, ' ');
+  const body = stripBetween(stripBetween(html, 'style'), 'script');
   const out = [];
   const stack = []; // open elements, innermost last
-  const re = /<(\/?)([a-z][a-z0-9-]*)((?:"[^"]*"|'[^']*'|[^>'"])*)>/gi;
-  let m;
+  const openDepths = new Map();
   let previousEnd = 0;
-  while ((m = re.exec(body)) !== null) {
+  const appendRun = (end) => {
     if (stack.length) {
-      const run = body.slice(previousEnd, m.index);
+      const run = body.slice(previousEnd, end);
       out[stack[stack.length - 1]].text += run;
       out[stack[stack.length - 1]].chunks.push([previousEnd, run]);
     }
-    previousEnd = re.lastIndex;
-    const [, closing, rawTag, attrs] = m;
-    const tag = rawTag.toLowerCase();
-    if (closing) {
-      // Pop to the matching open tag; ignore a stray close.
-      for (let i = stack.length - 1; i >= 0; i--) {
-        if (out[stack[i]].tag === tag) {
-          stack.length = i;
-          break;
+  };
+  for (const token of rawHtmlTokens(body)) {
+    appendRun(token.index);
+    previousEnd = token.end;
+    if (token.type !== 'tag') continue;
+    const tag = token.name;
+    if (token.closing) {
+      const depth = openDepths.get(tag)?.at(-1);
+      if (depth !== undefined) {
+        while (stack.length > depth) {
+          const opened = out[stack.pop()].tag;
+          openDepths.get(opened).pop();
         }
       }
       continue;
     }
-    const classAttr = /(?:^|\s)(?:class|className)\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
-    const classValue = classAttr ? (classAttr[1] ?? classAttr[2]) : '';
-    const styleAttr = /(?:^|\s)style\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
-    const idAttr = /\bid\s*=\s*"([^"]*)"/i.exec(attrs);
+    const attrs = tagAttributes(token.text);
+    const attribute = (name) => attrs.find(([key]) => key === name)?.[1] || '';
+    const classValue = attribute('class') || attribute('classname');
     const parent = stack.length ? stack[stack.length - 1] : -1;
     const el = {
       tag,
       classes: new Set(classValue.trim().split(/\s+/).filter(Boolean)),
-      id: idAttr ? idAttr[1].trim() : null,
+      id: attribute('id').trim() || null,
       parent,
       text: '',
       // `text` loses order: a run belongs to the innermost open element, so
@@ -280,18 +282,18 @@ function markupElements(html) {
       // backwards. `chunks` keeps each run's position in the document so a
       // subtree can be read in the order a person reads it.
       chunks: [],
-      style: styleAttr ? decodeEntities(styleAttr[1] ?? styleAttr[2]) : '',
+      style: decodeEntities(attribute('style')),
       inTable: tag === 'td' || tag === 'th' || (parent >= 0 && out[parent].inTable),
       inCode: CODE_TAGS.has(tag) || (parent >= 0 && out[parent].inCode),
     };
     out.push(el);
-    if (!VOID_TAGS.has(tag) && !/\/\s*$/.test(attrs)) stack.push(out.length - 1);
+    if (!VOID_TAGS.has(tag) && !token.selfClosing) {
+      if (!openDepths.has(tag)) openDepths.set(tag, []);
+      openDepths.get(tag).push(stack.length);
+      stack.push(out.length - 1);
+    }
   }
-  if (stack.length) {
-    const run = body.slice(previousEnd);
-    out[stack[stack.length - 1]].text += run;
-    out[stack[stack.length - 1]].chunks.push([previousEnd, run]);
-  }
+  appendRun(body.length);
   for (const el of out) {
     el.text = decodeEntities(el.text);
     for (const chunk of el.chunks) chunk[1] = decodeEntities(chunk[1]);
@@ -691,22 +693,28 @@ function asideCandidate(elements, ends, i, heading, data) {
 // Concatenated contents of every <style> block.
 function cssBlocks(html) {
   const blocks = [];
-  const re = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
-  let m;
-  while ((m = re.exec(html)) !== null) blocks.push(m[1]);
+  let start = null;
+  for (const token of rawHtmlTokens(html)) {
+    if (token.type !== 'tag' || token.name !== 'style') continue;
+    if (!token.closing && !token.selfClosing) {
+      start = token.end;
+    } else if (start !== null && token.closing) {
+      blocks.push(html.slice(start, token.index));
+      start = null;
+    }
+  }
   return blocks.join('\n');
 }
 
 // Every <link rel="stylesheet"> href, in document order.
 function stylesheetLinks(html) {
   const out = [];
-  const re = /<link\b[^>]*>/gi;
-  let m;
-  while ((m = re.exec(html)) !== null) {
-    const tag = m[0];
-    if (!/\brel\s*=\s*["']?stylesheet\b/i.test(tag)) continue;
-    const href = /\bhref\s*=\s*["']([^"']+)["']/i.exec(tag);
-    if (href) out.push(href[1]);
+  for (const token of rawHtmlTokens(html)) {
+    if (token.type !== 'tag' || token.closing || token.name !== 'link') continue;
+    const attrs = tagAttributes(token.text);
+    const rel = attrs.find(([name]) => name === 'rel')?.[1] || '';
+    const href = attrs.find(([name]) => name === 'href')?.[1];
+    if (rel.toLowerCase().split(/\s+/).includes('stylesheet') && href) out.push(href);
   }
   return out;
 }
@@ -986,6 +994,12 @@ function scanRawHtml(source, initialRaw = null) {
   const tokens = [];
   const emit = (type, end) => {
     const token = { type, index: start, end, text: source.slice(start, end) };
+    if (type === 'tag') {
+      const head = /^<(\/?)([a-z][a-z0-9-]*)/i.exec(token.text);
+      token.name = head[2].toLowerCase();
+      token.closing = Boolean(head[1]);
+      token.selfClosing = /\/\s*>$/.test(token.text);
+    }
     tokens.push(token);
     cursor = end;
     mode = 'data';
@@ -1021,9 +1035,10 @@ function scanRawHtml(source, initialRaw = null) {
           canOpenQuote = false;
         } else if (char === '>') {
           emit('tag', cursor);
-          const opening = /^<(script|style|textarea)(?=[\s/>])/i.exec(tokens[tokens.length - 1].text);
-          if (opening && !/\/\s*>$/.test(tokens[tokens.length - 1].text)) {
-            rawName = opening[1].toLowerCase();
+          const opened = tokens[tokens.length - 1];
+          if (!opened.closing && !opened.selfClosing &&
+            ['script', 'style', 'textarea'].includes(opened.name)) {
+            rawName = opened.name;
             mode = 'rawtext';
           }
           break;
@@ -1434,10 +1449,12 @@ function markdownContainer(line, parseList = true, maxQuoteDepth = Infinity, lis
       }
       list = true;
       const parent = listItems.findLast((item) => item.quoteDepth === quoteDepth);
-      const width = body.slice(marker[0].length).trim() ? marker[0].length :
-        leading + marker[1].length + 1;
+      const prefix = leading + marker[1].length;
+      const spaces = marker[0].length - prefix;
+      const width = body.slice(marker[0].length).trim() && spaces <= 4 ?
+        marker[0].length : prefix + 1;
       listItems.push({ quoteDepth, contentIndent: (parent?.contentIndent || 0) + width });
-      body = body.slice(marker[0].length);
+      body = body.slice(width);
       continue;
     }
     break;
@@ -1657,6 +1674,25 @@ function protectTextareaCodeEntities(source, textareaRanges) {
     { text: source, restore: (value) => value };
 }
 
+// Markdown text supplies only its valid HTML tags. A style element also keeps
+// its raw CSS text, which the inline scanner owns until the closing tag.
+function markdownMarkupSource(source, tokens, initialRaw) {
+  const pieces = [];
+  let copied = 0;
+  let inStyle = initialRaw === 'style';
+  for (const token of tokens) {
+    if (inStyle) pieces.push(source.slice(copied, token.index));
+    if (token.type === 'tag') {
+      pieces.push(token.text);
+      if (/^<style(?=[\s/>])/i.test(token.text) && !/\/\s*>$/.test(token.text)) inStyle = true;
+      if (/^<\/style(?=[\s/>])/i.test(token.text)) inStyle = false;
+    }
+    copied = token.end;
+  }
+  if (inStyle) pieces.push(source.slice(copied));
+  return pieces.join(' ');
+}
+
 function markdownStreams(source) {
   source = source.replace(/\r\n?/g, '\n');
   const attrs = [];
@@ -1670,8 +1706,7 @@ function markdownStreams(source) {
     const rawHtml = region.kind === 'html';
     const prepared = rawHtml ? region.text : withoutMarkdownCodeAroundHtml(region.text, activeRaw);
     const scan = rawHtml ? scanRawHtml(prepared, activeRaw) : markdownInlineTags(prepared, activeRaw);
-    markupPieces.push(rawHtml ? prepared : scan.tokens.filter((token) => token.type === 'tag')
-      .map((token) => token.text).join(' '));
+    markupPieces.push(rawHtml ? prepared : markdownMarkupSource(prepared, scan.tokens, activeRaw));
     activeRaw = scan.openRaw;
     const result = stripMarkdownHidden(prepared, rawHtml, scan.tokens, openHidden);
     const body = result.text;

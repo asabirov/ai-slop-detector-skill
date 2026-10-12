@@ -233,7 +233,7 @@ test('keeps indented Markdown code literal without hiding paragraph continuation
 
 test('does not parse entity-produced brackets as Markdown links', { timeout: 1000 }, () => {
   const visible = '&#91;Read&#93;(a &middot; b &middot; c)';
-  const link = '[Read](a &middot; b &middot; c)';
+  const link = '[Read](<a &middot; b &middot; c>)';
   assert.deepStrictEqual(parse(visible, { ext: 'md' }).runs, ['[Read](a · b · c)']);
   assert.ok(detect(visible, { level: 2, kind: 'artifact', ext: 'md' }).findings
     .some((finding) => finding.rule === 'middot-chain'));
@@ -241,6 +241,113 @@ test('does not parse entity-produced brackets as Markdown links', { timeout: 100
     .some((finding) => finding.rule === 'middot-chain'));
   assert.ok(run('slop-entities.md', 2).findings
     .some((finding) => finding.rule === 'middot-chain' && finding.span === '[Read](a · b · c)'));
+});
+
+test('an HTML comment with an unmatched quote stays outside prose', { timeout: 1000 }, () => {
+  const hidden = '<!-- title=" &nearr; -->\n<p>Hello.</p>';
+  assert.strictEqual(parse(hidden, { ext: 'html' }).codeless, 'Hello.');
+  assert.ok(!detect(hidden, { ext: 'html', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  const balanced = '<!-- title="closed" &nearr; -->\n<p>Hello.</p>';
+  assert.ok(!detect(balanced, { ext: 'html', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  const visible = '<!-- title=" &nearr; -->\n<p>Hello ↗.</p>';
+  assert.ok(detect(visible, { ext: 'html', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('quoted closing tags do not end hidden HTML content', { timeout: 1000 }, () => {
+  for (const [source, expected] of [
+    ['<script data-note="</script>">const sample = "&nearr;";</script><p>Hello.</p>', 'Hello.'],
+    ["<script data-note='</script>'>const sample = '&nearr;';</script><p>Hello.</p>", 'Hello.'],
+    ['<code data-note="</code>">&nearr;</code>', ''],
+    ['<pre data-note="</pre>">&nearr;</pre>', ''],
+  ]) {
+    assert.strictEqual(parse(source, { ext: 'html' }).codeless, expected, source);
+    assert.ok(!detect(source, { ext: 'html', kind: 'artifact', level: 1 }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  const visible = '<script data-note="</script>">hidden</script><p>Shown &nearr;.</p>';
+  assert.ok(detect(visible, { ext: 'html', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('list markers preserve code indentation after their prefix', { timeout: 1000 }, () => {
+  for (const source of ['-     &nearr;', '1.     &nearr;', '> -     &nearr;',
+    '- Text\n\n      &nearr;']) {
+    assert.ok(!parse(source, { ext: 'md' }).codeless.includes('↗'), source);
+    assert.ok(!detect(source, { ext: 'md', kind: 'artifact', level: 1 }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  for (const source of ['-    &nearr;', '1.    &nearr;', '- Text\n    &nearr;']) {
+    assert.ok(detect(source, { ext: 'md', kind: 'artifact', level: 1 }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  const followingProse = '-     &nearr;\n  Read &nearr;';
+  assert.ok(detect(followingProse, { ext: 'md', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('inline Markdown style content reaches CSS rules', { timeout: 1000 }, () => {
+  const html = '<style>p {font-family:monospace}</style><p>Hello</p>';
+  const inline = `Read ${html}`;
+  assert.ok(parse(inline, { ext: 'md' }).inlineCss.includes('font-family:monospace'));
+  assert.ok(detect(inline, { ext: 'md', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+  assert.ok(detect(html, { ext: 'md', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+  for (const contained of [`> ${inline}`, `- ${inline}`, `> - ${inline}`]) {
+    assert.ok(detect(contained, { ext: 'md', kind: 'artifact', level: 1 }).findings
+      .some((finding) => finding.rule === 'mono-noncode'), contained);
+  }
+  assert.ok(!detect(`\`\`\`html\n${html}\n\`\`\``,
+    { ext: 'md', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+  for (const hidden of [`\`${html}\``, `Write \\<style>p {font-family:monospace}</style>.`]) {
+    assert.ok(!detect(hidden, { ext: 'md', kind: 'artifact', level: 1 }).findings
+      .some((finding) => finding.rule === 'mono-noncode'), hidden);
+  }
+  assert.ok(run('slop-entities.md', 1).findings
+    .some((finding) => finding.rule === 'mono-noncode' && finding.span.includes('.inline-css')));
+});
+
+test('commented CSS cannot style Markdown raw HTML', { timeout: 1000 }, () => {
+  for (const source of [
+    '<!-- <style>p {font-family:monospace}</style> -->\n\n<p>Hello</p>',
+    '<!-- title=" <style>p {font-family:monospace}</style> -->\n\n<p>Hello</p>',
+    '> <!-- <style>p {font-family:monospace}</style> -->\n> <p>Hello</p>',
+    '- <!-- <style>p {font-family:monospace}</style> -->\n\n  <p>Hello</p>',
+  ]) {
+    assert.ok(!parse(source, { ext: 'md' }).css.includes('font-family:monospace'));
+    assert.ok(!detect(source, { ext: 'md', kind: 'artifact', level: 1 }).findings
+      .some((finding) => finding.rule === 'mono-noncode'));
+  }
+  assert.ok(detect('<style>p {font-family:monospace}</style><p>Hello</p>',
+    { ext: 'md', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+});
+
+test('full Markdown parse bounds unfinished tag growth', { timeout: 2000 }, () => {
+  const median = (source) => {
+    parse(source, { ext: 'md' });
+    const times = [];
+    for (let i = 0; i < 3; i++) {
+      const start = performance.now();
+      parse(source, { ext: 'md' });
+      times.push(performance.now() - start);
+    }
+    return times.sort((a, b) => a - b)[1];
+  };
+  for (const source of [
+    (count) => '<div>\n' + '<a title="'.repeat(count),
+    (count) => '<style>' + '</style a="'.repeat(count),
+    (count) => '<div>' + '<span>word</span>'.repeat(count) + '</div>',
+  ]) {
+    const small = median(source(250));
+    const large = median(source(1000));
+    assert.ok(large < 10 || large < small * 8,
+      `full parse grew ${large / small} times for ${source(1)}`);
+  }
 });
 
 test('keeps Markdown escapes when prose shares a file with raw HTML', { timeout: 1000 }, () => {

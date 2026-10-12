@@ -19,4 +19,6 @@ Read <script>const sample = "<textarea>";</script>↗ here.
 
 <style>p {font-family: monospace}</style><p>Hello</p>
 
+Read <style>.inline-css {font-family:monospace}</style><p class="inline-css">Hello</p>
+
 &#91;Read&#93;(a &middot; b &middot; c)

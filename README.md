@@ -114,15 +114,18 @@ names, selectors and tag shapes work on the page as written.
 Standalone CSS keeps character references literal. HTML decodes references in
 style attributes before the visual rules read them. Quoted attribute data,
 including `>`, stays outside visible prose. Readable attributes have separate
-prose streams.
+prose streams. One forward HTML token scan separates comments, tags, and raw
+text before the prose, markup, and CSS checks read them. A quoted closing tag
+inside an attribute cannot end hidden script or code content.
 Markdown prose keeps references literal after an odd number of backslashes,
 even when the file contains raw HTML. References after an even number decode.
 Markdown prose accepts 1 to 7 decimal digits or 1 to 6 hexadecimal digits.
 Longer references stay literal in Markdown prose. Inside raw HTML blocks,
 HTML decodes them without these Markdown limits. The parser also reads
 human-readable attributes in raw HTML, including single-quoted values.
-Raw HTML in Markdown still supplies markup and CSS to visual rules. Fenced
-HTML does not. Markdown syntax is removed before references are decoded, so
+Raw HTML in Markdown still supplies markup and CSS to visual rules. Inline
+`<style>` contents count, while commented or fenced styles do not. Markdown
+syntax is removed before references are decoded, so
 an encoded bracket cannot turn visible text into a link destination.
 The parser excludes script, style, and code
 contents from Markdown prose. Autolinks and literal angle-bracket text remain
@@ -144,7 +147,8 @@ owner and retain the quote markers. An unindented `===` stays paragraph text
 inside a list. An ATX or setext heading ends its inline block before the next
 paragraph starts. A fence treats extra quote markers as content after it removes
 its owning container prefix. Fence indentation expands tabs at source columns
-before it removes that prefix. Short `<!-->` and
+before it removes that prefix. Five spaces after a list marker leave four
+spaces of code indentation. Short `<!-->` and
 `<!--->` comments end before later code spans. Backticks in tags and comments
 do not open code spans. In raw HTML blocks, script and style closing tags can
 contain quoted `>` characters, attributes, or a trailing slash. A quote inside
