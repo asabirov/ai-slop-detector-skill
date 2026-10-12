@@ -1272,9 +1272,9 @@ function markdownVisibleRuns(source, html, tokens = null) {
 // A tag's quoted backticks are HTML data. Code spans still remove complete
 // Markdown spans, including tags written inside those spans.
 function withoutMarkdownCodeAroundHtml(source, initialRaw = null) {
-  const unfenced = stripFences(source, ' ');
-  const { codeRanges } = markdownInlineTags(unfenced, initialRaw);
-  return maskSourceRanges(unfenced, codeRanges);
+  // Region classification has already masked fences with their container context.
+  const { codeRanges } = markdownInlineTags(source, initialRaw);
+  return maskSourceRanges(source, codeRanges);
 }
 
 function maskSourceRanges(source, ranges) {
@@ -1363,56 +1363,67 @@ function markdownContainer(line, parseList = true, maxQuoteDepth = Infinity, lis
   let body = expanded;
   let quoteDepth = 0;
   let list = false;
-  let listIndent = 0;
+  const listItems = [];
   let markerValue = null;
   let markerIndent = 0;
   let listQuoteDepth = 0;
   let indent = 0;
+  const indents = [];
   let quotesAfterList = false;
   while (true) {
     const leading = /^ */.exec(body)[0].length;
     indent = Math.max(indent, leading);
-    const quote = /^ {0,3}>[ \t]?/.exec(body);
+    indents[quoteDepth] ??= leading;
+    const containerIndentAllowed = leading <= 3 || lists.some((owner) =>
+      owner.quoteDepth === quoteDepth && leading >= owner.contentIndent &&
+      leading - owner.contentIndent <= 3);
+    const quote = containerIndentAllowed && /^ *>[ \t]?/.exec(body);
     if (quote && quoteDepth < maxQuoteDepth) {
       body = body.slice(quote[0].length);
       quoteDepth++;
       if (list) quotesAfterList = true;
       continue;
     }
-    const markerIndentAllowed = leading <= 3 || lists.some((owner) =>
-      owner.quoteDepth === quoteDepth && leading >= owner.contentIndent &&
-      leading - owner.contentIndent <= 3);
-    const marker = parseList && !list && markerIndentAllowed &&
-      /^ *([-+*]|\d{1,9}[.)])[ \t]+/.exec(body);
+    const marker = parseList && containerIndentAllowed &&
+      /^ *([-+*]|\d{1,9}[.)])(?:[ \t]+|$)/.exec(body);
     if (marker) {
+      if (!list) {
+        markerValue = marker[1];
+        markerIndent = leading;
+        listQuoteDepth = quoteDepth;
+      }
       list = true;
-      markerValue = marker[1];
-      markerIndent = indent;
-      listQuoteDepth = quoteDepth;
-      listIndent = marker[0].length;
-      body = body.slice(listIndent);
+      const parent = listItems.findLast((item) => item.quoteDepth === quoteDepth);
+      const width = body.slice(marker[0].length).trim() ? marker[0].length :
+        leading + marker[1].length + 1;
+      listItems.push({ quoteDepth, contentIndent: (parent?.contentIndent || 0) + width });
+      body = body.slice(marker[0].length);
       continue;
     }
     break;
   }
   const blockOffset = expanded.length - body.length;
   return { body: line.slice(offsets?.[blockOffset] ?? blockOffset), blockBody: body,
-    source: line, offsets, blockOffset, quoteDepth, list, marker: markerValue,
-    quotesAfterList, listQuoteDepth, indent, markerIndent, listIndent };
+    source: line, offsets, blockOffset, quoteDepth, list, listItems, marker: markerValue,
+    quotesAfterList, listQuoteDepth, indent, indents, markerIndent };
 }
 
 function updateListStack(lists, container, blank) {
-  if (blank) return;
-  const indent = container.list ? container.markerIndent : container.indent;
-  while (lists.length && (container.quoteDepth < lists.at(-1).quoteDepth ||
-    indent < lists.at(-1).contentIndent)) lists.pop();
-  if (container.list) lists.push({ quoteDepth: container.listQuoteDepth,
-    contentIndent: container.listIndent });
+  if (blank && !container.list) return;
+  // Losing an outer owner also ends every item nested inside it.
+  const ended = lists.findIndex((owner) => {
+    const indent = container.list && container.listQuoteDepth === owner.quoteDepth ?
+      container.markerIndent : (container.indents[owner.quoteDepth] || 0);
+    return container.quoteDepth < owner.quoteDepth || indent < owner.contentIndent;
+  });
+  if (ended !== -1) lists.length = ended;
+  lists.push(...container.listItems);
 }
 
 function markdownBlockBody(container, lists, preserveSource = false) {
   const body = container.blockBody;
-  const indent = !container.list && lists.length ? lists.at(-1).contentIndent : 0;
+  const owner = lists.at(-1);
+  const indent = !container.list && owner?.quoteDepth === container.quoteDepth ? owner.contentIndent : 0;
   const available = /^ */.exec(body)[0].length;
   const removed = container.indent >= indent ? Math.min(indent, available) : 0;
   const offset = container.blockOffset + removed;
@@ -1478,6 +1489,9 @@ function markdownRegions(source) {
     }
     let continuation = false;
     if (kind === 'markdown') {
+      const openingFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(blockBody);
+      const opensFence = openingFence &&
+        !(openingFence[1][0] === '`' && openingFence[2].includes('`'));
       const atx = /^ {0,3}#{1,6}(?:[ \t]|$)/.test(blockBody);
       const thematic = /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/.test(blockBody);
       const ownsUnderline = container.quoteDepth === paragraphQuoteDepth &&
@@ -1486,14 +1500,14 @@ function markdownRegions(source) {
       // A missing quote marker can continue the open paragraph. A true block
       // start still ends it, even when that line has no quote marker.
       const lazyQuote = paragraphOpen && container.quoteDepth < paragraphQuoteDepth &&
-        !container.list && !atx && !thematic && !setext && !blank &&
+        !container.list && !atx && !thematic && !setext && !blank && !opensFence &&
         !MARKDOWN_HTML_BLOCK.test(blockBody) && !MARKDOWN_SPECIAL_BLOCK.test(blockBody);
       const effectiveQuoteDepth = lazyQuote ? paragraphQuoteDepth : container.quoteDepth;
       const outerListEnded = paragraphOuterList && paragraphListOwner !== lists.at(-1) &&
         container.quoteDepth > 0;
       const startsLeaf = container.list ||
         effectiveQuoteDepth !== paragraphQuoteDepth || outerListEnded || atx || thematic;
-      continuation = paragraphOpen && !startsLeaf && !blank && !setext;
+      continuation = paragraphOpen && !startsLeaf && !blank && !setext && !opensFence;
       // Lazy paragraph lines retain their list owners for later owned lines.
       if (continuation && !MARKDOWN_HTML_BLOCK.test(blockBody) &&
         !MARKDOWN_SPECIAL_BLOCK.test(blockBody) && !/^ {0,3}<!--/.test(blockBody)) {
@@ -1506,18 +1520,18 @@ function markdownRegions(source) {
       if (fence && (container.quoteDepth < fence.quoteDepth ||
         (fence.listOwner && lists[fence.listDepth - 1] !== fence.listOwner))) fence = null;
       if (fence) {
-        pushLine(line, lineStart);
+        // Keep offsets while removing code before regions lose their list context.
+        pushLine(' '.repeat(line.length), lineStart);
         if (fence.closing.test(blockBody)) fence = null;
         paragraphOpen = false;
         continue;
       }
-      const openingFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(blockBody);
-      if (openingFence && !(openingFence[1][0] === '`' && openingFence[2].includes('`'))) {
+      if (opensFence) {
         const char = openingFence[1][0] === '`' ? '\\`' : '~';
         fence = { closing: new RegExp(`^ {0,3}${char}{${openingFence[1].length},}\\s*$`),
           quoteDepth: container.quoteDepth, listDepth: lists.length,
           listOwner: lists.at(-1) || null };
-        pushLine(line, lineStart);
+        pushLine(' '.repeat(line.length), lineStart);
         paragraphOpen = false;
         continue;
       }
