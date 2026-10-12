@@ -121,6 +121,7 @@ value stays part of that value. It cannot close the element.
 A slash flag cannot close a known non-void HTML element. Foreign elements and unknown component names retain self-closing syntax.
 Component files, including JSX and TSX, also keep self-closing native tags. Namespace lookups use recorded stack positions.
 HTML paragraph starts leave foreign content. An HTML encoding on MathML `annotation-xml` supplies an HTML integration point.
+The first encoding attribute supplies its decoded value.
 Markdown prose keeps references literal after an odd number of backslashes,
 even when the file contains raw HTML. References after an even number decode.
 Markdown prose accepts 1 to 7 decimal digits or 1 to 6 hexadecimal digits.
@@ -387,6 +388,42 @@ The foreign-script control produced identical output before and after.
 ```text
 
 inputs/foreign-control.md
+
+  ✗ [external-link-arrow] shown ↗
+      Diagonal "↗" open-in-new-tab arrow tacked onto a link — decorative external-link cosplay. A link already reads as a link.
+      fix: Drop the glyph. Plain directional →←↑↓ (flows, deltas) are fine.
+
+✗ FAIL  [level ban]  1 file(s), 1 error(s), 0 medium, 0 warning(s)
+```
+
+Annotation encoding uses the first attribute value and decodes its character references.
+The following comparison uses `aeda1e3` and the repair at `--level 1`.
+
+`fixtures/slop-html-annotation.md`
+
+```markdown
+<math><annotation-xml encoding="text&#47;html"><script/>hidden ↗</script></annotation-xml></math> <math><annotation-xml encoding="other" encoding="text/html"><script/></math><p>shown ↗</p>
+```
+
+```diff
+--- aeda1e3: fixtures/slop-html-annotation.md
++++ repair: fixtures/slop-html-annotation.md
+@@ -4 +4 @@
+-  ✗ [external-link-arrow] hidden ↗
++  ✗ [external-link-arrow] shown ↗
+```
+
+This similar control produced identical output before and after.
+
+`inputs/annotation-control.md`
+
+```markdown
+<math><annotation-xml encoding="other"><script/></math><p>shown ↗</p>
+```
+
+```text
+
+inputs/annotation-control.md
 
   ✗ [external-link-arrow] shown ↗
       Diagonal "↗" open-in-new-tab arrow tacked onto a link — decorative external-link cosplay. A link already reads as a link.

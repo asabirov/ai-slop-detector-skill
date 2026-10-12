@@ -168,3 +168,25 @@ test('HTML transitions inside foreign content preserve Markdown exclusions', { t
   assert.equal(parse(source, { ext: 'md' }).codeless, 'Visible ↗');
   assert.deepEqual(rules(source, 'md'), ['external-link-arrow']);
 });
+
+test('annotation integration uses the first encoding attribute', { timeout: 1000 }, () => {
+  assert.equal(parse(fixture('slop-html-annotation.md'), { ext: 'md' }).codeless, 'shown ↗');
+  for (const ext of ['md', 'html']) {
+    for (const [attrs, visible] of [
+      ['encoding="other" encoding="text/html"', true],
+      ['encoding="text/html" encoding="other"', false],
+    ]) {
+      const source = `<math><annotation-xml ${attrs}><script/></math><p>shown ↗</p>`;
+      assert.equal(parse(source, { ext }).codeless.includes('shown ↗'), visible, `${ext}: ${source}`);
+    }
+  }
+});
+
+test('annotation integration decodes its encoding value', { timeout: 1000 }, () => {
+  for (const ext of ['md', 'html']) {
+    for (const value of ['text&#47;html', 'text&sol;html', 'application/xhtml&plus;xml', 'text/html']) {
+      const source = `<math><annotation-xml encoding="${value}"><script/></math><p>shown ↗</p>`;
+      assert.ok(!parse(source, { ext }).codeless.includes('↗'), `${ext}: ${source}`);
+    }
+  }
+});

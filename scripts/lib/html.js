@@ -1011,8 +1011,8 @@ function selfClosingContext(component = false) {
     const root = name === 'svg' || name === 'math';
     const integration = parent === 'svg' ? ['foreignobject', 'desc', 'title'].includes(name) :
       parent === 'math' && (['mi', 'mo', 'mn', 'ms', 'mtext'].includes(name) ||
-        (name === 'annotation-xml' && tagAttributes(text).some(([attr, value]) =>
-          attr === 'encoding' && /^(?:text\/html|application\/xhtml\+xml)$/i.test(value))));
+        (name === 'annotation-xml' && /^(?:text\/html|application\/xhtml\+xml)$/i.test(
+          decodeEntities(tagAttributes(text).find(([attr]) => attr === 'encoding')?.[1] || ''))));
     const foreign = component || root || parent !== 'html';
     const closes = selfClosingTag(text, foreign);
     if (closing) {
