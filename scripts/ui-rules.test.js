@@ -4,6 +4,7 @@ const { describe, it } = require('./lib/budget');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { performance } = require('node:perf_hooks');
 const { detect, kindForPath } = require('./detect');
 
 const fixtures = path.join(__dirname, '..', 'fixtures');
@@ -500,6 +501,74 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     assert.deepEqual(spans(table + line, 'table-footnote'), [`under <table>: ${text}`]);
     assert.deepEqual(spans(`<h2>Reports</h2>${line}${table}`, 'table-aside'),
       [`beside <h2> "Reports" above <table>: ${text}`]);
+  });
+  it('reports a separate note after inline Export completion', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const feedback = 'The export completed for <strong>all selected bookings in the current month.</strong>';
+    const note = 'Updated each morning, so late bookings appear tomorrow.';
+    const wrapper = `<div class="text-muted" role="status">${feedback}<p>${note}</p><button>Export</button></div>`;
+    assert.deepEqual(spans(table + wrapper, 'table-footnote'), [`under <table>: ${note}`]);
+    assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+      [`beside <h2> "Reports" above <table>: ${note}`]);
+    const paragraph = wrapper.replace(feedback, `<p>${feedback}</p>`);
+    assert.deepEqual(spans(table + paragraph, 'table-footnote'), [`under <table>: ${note}`]);
+    assert.deepEqual(spans(`<h2>Reports</h2>${paragraph}${table}`, 'table-aside'),
+      [`beside <h2> "Reports" above <table>: ${note}`]);
+  });
+  it('keeps completion words inside data notes', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const [feedback, note] of [
+      ['Export complete.', 'Export includes only completed bookings from yesterday.'],
+      ['Ready.', 'Export rows show whether each booking is complete.'],
+    ]) {
+      const wrapper = `<div class="text-muted" role="status"><p>${feedback}</p><p>${note}</p><button>Export</button></div>`;
+      assert.deepEqual(spans(table + wrapper, 'table-footnote'), [`under <table>: ${note}`]);
+      assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+        [`beside <h2> "Reports" above <table>: ${note}`]);
+    }
+  });
+  it('keeps a data sentence beside feedback in the same paragraph', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const note = 'Updated each morning, so late bookings appear tomorrow.';
+    const feedback = 'Saving a new booking notifies every room participant.';
+    for (const text of [`${note} ${feedback}`, `${feedback} ${note}`]) {
+      const wrapper = `<div><p class="text-muted">${text}</p><button>Save</button></div>`;
+      assert.deepEqual(spans(table + wrapper, 'table-footnote'), [`under <table>: ${note}`]);
+      assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+        [`beside <h2> "Reports" above <table>: ${note}`]);
+    }
+    const live = `<div class="text-muted" role="status"><p>${note} The export completed for all selected bookings.</p><button>Export</button></div>`;
+    assert.deepEqual(spans(table + live, 'table-footnote'), [`under <table>: ${note}`]);
+    assert.deepEqual(spans(`<h2>Reports</h2>${live}${table}`, 'table-aside'),
+      [`beside <h2> "Reports" above <table>: ${note}`]);
+  });
+  it('reads completion after an inline marked fragment', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const feedback = '<p>The export <small>for all bookings selected in this table</small> completed.</p>';
+    const note = 'Updated each morning, so late bookings appear tomorrow.';
+    const wrapper = `<div role="status">${feedback}<p class="text-muted">${note}</p><button>Export</button></div>`;
+    assert.deepEqual(spans(table + wrapper, 'table-footnote'), [`under <table>: ${note}`]);
+    assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+      [`beside <h2> "Reports" above <table>: ${note}`]);
+    const onlyFeedback = `<div role="status">${feedback}<p>Ready.</p><button>Export</button></div>`;
+    assert.deepEqual(spans(table + onlyFeedback, 'table-footnote'), []);
+    assert.deepEqual(spans(`<h2>Reports</h2>${onlyFeedback}${table}`, 'table-aside'), []);
+  });
+  it('scans repeated table notes with bounded growth', { timeout: 2500 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const group = '<small>Updated nightly, so yesterday stays open.</small> Extra. ';
+    const scanNotes = (count) => {
+      const html = table + '<div>' + group.repeat(count) + '</div>';
+      const start = performance.now();
+      const findings = detect(html, { level: 1, kind: 'artifact', ext: 'html' }).findings;
+      assert.ok(findings.some((finding) => finding.rule === 'table-footnote'));
+      return performance.now() - start;
+    };
+    scanNotes(100);
+    const sizes = [300, 600, 1200, 2400];
+    const durations = sizes.map(scanNotes);
+    assert.ok(durations.at(-1) <= durations[0] * 5 + 150,
+      `Repeated table notes grew too fast: ${JSON.stringify({ sizes, durations })}`);
   });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');

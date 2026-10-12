@@ -390,9 +390,12 @@ function isControlFeedback(text, controls) {
 }
 
 function isControlResultFeedback(text, controls) {
-  const result = /^(?:the\s+)?([a-z]+)\b.*\b(?:complete|completed|finished|succeeded)\b/i.exec(text.trim());
-  return Boolean(result && controls.some((label) =>
-    label.trim().split(/\s+/)[0].toLowerCase() === result[1].toLowerCase()));
+  const result = /^(?:the\s+)?([a-z]+)\s+(.+)$/i.exec(text.trim());
+  if (!result || !controls.some((label) =>
+    label.trim().split(/\s+/)[0].toLowerCase() === result[1].toLowerCase())) return false;
+  const predicate = result[2];
+  return /^(?:(?:has|is|was)\s+)?(?:complete|completed|finished|succeeded)\b/i.test(predicate) ||
+    /^for\b/i.test(predicate) && /\b(?:complete|completed|finished|succeeded)[.!?]?$/i.test(predicate);
 }
 
 function isVisible(elements, i) {
@@ -432,6 +435,47 @@ const INLINE_TAGS = new Set([
   'rtc', 'ruby', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time',
   'u', 'var', 'wbr',
 ]);
+
+// Give each fragment the complete sentence in its own live scope. Scan each
+// scope once, so repeated marked fragments do not rescan the prefix.
+function sentenceEvents(events) {
+  const out = [];
+  let nextSentence = 0;
+  for (let from = 0; from < events.length;) {
+    let to = from + 1;
+    while (to < events.length && events[to].liveScope === events[from].liveScope) to++;
+    const scope = events.slice(from, to);
+    const offsets = [0];
+    const raw = scope.map((event) => {
+      offsets.push(offsets.at(-1) + event.chunk[1].length);
+      return event.chunk[1];
+    }).join('');
+    const starts = [0];
+    for (const match of raw.matchAll(/[.!?]["')”’]?\s+(?=\p{Lu})/gu)) {
+      starts.push(match.index + match[0].length);
+    }
+    const ends = [...starts.slice(1), raw.length];
+    const texts = starts.map((start, index) => raw.slice(start, ends[index])
+      .replace(/\{[^{}]*\}/g, ' ').replace(/\s+/g, ' ').trim());
+    let sentence = 0;
+    for (let k = 0; k < scope.length; k++) {
+      const event = scope[k];
+      let cursor = offsets[k];
+      while (cursor < offsets[k + 1]) {
+        while (sentence < starts.length - 1 && starts[sentence + 1] <= cursor) sentence++;
+        const end = Math.min(offsets[k + 1], ends[sentence]);
+        out.push({ ...event, pos: event.pos + cursor - offsets[k],
+          chunk: [event.chunk[0] + cursor - offsets[k], raw.slice(cursor, end)],
+          sentenceId: nextSentence + sentence, sentenceText: texts[sentence],
+          singleSentence: starts.length === 1 });
+        cursor = end;
+      }
+    }
+    nextSentence += starts.length;
+    from = to;
+  }
+  return out;
+}
 
 // Keep one identity for each visible line. Each text run also keeps its marker
 // and live scope, so neighboring prose cannot change a marked note.
@@ -476,7 +520,7 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
       const content = joinedText(line.map((event) => event.chunk));
       if (/\p{L}/u.test(content)) {
         const id = nextId++;
-        visibleLines.push({ id, events: line, root: i, inLiveRegion });
+        visibleLines.push({ id, events: line, inLiveRegion });
         const scopes = new Map();
         for (const event of line) {
           for (let p = event.owner; p >= 0; p = elements[p].parent) {
@@ -505,8 +549,8 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
   }
   // A marked run can cross inline siblings and neutral wrappers. Plain words
   // break it. Whitespace stays in it. Live text starts another scope.
-  for (const { id, events, root, inLiveRegion } of visibleLines) {
-    const scopedEvents = events.map((event, index) => {
+  for (const { id, events, inLiveRegion } of visibleLines) {
+    const scopedEvents = events.map((event) => {
       const markers = [];
       let liveScope = null;
       for (let p = event.owner; p >= 0; p = elements[p].parent) {
@@ -515,10 +559,11 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
           liveScope = p;
           break;
         }
-        if (p === root) break;
+        if (p === kept[0]) break;
       }
-      return { ...event, index, markers, liveScope };
+      return { ...event, markers, liveScope };
     });
+    const fragments = sentenceEvents(scopedEvents);
     let group = [];
     let gap = [];
     let liveScope = null;
@@ -526,19 +571,7 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
     const finishGroup = () => {
       if (!group.length) return;
       const text = joinedText(group.map((event) => event.chunk));
-      let from = 0;
-      for (let j = group[0].index - 1; j >= 0; j--) {
-        if (scopedEvents[j].liveScope !== liveScope) {
-          from = j + 1;
-          break;
-        }
-      }
-      const context = joinedText(scopedEvents.slice(from, group[group.length - 1].index + 1)
-        .map((event) => event.chunk));
-      const boundary = /[.!?]["')”’]?\s+(?=\p{Lu})/gu;
-      let sentenceStart = 0;
-      for (const match of context.matchAll(boundary)) sentenceStart = match.index + match[0].length;
-      const sentence = context.slice(sentenceStart);
+      const sentence = group[0].sentenceText;
       const feedback = isControlFeedback(sentence, controls) ||
         ((liveScope !== null || inLiveRegion) &&
           (ACTION_FEEDBACK.test(sentence) || isControlResultFeedback(sentence, controls)));
@@ -547,50 +580,58 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
       for (const owner of owners) {
         notes.get(owner)?.delete(id);
         attach(owner, { id, order: group[0].pos, text: feedback ? '' : text,
-          sourceOwner: owner }, key);
+          sourceOwner: owner, singleSentence: group[0].singleSentence }, key);
       }
       group = [];
       gap = [];
     };
-    for (const scoped of scopedEvents) {
-      const event = scoped;
+    for (const event of fragments) {
+      if (group.length && (event.liveScope !== liveScope ||
+        event.sentenceId !== group[0].sentenceId)) finishGroup();
       if (!/\S/u.test(event.chunk[1])) {
-        if (group.length) gap.push(scoped);
+        if (group.length) gap.push(event);
         continue;
       }
       if (!event.markers.length) {
         finishGroup();
         continue;
       }
-      if (group.length && event.liveScope !== liveScope) finishGroup();
       if (group.length) group.push(...gap);
       gap = [];
       liveScope = event.liveScope;
-      group.push(scoped);
+      group.push(event);
     }
     finishGroup();
   }
+  const lineIds = new Map([...notes].map(([i, records]) =>
+    [i, new Set([...records.values()].map((record) => record.id))]));
   for (let n = kept.length - 1; n >= 0; n--) {
     const i = kept[n];
     const parent = elements[i].parent;
     if (notes.has(i) && eligible.has(parent)) {
       if (!notes.has(parent)) notes.set(parent, new Map());
-      for (const [id, record] of notes.get(i)) {
-        if (!notes.get(parent).has(id)) notes.get(parent).set(id, record);
+      if (!lineIds.has(parent)) lineIds.set(parent, new Set());
+      const parentIds = lineIds.get(parent);
+      const copied = [];
+      for (const [key, record] of notes.get(i)) {
+        if (!parentIds.has(record.id) && !notes.get(parent).has(key)) {
+          notes.get(parent).set(key, record);
+          copied.push(record.id);
+        }
       }
+      for (const id of copied) parentIds.add(id);
     }
   }
   // A single-line live region is feedback. A live wrapper with several lines
   // cannot exempt every line; matched action feedback already has empty text.
-  const lineIds = new Map([...notes].map(([i, records]) =>
-    [i, new Set([...records.values()].map((record) => record.id))]));
   return new Map([...notes].map(([i, lines]) => [i,
     [...lines.values()].sort((a, b) => a.order - b.order)
       .map((record) => {
         let live = false;
         for (let p = record.sourceOwner; p >= 0; p = elements[p].parent) {
           const ownerLines = lineIds.get(p);
-          if (elements[p].live && ownerLines?.size === 1 && ownerLines.has(record.id)) {
+          if (elements[p].live && record.singleSentence !== false &&
+            ownerLines?.size === 1 && ownerLines.has(record.id)) {
             live = true;
             break;
           }
