@@ -137,6 +137,8 @@ const FOOTNOTE_TAG = /^small$|(?:^|-)(?:basis|notes?|footnotes?|hint|disclaimer)
 const CAPTION_TAG = /^(?:fig)?caption$|(?:^|-)caption$/i;
 const FOOTNOTE_CLASS =
   /(?:^|[-_])(?:foot|footer|footnote|notes?|caption|hint|help|basis|disclaimer|fineprint|muted|subtle|meta)(?:$|[-_\d])/i;
+const isFootnoteMarker = (e) => FOOTNOTE_TAG.test(e.tag) ||
+  [...e.classes].some((c) => FOOTNOTE_CLASS.test(c));
 
 // The facts a footnote carries: what the numbers are counted in, what they leave
 // out, how they were rounded, where they came from, when they were taken. Kept
@@ -176,16 +178,25 @@ const tableFootnote = {
   // heading or a table of its own means it is a section, not an annotation.
   test(ctx) {
     const hits = [];
-    for (const { el, above, text, heading, data, inside } of blocksUnderData(ctx.elements)) {
+    for (const { el, above, text, basisText, heading, data, inside } of blocksUnderData(ctx.elements, isFootnoteMarker)) {
       if (heading || data || COUNT_LINE.test(text)) continue;
-      const words = (text.match(/\S+/g) || []).length;
-      const basis = words >= BASIS_MIN_WORDS && BASIS.some((re) => re.test(text));
+      const basis = (basisText.match(/\S+/g) || []).length >= BASIS_MIN_WORDS &&
+        BASIS.some((re) => re.test(basisText));
+      // A control's own feedback does not count as a subordinate line. A basis
+      // still counts, and a separate note keeps its marker in the same block.
       const set =
-        words >= SET_MIN_WORDS &&
         !CAPTION_TAG.test(el.tag) &&
-        inside.some((e) => FOOTNOTE_TAG.test(e.tag) || [...e.classes].some((c) => FOOTNOTE_CLASS.test(c)));
+        inside.some(
+          (e) =>
+            !e.live &&
+            (e.noteText.match(/\S+/g) || []).length >= SET_MIN_WORDS &&
+            isFootnoteMarker(e)
+        );
       if (!set && !basis) continue;
-      hits.push(`under <${above.tag}>: ${text.slice(0, 90)}`);
+      const note = inside.find((e) => !e.live &&
+        (e.noteText.match(/\S+/g) || []).length >= SET_MIN_WORDS &&
+        isFootnoteMarker(e));
+      hits.push(`under <${above.tag}>: ${(basis ? basisText : note?.noteText || text).slice(0, 90)}`);
     }
     return hits;
   },
@@ -212,6 +223,8 @@ const ANNOTATION_CLASS = /(?:^|[-_])(?:basis|notes?|footnotes?|disclaimer|finepr
 const SUBORDINATE_TAG = /^small$/i;
 const SUBORDINATE_CLASS =
   /(?:^|[-_])(?:sub|subtitle|subhead(?:ing|line)?|description|lede|lead|dek|standfirst|tagline|intro|hint|help|muted|subtle|small)(?:$|[-_\d])/i;
+const isAsideMarker = (e) => ANNOTATION_TAG.test(e.tag) || SUBORDINATE_TAG.test(e.tag) ||
+  [...e.classes].some((c) => ANNOTATION_CLASS.test(c) || SUBORDINATE_CLASS.test(c));
 
 // A line that is merely set smaller has to be a sentence before this rule reads
 // it. Measured, not assumed: over 2,285 real HTML files the subordinate slot
@@ -240,34 +253,39 @@ const tableAside = {
   // that carries the marker, not the row holding it.
   test(ctx) {
     const hits = [];
-    for (const { heading, data, text, nested, inside } of blocksBesideHeading(ctx.elements)) {
+    for (const { heading, data, text, basisText, nested, inside } of blocksBesideHeading(ctx.elements, isAsideMarker)) {
       if (nested || COUNT_LINE.test(text)) continue;
       // No word floor on this tier, measured: one word recovers `<Basis>non-cash</Basis>`
       // beside an <h2> that already carries a `Non-cash` badge, and adds nothing over
       // the 2,285 files or the counter-cases. A letter, though — a basis holding only
       // `€794.00` is the value, not a line about it.
+      const hasNote = (e) => !e.live && Boolean(e.noteText);
       const annotated = inside.find(
         (e) =>
-          /\p{L}/u.test(e.text) &&
+          hasNote(e) &&
+          /\p{L}/u.test(e.noteText) &&
           (ANNOTATION_TAG.test(e.tag) || [...e.classes].some((c) => ANNOTATION_CLASS.test(c)))
       );
       const subordinate = inside.find(
         (e) =>
-          words(e.text) >= SENTENCE_MIN_WORDS &&
-          SENTENCE.test(e.text) &&
+          hasNote(e) &&
+          words(e.noteText) >= SENTENCE_MIN_WORDS &&
+          SENTENCE.test(e.noteText) &&
           (SUBORDINATE_TAG.test(e.tag) ||
             ANNOTATION_TAG.test(e.tag) ||
             [...e.classes].some((c) => SUBORDINATE_CLASS.test(c) || ANNOTATION_CLASS.test(c)))
       );
+      // Live status and action feedback do not count as subordinate lines.
+      // Basis wording still counts inside a live region or its wrapper.
       const marked = annotated || subordinate;
       const basis =
-        words(text) >= SENTENCE_MIN_WORDS && BASIS.some((re) => re.test(text)) ? inside[0] : null;
+        words(basisText) >= SENTENCE_MIN_WORDS && BASIS.some((re) => re.test(basisText)) ? inside[0] : null;
       const line = marked || basis;
       if (!line) continue;
       // Point at the marked line, not at the row holding it: a total with a basis
       // beside it is one candidate, and the basis is the half worth reading about.
       hits.push(
-        `beside <${heading.tag}> "${heading.text.slice(0, 40)}" above <${data.tag}>: ${line.text.slice(0, 70)}`
+        `beside <${heading.tag}> "${heading.text.slice(0, 40)}" above <${data.tag}>: ${(line === basis ? basisText : line.noteText).slice(0, 70)}`
       );
     }
     return hits;

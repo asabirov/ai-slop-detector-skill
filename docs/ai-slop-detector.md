@@ -180,6 +180,32 @@ than naming its figure, a candidate that carries its own heading or its own tabl
 floor once the words inside its links and buttons are removed — which is what a
 pager is.
 
+A control's own feedback is outside the styling half of both rules. A line with
+`role="status"`, `role="alert"`, `aria-live="polite"` or `"assertive"` can carry feedback.
+The parser reads actual attributes. It does not treat quoted text, a token list
+(`role="status alert"`), or a JSX expression (`role={"status"}`) as a live region.
+
+Without a live region, the sentence must start with an action that matches a
+control in the same block. The supported pairs are Save/Saving, Change/Changing,
+Move/Moving, Select/Selecting, Choose/Choosing, Submit/Submitting, Send/Sending,
+Filter/Filtering, and Search/Searching. Move booking also matches Saving because
+the reported booking action saves the new room or time. The parser reads nested
+visible button text and the value of a submit or button input. It reads quoted
+and unquoted `type` and `value` attributes at their actual boundaries. Hidden
+button text and SVG metadata do not name the action. A link does not count as a
+control.
+
+Feedback exempts its own line only. Completion can name numeric, quoted, and
+longer booking groups. A clause that lists or shows records is a data note.
+A different note in the same wrapper still counts, including inside a nested
+live region. Text outside a live region does not change its feedback exemption.
+Inline children form one prose line.
+Button text and live-region text do not become part of that prose. Styling on
+the note still counts when its words are in an inline child.
+For example, an Export button does not hide
+`<small class="text-muted"><span>Updated nightly, so yesterday stays open.</span></small>`.
+A basis stated in words counts even inside a live region or its wrapper.
+
 A `<ul>`, a `<dl>` and a bare `<svg>` are out of the rule, measured rather than
 assumed. Over 1,264 HTML files on one machine, every `<ul>` an earlier draft
 reached was a navigation menu or an ordinary bulleted list with the next paragraph

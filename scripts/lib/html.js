@@ -104,6 +104,25 @@ function markupTokens(html) {
 // they contain, is typography doing its job rather than costume.
 const CODE_TAGS = new Set(['code', 'pre', 'kbd', 'samp', 'tt']);
 
+// A line a control writes when the reader uses it. `role="status"`, `role="alert"`
+// and `aria-live` all say the same thing: this text appears because of something
+// the reader just did, so the reader is looking at it.
+function parseAttributes(attrs) {
+  const attribute = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+  const values = new Map();
+  let match;
+  while ((match = attribute.exec(attrs)) !== null) {
+    values.set(match[1].toLowerCase(), match[2] ?? match[3] ?? match[4] ?? '');
+  }
+  return values;
+}
+
+function hasLiveRegion(attrs) {
+  const role = (attrs.get('role') || '').toLowerCase();
+  const live = (attrs.get('aria-live') || '').toLowerCase();
+  return role === 'status' || role === 'alert' || live === 'polite' || live === 'assertive';
+}
+
 const VOID_TAGS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
   'link', 'meta', 'param', 'source', 'track', 'wbr',
@@ -139,6 +158,7 @@ function markupElements(html) {
       // Pop to the matching open tag; ignore a stray close.
       for (let i = stack.length - 1; i >= 0; i--) {
         if (out[stack[i]].tag === tag) {
+          for (let j = i; j < stack.length; j++) out[stack[j]].end = re.lastIndex;
           stack.length = i;
           break;
         }
@@ -149,9 +169,12 @@ function markupElements(html) {
     const classValue = classAttr ? (classAttr[1] ?? classAttr[2]) : '';
     const styleAttr = /(?:^|\s)style\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
     const idAttr = /\bid\s*=\s*"([^"]*)"/i.exec(attrs);
+    const attributes = parseAttributes(attrs);
     const parent = stack.length ? stack[stack.length - 1] : -1;
     const el = {
       tag,
+      start: m.index,
+      end: re.lastIndex,
       classes: new Set(classValue.trim().split(/\s+/).filter(Boolean)),
       id: idAttr ? idAttr[1].trim() : null,
       parent,
@@ -163,6 +186,11 @@ function markupElements(html) {
       // subtree can be read in the order a person reads it.
       chunks: [],
       style: styleAttr ? decodeEntities(styleAttr[1] ?? styleAttr[2]) : '',
+      live: hasLiveRegion(attributes),
+      hidden: attributes.has('hidden') || (attributes.get('aria-hidden') || '').toLowerCase() === 'true' ||
+        /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\b/i.test(attributes.get('style') || ''),
+      inputType: (attributes.get('type') || '').toLowerCase(),
+      inputValue: decodeEntities(attributes.get('value') || ''),
       inTable: tag === 'td' || tag === 'th' || (parent >= 0 && out[parent].inTable),
       inCode: CODE_TAGS.has(tag) || (parent >= 0 && out[parent].inCode),
     };
@@ -174,6 +202,7 @@ function markupElements(html) {
     out[stack[stack.length - 1]].text += run;
     out[stack[stack.length - 1]].chunks.push([previousEnd, run]);
   }
+  for (const i of stack) out[i].end = body.length;
   for (const el of out) {
     el.text = decodeEntities(el.text);
     for (const chunk of el.chunks) chunk[1] = decodeEntities(chunk[1]);
@@ -339,6 +368,348 @@ const CHART_CLASS = /(?:^|[-_])(?:chart|graph|plot|sparkline)s?(?:$|[-_\d])/i;
 // is four words of prose and a note beside an Export button is still a note.
 const MUTE_TAGS = new Set(['button', 'input', 'select', 'textarea', 'a']);
 
+// The controls a reader operates. A link is not one of them: a link beside a
+// line does not make the line the link's own feedback.
+const CONTROL_TAGS = new Set(['button', 'input']);
+// A control's own feedback describes that control's action. A nearby Export
+// button does not turn a sentence about saving into Export feedback.
+const ACTION_FEEDBACK = /^(saving|changing|moving|selecting|choosing|submitting|sending|filtering|searching)\b/i;
+const ACTION_ROOT = {
+  saving: 'save', changing: 'change', moving: 'move', selecting: 'select',
+  choosing: 'choose', submitting: 'submit', sending: 'send',
+  filtering: 'filter', searching: 'search',
+};
+
+function isControlFeedback(text, controls) {
+  const verb = ACTION_FEEDBACK.exec(text.trim())?.[1].toLowerCase();
+  const action = ACTION_ROOT[verb];
+  return Boolean(action && controls.some((label) => {
+    const first = label.trim().split(/\s+/)[0].toLowerCase();
+    return first === action || (action === 'save' && first === 'move');
+  }));
+}
+
+function isControlResultFeedback(text, controls) {
+  const result = /^(?:the\s+)?([a-z]+)\s+(.+)$/i.exec(text.trim());
+  if (!result || !controls.some((label) =>
+    label.trim().split(/\s+/)[0].toLowerCase() === result[1].toLowerCase())) return false;
+  const predicate = result[2];
+  if (/^(?:(?:has|is|was)\s+)?(?:(?:now|successfully|been)\s+){0,2}(?:complete|completed|finished|succeeded)\b(?:\s+(?:successfully|without errors|at (?:[a-z]+|\d{1,2}(?::\d{2})?)))?(?=\s+(?:for|with)\b|[.!?]|$)/i.test(predicate)) {
+    return true;
+  }
+  const qualified = /^(for|of)\s+(.+?)\s+(?:(?:has|is|was)\s+)?(?:(?:now|successfully|been)\s+){0,2}(?:complete|completed|finished|succeeded)[.!?]?$/i.exec(predicate);
+  if (!qualified) return false;
+  // A result object can contain nouns such as "reports" and "counts".
+  // A finite verb with its own object instead describes the exported data.
+  const object = qualified[2].replace(/“[^”]*”|"[^"]*"|'[^']*'/g, 'quoted');
+  const words = object.match(/[a-z]+|\d+/gi) || [];
+  const clauseStart = new Set(['which', 'whether', 'when']);
+  const auxiliary = new Set(['is', 'are', 'was', 'were', 'has', 'have', 'had', 'can', 'will']);
+  const nonVerbs = new Set(['this', 'these', 'those', 'its', 'his', 'us', 'as']);
+  const objectBoundary = new Set([
+    'of', 'for', 'from', 'in', 'on', 'at', 'to', 'by', 'with', 'without', 'as',
+    'about', 'across', 'against', 'among', 'around', 'between', 'over', 'under',
+    'within', 'via', 'per', 'near', 'along', 'before', 'after', 'until',
+    'through', 'throughout', 'not', 'yet', 'already', 'marked',
+  ]);
+  for (let i = 1; i < words.length; i++) {
+    const word = words[i].toLowerCase();
+    if (clauseStart.has(word) || (auxiliary.has(word) && words[i] === word)) return false;
+    const scope = words.slice(0, i).join(' ');
+    // A date or view can precede a data verb. A result noun has a different prefix.
+    const scopeSubject = qualified[1].toLowerCase() === 'for' &&
+      (/^[A-Z][a-z]+(?: \d{4})?(?: (?:and|to|through) [A-Z][a-z]+(?: \d{4})?)*$/.test(scope) ||
+        /^Q [1-4](?: \d{4})?$/.test(scope) ||
+        /^(?:today|yesterday|tomorrow|(?:this|that|current) (?:view|table))$/i.test(scope));
+    if (i === words.length - 1) continue;
+    const next = words[i + 1].toLowerCase();
+    if (scopeSubject && word.endsWith('ed') && !objectBoundary.has(next)) return false;
+    if (nonVerbs.has(word) || !word.endsWith('s') || word.endsWith('ss')) continue;
+    if (scopeSubject && ['on', 'about'].includes(next) &&
+      words[i + 2] && (words[i + 3] || /s$/i.test(words[i + 2]))) return false;
+    if (objectBoundary.has(next)) continue;
+    if (next.endsWith('ed') &&
+      (!words[i + 2] || objectBoundary.has(words[i + 2].toLowerCase()))) continue;
+    if (next.endsWith('ing')) {
+      const objectHead = words[i + 2]?.toLowerCase();
+      if (scopeSubject && objectHead && (objectHead.endsWith('s') || objectHead === 'data')) return false;
+      continue;
+    }
+    return false;
+  }
+  return !/\b(?:not|only|already|yet|marked)\s*$/i.test(object);
+}
+
+function isVisible(elements, i) {
+  for (let p = i; p >= 0; p = elements[p].parent) {
+    if (elements[p].hidden) return false;
+  }
+  return true;
+}
+
+function isOperableControl(elements, i) {
+  const el = elements[i];
+  return CONTROL_TAGS.has(el.tag) && isVisible(elements, i) &&
+    !(el.tag === 'input' && el.inputType === 'hidden');
+}
+
+function controlLabel(elements, ends, i) {
+  const el = elements[i];
+  if (el.tag === 'input') {
+    return el.inputType === 'submit' || el.inputType === 'button' ? el.inputValue : '';
+  }
+  const visible = elements.slice(i, ends[i]).filter((child) => {
+    if (child.hidden || child.tag === 'svg') return false;
+    for (let p = child.parent; p >= i; p = elements[p].parent) {
+      if (elements[p].hidden || elements[p].tag === 'svg') return false;
+    }
+    return true;
+  });
+  const chunks = visible.flatMap((child) => child !== el && !INLINE_TAGS.has(child.tag) ?
+    // The closing space precedes direct text at the same source offset.
+    [[child.start, ' '], ...child.chunks, [child.end - 0.5, ' ']] : child.chunks);
+  return joinedText(chunks);
+}
+
+const INLINE_TAGS = new Set([
+  'a', 'abbr', 'b', 'bdi', 'bdo', 'cite', 'code', 'data', 'del', 'dfn', 'em',
+  'i', 'ins', 'kbd', 'label', 'mark', 'meter', 'output', 'q', 'rb', 'rp', 'rt',
+  'rtc', 'ruby', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time',
+  'u', 'var', 'wbr',
+]);
+
+function hasLiveAncestor(elements, from, stop) {
+  for (let p = elements[from].parent; p >= 0; p = elements[p].parent) {
+    if (elements[p].live) return true;
+    if (p === stop) break;
+  }
+  return false;
+}
+
+// Give each fragment the complete visible sentence. Keep its live owner on
+// the fragment so an inline live element cannot reset sentence boundaries.
+function sentenceEvents(events) {
+  const out = [];
+  const offsets = [0];
+  const raw = events.map((event) => {
+    offsets.push(offsets.at(-1) + event.chunk[1].length);
+    return event.chunk[1];
+  }).join('');
+  const starts = [0];
+  for (const match of raw.matchAll(/[.!?]["')”’]?\s+(?=(?:["'“‘(\[]\s*){1,3}[\p{L}\p{N}]|(?:["'“‘(\[]\s*){0,3}[\p{Lu}\p{N}])/gu)) {
+    const prior = raw.slice(Math.max(0, match.index - 12), match.index + 1);
+    if (/(?:^|[\s(])(?:e\.g|i\.e|etc|Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|vs)\.$/i.test(prior)) continue;
+    starts.push(match.index + match[0].length);
+  }
+  const ends = [...starts.slice(1), raw.length];
+  const texts = starts.map((start, index) => raw.slice(start, ends[index])
+    .replace(/\{[^{}]*\}/g, ' ').replace(/\s+/g, ' ').trim());
+  let sentence = 0;
+  for (let k = 0; k < events.length; k++) {
+    const event = events[k];
+    let cursor = offsets[k];
+    while (cursor < offsets[k + 1]) {
+      while (sentence < starts.length - 1 && starts[sentence + 1] <= cursor) sentence++;
+      const end = Math.min(offsets[k + 1], ends[sentence]);
+      out.push({ ...event, pos: event.pos + cursor - offsets[k],
+        chunk: [event.chunk[0] + cursor - offsets[k], raw.slice(cursor, end)],
+        sentenceId: sentence, sentenceText: texts[sentence] });
+      cursor = end;
+    }
+  }
+  return out;
+}
+
+// Keep one identity for each visible line. Each text run also keeps its marker
+// and live scope, so neighboring prose cannot change a marked note.
+function noteLines(elements, ends, kept, controls, isMarked = () => false) {
+  const notes = new Map(); // element index -> line identity -> scoped line
+  const liveSentences = new Map();
+  const visibleLines = [];
+  const eligible = new Set(kept);
+  let nextId = 0;
+  const attach = (owner, record, key = record.id) => {
+    if (!notes.has(owner)) notes.set(owner, new Map());
+    notes.get(owner).set(key, record);
+  };
+  for (const i of kept) {
+    const parent = elements[i].parent;
+    if (INLINE_TAGS.has(elements[i].tag) && eligible.has(parent)) continue;
+    let inLiveRegion = false;
+    for (let p = i; p >= 0; p = elements[p].parent) {
+      if (elements[p].live) {
+        inLiveRegion = true;
+        break;
+      }
+    }
+    const events = [];
+    for (let k = i; k < ends[i]; k++) {
+      if (!eligible.has(k)) continue;
+      let p = k;
+      while (p !== i && (INLINE_TAGS.has(elements[p].tag) || elements[p].tag === 'br')) {
+        p = elements[p].parent;
+      }
+      if (p !== i) {
+        events.push({ pos: elements[p].start, break: true });
+        events.push({ pos: elements[p].end - 0.5, break: true });
+        k = ends[p] - 1;
+        continue;
+      }
+      if (elements[k].tag === 'br') events.push({ pos: elements[k].start, break: true });
+      for (const chunk of elements[k].chunks) events.push({ pos: chunk[0], chunk, owner: k });
+    }
+    events.sort((a, b) => a.pos - b.pos);
+    let line = [];
+    const finish = () => {
+      const content = joinedText(line.map((event) => event.chunk));
+      if (/\p{L}/u.test(content)) {
+        const id = nextId++;
+        visibleLines.push({ id, events: line, inLiveRegion });
+        const scopes = new Map();
+        for (const event of line) {
+          for (let p = event.owner; p >= 0; p = elements[p].parent) {
+            if (!scopes.has(p)) scopes.set(p, []);
+            scopes.get(p).push(event.chunk);
+            if (p === i || (elements[p].live && !hasLiveAncestor(elements, p, i))) break;
+          }
+        }
+        for (const [owner, chunks] of scopes) {
+          const scopedText = joinedText(chunks);
+          // Feedback only empties its own scope. A live inline child must not
+          // empty ordinary text beside it on the same visible line.
+          const feedback = isControlFeedback(scopedText, controls) ||
+            (inLiveRegion && (ACTION_FEEDBACK.test(scopedText) ||
+              isControlResultFeedback(scopedText, controls)));
+          attach(owner, { id, order: line[0].pos, text: feedback ? '' : scopedText, sourceOwner: owner });
+        }
+      }
+      line = [];
+    };
+    for (const event of events) {
+      if (event.break) finish();
+      else line.push(event);
+    }
+    finish();
+  }
+  // A marked run can cross inline siblings and neutral wrappers. Plain words
+  // break it. Whitespace stays in it. Live text starts another scope.
+  for (const { id, events, inLiveRegion } of visibleLines) {
+    const scopedEvents = events.map((event) => {
+      const markers = [];
+      let liveScope = null;
+      const liveOwners = [];
+      for (let p = event.owner; p >= 0; p = elements[p].parent) {
+        if (isMarked(elements[p])) markers.push(p);
+        if (elements[p].live) {
+          if (liveScope === null) liveScope = p;
+          liveOwners.push(p);
+        }
+        if (p === kept[0]) break;
+      }
+      return { ...event, markers, liveScope, liveOwners };
+    });
+    const fragments = sentenceEvents(scopedEvents);
+    const liveText = new Map();
+    for (const event of fragments) {
+      if (!/\S/u.test(event.chunk[1])) continue;
+      if (event.liveScope !== null) {
+        const key = `${event.sentenceId}:${event.liveScope}`;
+        liveText.set(key, (liveText.get(key) || '') + event.chunk[1]);
+      }
+      for (const owner of event.liveOwners) {
+        if (!liveSentences.has(owner)) liveSentences.set(owner, new Set());
+        liveSentences.get(owner).add(`${id}:${event.sentenceId}`);
+      }
+    }
+    let group = [];
+    let gap = [];
+    let groupIndex = 0;
+    const feedbackBySentence = new Map();
+    const finishGroup = () => {
+      if (!group.length) return;
+      const text = joinedText(group.map((event) => event.chunk));
+      const sentence = group[0].sentenceText;
+      let feedback = feedbackBySentence.get(group[0].sentenceId);
+      if (feedback === undefined) {
+        feedback = isControlFeedback(sentence, controls) ||
+          ((group.some((event) => event.liveScope !== null) || inLiveRegion) &&
+            (ACTION_FEEDBACK.test(sentence) || isControlResultFeedback(sentence, controls)));
+        feedbackBySentence.set(group[0].sentenceId, feedback);
+      }
+      const key = `group:${id}:${groupIndex++}`;
+      const owners = new Set(group.flatMap((event) => event.markers));
+      const oneLiveScope = group[0].liveScope !== null &&
+        group.filter((event) => /\S/u.test(event.chunk[1]))
+          .every((event) => event.liveScope === group[0].liveScope);
+      for (const owner of owners) {
+        notes.get(owner)?.delete(id);
+        attach(owner, { id, order: group[0].pos, text: feedback ? '' : text,
+          sourceOwner: oneLiveScope ? group[0].liveScope : owner }, key);
+      }
+      group = [];
+      gap = [];
+    };
+    for (const event of fragments) {
+      if (group.length) {
+        const previous = group.at(-1);
+        // Keep partial live spans in one visible sentence. A complete live line remains separate.
+        const separateLiveLine = event.liveScope !== previous.liveScope &&
+          !event.liveOwners.some((owner) => previous.liveOwners.includes(owner)) &&
+          [event, previous].some((part) => part.liveScope !== null &&
+            /[.!?]["')”’]?\s*$/.test(liveText.get(`${part.sentenceId}:${part.liveScope}`) || ''));
+        if (event.sentenceId !== group[0].sentenceId || separateLiveLine) finishGroup();
+      }
+      if (!/\S/u.test(event.chunk[1])) {
+        if (group.length) gap.push(event);
+        continue;
+      }
+      if (!event.markers.length) {
+        finishGroup();
+        continue;
+      }
+      if (group.length) group.push(...gap);
+      gap = [];
+      group.push(event);
+    }
+    finishGroup();
+  }
+  const lineIds = new Map([...notes].map(([i, records]) =>
+    [i, new Set([...records.values()].map((record) => record.id))]));
+  for (let n = kept.length - 1; n >= 0; n--) {
+    const i = kept[n];
+    const parent = elements[i].parent;
+    if (notes.has(i) && eligible.has(parent)) {
+      if (!notes.has(parent)) notes.set(parent, new Map());
+      if (!lineIds.has(parent)) lineIds.set(parent, new Set());
+      const parentIds = lineIds.get(parent);
+      const copied = [];
+      for (const [key, record] of notes.get(i)) {
+        if (!parentIds.has(record.id) && !notes.get(parent).has(key)) {
+          notes.get(parent).set(key, record);
+          copied.push(record.id);
+        }
+      }
+      for (const id of copied) parentIds.add(id);
+    }
+  }
+  // A single-line live region is feedback. A live wrapper with several lines
+  // cannot exempt every line; matched action feedback already has empty text.
+  return new Map([...notes].map(([i, lines]) => [i,
+    [...lines.values()].sort((a, b) => a.order - b.order)
+      .map((record) => {
+        let live = false;
+        for (let p = record.sourceOwner; p >= 0; p = elements[p].parent) {
+          if (elements[p].live && liveSentences.get(p)?.size === 1) {
+            live = true;
+          } else if (elements[p].live) {
+            live = false;
+            break;
+          }
+        }
+        return { text: record.text, live };
+      })]));
+}
+
 // A wrapper that is a section of the page is not the data: what follows it
 // starts something new rather than annotating it.
 const SECTION_TAGS = new Set(['section', 'nav', 'article', 'aside', 'main', 'header', 'footer', 'form']);
@@ -365,9 +736,10 @@ function dataAbove(elements, lastChildOf, from) {
 // renders and what its subtree holds. A JSX expression is not prose: `{rows.map(
 // (r) => …)}` reaches this as text, and a brace run comes out before the words
 // are counted.
-function blocksUnderData(elements) {
+function blocksUnderData(elements, isMarked) {
   const out = [];
   if (!elements) return out;
+  const ends = subtreeEnds(elements);
   // One map answers both questions asked of it. Read before the write it is the
   // previous sibling of the element in hand; read for an element whose subtree
   // is already behind us it is that element's last child.
@@ -384,10 +756,13 @@ function blocksUnderData(elements) {
     // The candidate and everything prose-bearing under it. A note is often
     // wrapped: `<table/><div><p class="text-muted">…</p></div>` sets the note on
     // the <p>, and reading only the <div> saw no marker at all.
-    const inside = [el];
+    const inside = [i];
+    const basisChunks = el.chunks.slice();
     const muted = new Set();
+    const basisMuted = new Set();
     let heading = false;
     let data = false;
+    const controls = [];
     for (let k = i + 1; k < elements.length; k++) {
       let parent = elements[k].parent;
       while (parent > i) parent = elements[parent].parent;
@@ -395,11 +770,14 @@ function blocksUnderData(elements) {
       const child = elements[k];
       if (/^h[1-6]$/.test(child.tag)) heading = true;
       if (isDataBlock(child)) data = true;
+      if (isOperableControl(elements, k)) controls.push(controlLabel(elements, ends, k));
+      if (MUTE_TAGS.has(child.tag) || basisMuted.has(child.parent)) basisMuted.add(k);
+      else basisChunks.push(...child.chunks);
       if (MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
         muted.add(k);
         continue;
       }
-      inside.push(child);
+      inside.push(k);
       chunks.push(...child.chunks);
     }
     const text = chunks
@@ -411,7 +789,12 @@ function blocksUnderData(elements) {
       .replace(/\{[^{}]*\}/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    out.push({ el, above, text, heading, data, inside, parent: elements[el.parent] || null });
+    const notes = noteLines(elements, ends, inside, controls, isMarked);
+    out.push({ el, above, text, basisText: orderedText(basisChunks), heading, data,
+      inside: inside.flatMap((k) => (notes.get(k) || []).map((note) => ({
+        ...elements[k], live: note.live, noteText: note.text,
+      }))),
+      parent: elements[el.parent] || null });
   }
   return out;
 }
@@ -466,7 +849,7 @@ function subtreeEnds(elements) {
 // head row — `<div class="head"><h2>…</h2><span class="basis">…</span></div>`
 // followed by the table — so the walk leaves a named head row when it runs out of
 // siblings, and nothing else.
-function blocksBesideHeading(elements) {
+function blocksBesideHeading(elements, isMarked) {
   const out = [];
   if (!elements) return out;
   const childrenOf = new Map();
@@ -510,7 +893,7 @@ function blocksBesideHeading(elements) {
     }
     if (!data || !tail.length || tail.length > ASIDE_MAX) continue;
     const heading = { tag: elements[h].tag, text: subtreeText(elements, ends, h) };
-    for (const j of tail) out.push(asideCandidate(elements, ends, j, heading, data));
+    for (const j of tail) out.push(asideCandidate(elements, ends, j, heading, data, isMarked));
   }
   return out;
 }
@@ -536,38 +919,60 @@ function orderedText(chunks) {
     .trim();
 }
 
+// Inline tags do not insert a space between letters of one visible word.
+function joinedText(chunks) {
+  return chunks
+    .sort((a, b) => a[0] - b[0])
+    .map((chunk) => chunk[1])
+    .join('')
+    .replace(/\{[^{}]*\}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // A line about the data is a line. Past this many elements it is a block of
 // content, and reading each of its lines separately is quadratic in the subtree:
 // a candidate wrapping 15,000 nested divs took 79 seconds before this bound.
 const ASIDE_MAX_NODES = 40;
 
 // One candidate: the element and everything prose-bearing under it, each with its
-// own text, because the line carrying the marker is the line to measure and to
+// note text, because the line carrying the marker is the line to measure and to
 // report. `<span class="total">12,400 <small>EUR</small></span>` is a total with
 // its unit, and reading the pair as one two-word note fired on `EUR`. Words a
 // reader operates rather than reads come out, and so does a brace run.
-function asideCandidate(elements, ends, i, heading, data) {
+function asideCandidate(elements, ends, i, heading, data, isMarked) {
   const kept = [];
   const muted = new Set();
+  const basisMuted = new Set();
   let nested = LIST_TAGS.has(elements[i].tag) || ends[i] - i > ASIDE_MAX_NODES;
+  const controls = [];
+  const basisChunks = [];
   const stop = Math.min(ends[i], i + ASIDE_MAX_NODES + 1);
   for (let k = i; k < stop; k++) {
     const child = elements[k];
     if (k > i) {
       if (/^h[1-6]$/.test(child.tag) || isDataBlock(child) || LIST_TAGS.has(child.tag)) nested = true;
+      if (isOperableControl(elements, k)) controls.push(controlLabel(elements, ends, k));
+      if (MUTE_TAGS.has(child.tag) || basisMuted.has(child.parent)) basisMuted.add(k);
+      else basisChunks.push(...child.chunks);
       if (MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
         muted.add(k);
         continue;
       }
     }
+    if (k === i) basisChunks.push(...child.chunks);
     kept.push(k);
   }
-  const inside = kept.map((k) => ({
+  const notes = noteLines(elements, ends, kept, controls, isMarked);
+  const inside = kept.flatMap((k) => (notes.get(k) || []).map((note) => ({
     tag: elements[k].tag,
     classes: elements[k].classes,
+    live: note.live,
+    noteText: note.text,
     text: orderedText(kept.filter((j) => j >= k && j < ends[k]).flatMap((j) => elements[j].chunks)),
-  }));
-  return { heading, data, nested, inside, text: inside[0].text };
+  })));
+  return { heading, data, nested, inside, text: inside[0]?.text || '',
+    basisText: orderedText(basisChunks) };
 }
 
 // Concatenated contents of every <style> block.
