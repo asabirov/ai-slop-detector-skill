@@ -570,6 +570,85 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     assert.ok(durations.at(-1) <= durations[0] * 5 + 150,
       `Repeated table notes grew too fast: ${JSON.stringify({ sizes, durations })}`);
   });
+  it('keeps a numeric sentence after Export completion', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const note = '24 hours can pass before late bookings appear.';
+    const wrapper = `<div class="text-muted" role="status">The export completed for all selected bookings. ${note}<button>Export</button></div>`;
+    assert.deepEqual(spans(table + wrapper, 'table-footnote'), [`under <table>: ${note}`]);
+    assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+      [`beside <h2> "Reports" above <table>: ${note}`]);
+  });
+  it('keeps a quoted sentence after Export completion', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const note = '“Updated each morning, so late bookings appear tomorrow.”';
+    const wrapper = `<div class="text-muted" role="status">The export completed for all selected bookings. ${note}<button>Export</button></div>`;
+    assert.deepEqual(spans(table + wrapper, 'table-footnote'), [`under <table>: ${note}`]);
+    assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+      [`beside <h2> "Reports" above <table>: ${note}`]);
+  });
+  it('keeps completion words that describe data fields', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const notes = [
+      'The export for this view lists only bookings marked complete.',
+      'The export for this table lists bookings only when their status is complete.',
+      'The export for this view shows which bookings have finished.',
+      'The export for each booking shows whether payment is complete.',
+    ];
+    for (const note of notes) {
+      const wrapper = `<div class="text-muted" role="status"><p>Ready.</p><p>${note}</p><button>Export</button></div>`;
+      assert.deepEqual(spans(table + wrapper, 'table-footnote'), [`under <table>: ${note}`]);
+      assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+        [`beside <h2> "Reports" above <table>: ${note.slice(0, 70)}`]);
+    }
+    const confirmed = notes[0].replace('complete', 'confirmed');
+    const control = `<div class="text-muted" role="status"><p>Ready.</p><p>${confirmed}</p><button>Export</button></div>`;
+    assert.deepEqual(spans(table + control, 'table-footnote'), [`under <table>: ${confirmed}`]);
+    assert.deepEqual(spans(`<h2>Reports</h2>${control}${table}`, 'table-aside'),
+      [`beside <h2> "Reports" above <table>: ${confirmed.slice(0, 70)}`]);
+  });
+  it('keeps qualified Export results silent beside a data note', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const note = 'Updated each morning, so late bookings appear tomorrow.';
+    for (const result of [
+      'The export of all selected bookings completed.',
+      'The export has now completed for all selected bookings.',
+      'The export successfully completed for all selected bookings.',
+      'The export has been completed for all selected bookings.',
+    ]) {
+      const pure = `<div class="text-muted" role="status"><p>${result}</p><p>Ready.</p><button>Export</button></div>`;
+      assert.deepEqual(spans(table + pure, 'table-footnote'), []);
+      assert.deepEqual(spans(`<h2>Reports</h2>${pure}${table}`, 'table-aside'), []);
+      const withNote = `<div class="text-muted" role="status"><p>${result}</p><p>${note}</p><button>Export</button></div>`;
+      assert.deepEqual(spans(table + withNote, 'table-footnote'), [`under <table>: ${note}`]);
+      assert.deepEqual(spans(`<h2>Reports</h2>${withNote}${table}`, 'table-aside'),
+        [`beside <h2> "Reports" above <table>: ${note}`]);
+    }
+  });
+  it('keeps abbreviations and decimals inside one note', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const note = 'Updated nightly, e.g. 3.14 hours after close, so yesterday stays open.';
+    const wrapper = `<div class="text-muted"><p>${note}</p><button>Export</button></div>`;
+    assert.deepEqual(spans(table + wrapper, 'table-footnote'), [`under <table>: ${note}`]);
+    assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+      [`beside <h2> "Reports" above <table>: ${note.slice(0, 70)}`]);
+  });
+  it('scans repeated groups in one live sentence with bounded growth', { timeout: 2500 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const group = '<small>all bookings selected in this table every morning</small> and ';
+    const scanGroups = (count, live = true) => {
+      const wrapper = `<div${live ? ' role="status"' : ''}>Export for ${group.repeat(count)}records remain pending.<p>Ready.</p><button>Export</button></div>`;
+      const start = performance.now();
+      const findings = detect(table + wrapper, { level: 1, kind: 'artifact', ext: 'html' }).findings;
+      assert.ok(findings.some((finding) => finding.rule === 'table-footnote'));
+      return performance.now() - start;
+    };
+    scanGroups(100);
+    const sizes = [500, 1000, 2000, 4000];
+    const durations = sizes.map((size) => scanGroups(size));
+    scanGroups(4000, false);
+    assert.ok(durations.at(-1) <= durations[0] * 5 + 120,
+      `Repeated live groups grew too fast: ${JSON.stringify({ sizes, durations })}`);
+  });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
   });

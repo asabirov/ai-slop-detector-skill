@@ -394,8 +394,11 @@ function isControlResultFeedback(text, controls) {
   if (!result || !controls.some((label) =>
     label.trim().split(/\s+/)[0].toLowerCase() === result[1].toLowerCase())) return false;
   const predicate = result[2];
-  return /^(?:(?:has|is|was)\s+)?(?:complete|completed|finished|succeeded)\b/i.test(predicate) ||
-    /^for\b/i.test(predicate) && /\b(?:complete|completed|finished|succeeded)[.!?]?$/i.test(predicate);
+  if (/^(?:(?:has|is|was)\s+)?(?:(?:now|successfully|been)\s+){0,2}(?:complete|completed|finished|succeeded)\b(?=\s+(?:for|with)\b|[.!?]|$)/i.test(predicate)) {
+    return true;
+  }
+  const qualified = /^(?:for|of)\s+(.+?)\s+(?:(?:has|is|was)\s+)?(?:(?:now|successfully|been)\s+){0,2}completed[.!?]?$/i.exec(predicate);
+  return Boolean(qualified && !/\b(?:lists?|shows?|includes?|contains?|displays?|reports?|indicates?|tracks?|marks?|marked|whether|which|when|is|are|was|were|has|have|had|can|will)\b/i.test(qualified[1]));
 }
 
 function isVisible(elements, i) {
@@ -451,7 +454,9 @@ function sentenceEvents(events) {
       return event.chunk[1];
     }).join('');
     const starts = [0];
-    for (const match of raw.matchAll(/[.!?]["')”’]?\s+(?=\p{Lu})/gu)) {
+    for (const match of raw.matchAll(/[.!?]["')”’]?\s+(?=(?:["'“‘(\[]\s*)?(?:\p{Lu}|\p{N}))/gu)) {
+      const prior = raw.slice(Math.max(0, match.index - 12), match.index + 1);
+      if (/(?:^|[\s(])(?:e\.g|i\.e|etc|Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|vs)\.$/i.test(prior)) continue;
       starts.push(match.index + match[0].length);
     }
     const ends = [...starts.slice(1), raw.length];
@@ -568,13 +573,18 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
     let gap = [];
     let liveScope = null;
     let groupIndex = 0;
+    const feedbackBySentence = new Map();
     const finishGroup = () => {
       if (!group.length) return;
       const text = joinedText(group.map((event) => event.chunk));
       const sentence = group[0].sentenceText;
-      const feedback = isControlFeedback(sentence, controls) ||
-        ((liveScope !== null || inLiveRegion) &&
-          (ACTION_FEEDBACK.test(sentence) || isControlResultFeedback(sentence, controls)));
+      let feedback = feedbackBySentence.get(group[0].sentenceId);
+      if (feedback === undefined) {
+        feedback = isControlFeedback(sentence, controls) ||
+          ((liveScope !== null || inLiveRegion) &&
+            (ACTION_FEEDBACK.test(sentence) || isControlResultFeedback(sentence, controls)));
+        feedbackBySentence.set(group[0].sentenceId, feedback);
+      }
       const key = `group:${id}:${groupIndex++}`;
       const owners = new Set(group.flatMap((event) => event.markers));
       for (const owner of owners) {
