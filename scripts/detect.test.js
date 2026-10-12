@@ -563,20 +563,28 @@ test('scans unfinished comments and many raw lines with bounded growth', { timeo
 });
 
 test('scans multiline unfinished raw tokens with bounded growth', { timeout: 2000 }, () => {
+  const median = (values) => values.sort((a, b) => a - b)[3];
   const measure = (source) => {
+    const start = performance.now();
     parse(source, { ext: 'md' });
-    const times = [];
-    for (let i = 0; i < 3; i++) {
-      const start = performance.now();
-      parse(source, { ext: 'md' });
-      times.push(performance.now() - start);
-    }
-    return times.sort((a, b) => a - b)[1];
+    return performance.now() - start;
   };
   for (const opener of ['<!--\n', '<a title="']) {
-    const small = measure('<div>\n' + opener + 'abc\n'.repeat(12000));
-    const large = measure('<div>\n' + opener + 'abc\n'.repeat(24000));
-    assert.ok(large < small * 3.2, `${opener} grew ${large / small} times`);
+    const sources = [6000, 24000].map((count) => '<div>\n' + opener + 'abc\n'.repeat(count));
+    for (let round = 0; round < 2; round++) {
+      for (const source of sources) measure(source);
+    }
+    const times = [[], []];
+    for (let round = 0; round < 7; round++) {
+      for (const index of round % 2 ? [1, 0] : [0, 1]) {
+        times[index].push(measure(sources[index]));
+      }
+    }
+    const small = median(times[0]);
+    const large = median(times[1]);
+    console.log(JSON.stringify({ opener, small, large, ratio: large / small, times }));
+    assert.ok(large < small * 8,
+      `${JSON.stringify(opener)} grew ${large / small} times for four times the input`);
   }
 });
 
