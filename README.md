@@ -189,6 +189,11 @@ HTML, JSX, TSX, Vue, Svelte, and Astro. Dynamic classes, Tailwind configuration,
 CSS cascade resolution, and contrast checks need a rendered review. See the
 [CLI reference](docs/ai-slop-detector.md) for coverage and thresholds.
 
+`nested-cards` counts a `card`, `panel`, or `tile` class only when an applied
+declaration gives the element a border, background, or box shadow. A rounded
+element with one of those styles also counts, even without a card-like class.
+Class names alone do not establish a painted card.
+
 ## Changing a rule
 
 The rule set is a shared contract. Do not fork it, and do not silence a rule in

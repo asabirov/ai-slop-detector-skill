@@ -141,7 +141,7 @@ values are stable — reference them in allowlists and PR notes.
 | `ai-gradient` | 2 | warning | Pink, violet and purple gradient combinations are a common generated UI default. |
 | `glow-shadow` | 2 | warning | A colored zero-offset shadow creates a decorative halo. |
 | `glassmorphism` | 2 | warning | Backdrop blur is a common decorative glass effect. |
-| `nested-cards` | 2 | warning | Cards inside cards add redundant containers. |
+| `nested-cards` | 2 | warning | Painted cards inside painted cards add redundant containers. Class names alone do not count. |
 | `bounce-easing` | 2 | warning | Bounce or elastic motion adds ornamental overshoot. |
 | `accent-bar` | 3 | warning | A colored side stripe decorates a container boundary. |
 | `pill-radius` | 3 | warning | Pill-shaped buttons or cards can become a default shape without a purpose. |

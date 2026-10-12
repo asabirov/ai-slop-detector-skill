@@ -33,6 +33,30 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     });
   }
 
+  it('does not count unpainted card, panel, or tile wrappers as cards', { timeout: 1000 }, () => {
+    for (const name of ['card', 'panel', 'tile']) {
+      lacks(`<section class="${name}"><div class="${name}">Field notes</div></section>`, 'nested-cards');
+      lacks(`<section class="${name}"><div class="card" style="background:white">Field notes</div></section>`, 'nested-cards');
+    }
+    lacks('<section class="card" style="background:transparent;border:none;box-shadow:none"><div class="card" style="background:white">Field notes</div></section>', 'nested-cards');
+    for (const style of [
+      'border:0 solid red', 'background:rgba(0,0,0,0)', 'box-shadow:0 0 0 transparent',
+      'background:#0000', 'background:hsla(0,0%,0%,0)', 'background:rgb(0 0 0 / 0)',
+      'border:1px solid #0000', 'box-shadow:0 2px 4px #0000',
+    ]) {
+      lacks(`<section class="tile" style="${style}"><div class="card" style="background:white">Field notes</div></section>`, 'nested-cards');
+    }
+  });
+  it('counts nested cards with painted CSS, inline styles, or utility classes', { timeout: 1000 }, () => {
+    has('<style>.card { background:white; border:1px solid #ddd }</style><section class="card"><div class="card">Field notes</div></section>', 'nested-cards');
+    has('<section class="card" style="border:1px solid #ddd"><div class="card" style="box-shadow:0 2px 6px #777">Field notes</div></section>', 'nested-cards');
+    has('<section class="card border"><div class="card bg-white">Field notes</div></section>', 'nested-cards');
+    has('<style>.card { background:none; background-color:white }</style><section class="card"><div class="card">Field notes</div></section>', 'nested-cards');
+    has('<section class="card" style="background:linear-gradient(white, transparent)"><div class="card" style="background:white">Field notes</div></section>', 'nested-cards');
+    has('<style>.card { border-width:1px; border-style:solid; border-color:#ddd }</style><section class="card"><div class="card">Field notes</div></section>', 'nested-cards');
+    has('<section style="background:white;border-radius:8px"><div style="border:1px solid #ddd;border-radius:8px">Field notes</div></section>', 'nested-cards');
+  });
+
   it('reads gradient clipping and glass from inline styles', { timeout: 1000 }, () => {
     const source = '<h1 style="background:linear-gradient(90deg, purple, pink);background-clip:text">Notes</h1><section style="backdrop-filter:blur(8px)">Records</section>';
     has(source, 'gradient-text');

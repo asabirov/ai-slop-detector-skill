@@ -104,6 +104,13 @@ function cssRule(id, level, why, fix, predicate) {
 }
 const background = (p) => p.background || p['background-image'] || p['background-color'] || '';
 const bordered = (p) => /^1px\s+solid\b/.test(p.border || '');
+const invisibleColor = (v) => /\btransparent\b|#[a-f0-9]{3}0\b|#[a-f0-9]{6}00\b|(?:rgba|hsla)\([^)]*,\s*0(?:\.0+)?%?\s*\)|(?:rgb|hsl)\([^)]*\/\s*0(?:\.0+)?%?\s*\)/.test(v);
+const paintedBackground = (v) => !!v && !/^(?:none|inherit|initial|unset)$/.test(v) &&
+  !(/^(?:transparent|#[a-f0-9]{4}|#[a-f0-9]{8}|(?:rgba?|hsla?)\([^)]*\))$/.test(v) && invisibleColor(v));
+const paintedBorder = (v) => !!v && /\b(?:solid|dashed|dotted|double|groove|ridge|inset|outset)\b/.test(v) &&
+  !/\b(?:none|hidden)\b/.test(v) && !/^0(?:px|rem|em)?(?:\s|$)/.test(v) && !invisibleColor(v);
+const paintedShadow = (v) => !!v && v !== 'none' && !invisibleColor(v) &&
+  !/^(?:inset\s+)?0(?:px)?\s+0(?:px)?(?:\s+0(?:px)?){0,2}$/.test(v);
 const buttonish = (s) => /(?:^|[\s,.#>])(?:button|btn|cta)(?:$|[\s,.#:_-])/.test(s);
 const cardish = (s) => /(?:^|[\s,.#>])(?:card|panel|tile|callout|alert)(?:$|[\s,.#:_-])/.test(s);
 
@@ -127,8 +134,21 @@ module.exports = [
   cssRule('glassmorphism', 2, 'Backdrop blur is a common decorative glass effect.', 'Keep blur only where layering needs it.', (p) => /blur\(/.test(p['backdrop-filter'] || p['-webkit-backdrop-filter'] || '')),
   rule('nested-cards', 2, 'Cards inside cards add redundant containers.', 'Use spacing or a divider within the outer card.', (ctx) => {
     const { elements, rows } = data(ctx);
-    const cards = new Set(elements.filter((el) => [...el.classes].some((c) => /^(?:card|panel|tile)(?:$|[-_])/.test(c))));
-    for (const row of rows) if (pixels(row.props['border-radius']) > 0 && (background(row.props) || row.props.border || row.props['box-shadow'])) for (const el of targets(ctx, row)) cards.add(el);
+    const painted = new Set(), rounded = new Set();
+    for (const row of rows) {
+      const p = row.props;
+      const hasPaint = [p.background, p['background-image'], p['background-color']].some(paintedBackground) ||
+        [p.border, p['border-top'], p['border-right'], p['border-bottom'], p['border-left']].some(paintedBorder) ||
+        (paintedBorder(`${p['border-width'] || ''} ${p['border-style'] || ''}`.trim()) && p['border-width'] !== '0') ||
+        splitOutsideFunctions(p['box-shadow'] || '', ',').some(paintedShadow);
+      if (!hasPaint && pixels(p['border-radius']) <= 0) continue;
+      for (const el of targets(ctx, row)) {
+        if (hasPaint) painted.add(el);
+        if (pixels(p['border-radius']) > 0) rounded.add(el);
+      }
+    }
+    const cards = new Set(elements.filter((el) => painted.has(el) &&
+      ([...el.classes].some((c) => /^(?:card|panel|tile)(?:$|[-_])/.test(c)) || rounded.has(el))));
     const inside = [];
     const hits = [];
     for (let i = 0; i < elements.length; i++) {
