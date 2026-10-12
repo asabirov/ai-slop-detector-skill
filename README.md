@@ -126,14 +126,21 @@ Textarea content keeps tag and comment spellings as text.
 Raw HTML blocks can start after completed headings and fences. Script, style,
 and textarea state stays active across a Markdown block boundary. A list-shaped
 line inside an active fence or raw HTML block keeps that block open. A raw HTML
-region ends when its list item ends. Inline comments, tags, and code spans stop
-at a new heading, list item, or quote block. Short `<!-->` and `<!--->` comments
-end before later code spans. Backticks in tags and comments do not open code
-spans. In raw HTML blocks, script and style closing tags with attributes or a
-trailing slash restore the following text. The text parser remains approximate
-for malformed HTML tags across a blank line, unfinished tags at the end of a file, and malformed
-HTML nesting. Some raw HTML block closers with a different tag name remain a
-known limit. An unclosed `pre` block can stay hidden after a list or quote ends.
+region ends when its list item ends. The parser determines Markdown leaf blocks
+before it reads inline comments, tags, and code spans. An ordered marker other
+than `1.` or `1)` cannot interrupt an open paragraph. A line without a quote
+marker can continue a quoted paragraph. An ATX or setext heading ends its inline
+block before the next paragraph starts. A fence treats extra quote markers as
+content after it removes its owning container prefix. Short `<!-->` and
+`<!--->` comments end before later code spans. Backticks in tags and comments
+do not open code spans. In raw HTML blocks, script and style closing tags can
+contain quoted `>` characters, attributes, or a trailing slash. Inline raw
+closes accept a form-feed separator. Vertical tab and nonbreaking space are not
+closing-tag separators. The text parser remains approximate for malformed HTML
+tags across a blank line and unfinished tags at the end of a file. Malformed
+HTML nesting also remains approximate. Some raw HTML block closers with a
+different tag name remain a known limit. An unclosed `pre` block can stay hidden
+after a list or quote ends.
 
 In markup, `p`, `div`, headings, `span`, `li`, table cells, `section`, `header`,
 `footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible text run. This keeps

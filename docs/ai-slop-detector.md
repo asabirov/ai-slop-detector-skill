@@ -109,8 +109,12 @@ hidden after a Markdown block boundary, while the new block uses Markdown refere
 rules. Script, style, and textarea text also retains its lexical state across that
 boundary. A marker-shaped line inside an active fence or raw HTML block stays in
 that block. Markdown code syntax does not take ownership of an earlier comment
-or textarea. Inline comments, tags, and code spans stop at a new Markdown leaf
-block. Short inline comments close before later code spans. Backticks in tags
+or textarea. The parser determines Markdown leaf blocks before it reads inline
+syntax. An ordered marker other than `1.` or `1)` does not interrupt an open
+paragraph. A line without a quote marker can continue a quoted paragraph.
+An ATX or setext heading ends its inline block before the next paragraph starts.
+A fence keeps extra quote markers as content after it removes its owning prefix.
+Short inline comments close before later code spans. Backticks in tags
 and comments do not open code spans. In raw HTML blocks, script and style
 closing tags with attributes or a trailing slash restore later text. The README records the
 parser's remaining malformed HTML limits.

@@ -808,7 +808,7 @@ function stripFences(text, replacement) {
   let fence = null;
   const lists = [];
   for (const line of text.split('\n')) {
-    const container = markdownContainer(line, !fence);
+    const container = markdownContainer(line, !fence, fence?.quoteDepth ?? Infinity);
     const blank = /^\s*$/.test(container.body);
     updateListStack(lists, container, blank);
     const body = markdownBlockBody(container, lists);
@@ -897,24 +897,31 @@ function withoutMarkdownCode(source) {
 // Match CommonMark raw HTML tags. An attribute starts with an ASCII name and
 // has a valid quoted or unquoted value. Invalid angle text stays visible.
 const MARKDOWN_TAG = /<(?:\/[a-z][a-z0-9-]*[ \t\n]*|[a-z][a-z0-9-]*(?:[ \t\n]+[a-z_:][a-z0-9:._-]*(?:[ \t\n]*=[ \t\n]*(?:"[^"]*"|'[^']*'|[^ \t\n"'=<>`]+))?)*[ \t\n]*\/?)>/gi;
-// One forward search finds each closing candidate and its next greater-than.
-// An unfinished candidate cannot make every later candidate rescan the suffix.
+// Consume each closing candidate once. A greater-than inside a quoted attribute
+// does not finish the token, and an unfinished quote consumes the remaining text.
 function rawClosingTag(source, from, name, accept = () => true) {
   let cursor = from;
-  let greater = -1;
   const prefix = `</${name}`;
   while ((cursor = source.indexOf('</', cursor)) !== -1) {
     if (source.slice(cursor, cursor + prefix.length).toLowerCase() !== prefix ||
-      !/[\s/>]/.test(source[cursor + prefix.length] || '')) {
+      !/[ \t\n\f\r/>]/.test(source[cursor + prefix.length] || '')) {
       cursor += 2;
       continue;
     }
-    if (greater < cursor) greater = source.indexOf('>', cursor + prefix.length);
-    if (greater === -1) return null;
-    const candidate = { index: cursor, end: greater + 1,
-      text: source.slice(cursor, greater + 1) };
+    let end = cursor + prefix.length;
+    let quote = null;
+    let closed = false;
+    for (; end < source.length; end++) {
+      const char = source[end];
+      if (quote) {
+        if (char === quote) quote = null;
+      } else if (char === '"' || char === "'") quote = char;
+      else if (char === '>') { end++; closed = true; break; }
+    }
+    if (!closed) return null;
+    const candidate = { index: cursor, end, text: source.slice(cursor, end) };
     if (accept(candidate)) return candidate;
-    cursor += prefix.length;
+    cursor = end;
   }
   return null;
 }
@@ -1017,6 +1024,7 @@ function inlineProtectedRanges(source) {
   let cursor = 0;
   let noLongCommentClose = false;
   while ((cursor = source.indexOf('<', cursor)) !== -1) {
+    if (markdownEscaped(source, cursor)) { cursor++; continue; }
     if (source.startsWith('<!--', cursor)) {
       const shortEnd = source[cursor + 4] === '>' ? cursor + 5 :
         source[cursor + 4] === '-' && source[cursor + 5] === '>' ? cursor + 6 : null;
@@ -1123,7 +1131,7 @@ function markdownInlineTags(source, initialRaw = null) {
         while (rawCodeRanges[rawCodeCursor]?.end <= candidate.index) rawCodeCursor++;
         // Inline Markdown accepts only a plain closing tag. Raw HTML blocks
         // use browser recovery and can accept attributes or a trailing slash.
-        return /^[ \t\n]*>$/.test(candidate.text.slice(rawName.length + 2)) &&
+        return /^[ \t\n\f\r]*>$/.test(candidate.text.slice(rawName.length + 2)) &&
           !markdownEscaped(source, candidate.index) &&
           !(rawCodeRanges[rawCodeCursor]?.start <= candidate.index);
       });
@@ -1286,7 +1294,7 @@ function stripMarkdownHidden(source, rawHtml, sourceTokens = null, openHidden = 
     if (token.index < after) continue;
     if (hidden) {
       const closing = token.type === 'tag' &&
-        /^<\/(script|style|code|pre)(?=[\s/>])[^>]*>$/i.exec(token.text);
+        /^<\/(script|style|code|pre)(?=[ \t\n\f\r/>])/i.exec(token.text);
       if (closing && closing[1].toLowerCase() === hidden) {
         ranges.push({ start, end: token.end });
         hidden = null;
@@ -1317,34 +1325,41 @@ function stripMarkdownHidden(source, rawHtml, sourceTokens = null, openHidden = 
 const MARKDOWN_HTML_BLOCK = /^ {0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?=[\s/>]|$)/i;
 const MARKDOWN_HTML_TAG_LINE = new RegExp(`^ {0,3}${MARKDOWN_TAG.source}\\s*$`, 'i');
 const MARKDOWN_SPECIAL_BLOCK = /^ {0,3}<(script|pre|style|textarea)(?=[\s>]|$)/i;
-function markdownContainer(line, parseList = true) {
+function markdownContainer(line, parseList = true, maxQuoteDepth = Infinity) {
   let body = line;
   let quoteDepth = 0;
   let list = false;
   let listIndent = 0;
+  let markerValue = null;
   let markerIndent = 0;
+  let listQuoteDepth = 0;
   let indent = 0;
+  let quotesAfterList = false;
   while (true) {
     const leading = /^ */.exec(body)[0].length;
     indent = Math.max(indent, leading);
     const quote = /^ {0,3}>[ \t]?/.exec(body);
-    if (quote) {
+    if (quote && quoteDepth < maxQuoteDepth) {
       body = body.slice(quote[0].length);
       quoteDepth++;
+      if (list) quotesAfterList = true;
       continue;
     }
     const marker = parseList && !list &&
-      /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+/.exec(body);
+      /^ {0,3}([-+*]|\d{1,9}[.)])[ \t]+/.exec(body);
     if (marker) {
       list = true;
+      markerValue = marker[1];
       markerIndent = indent;
+      listQuoteDepth = quoteDepth;
       listIndent = marker[0].length;
       body = body.slice(listIndent);
       continue;
     }
     break;
   }
-  return { body, quoteDepth, list, indent, markerIndent, listIndent };
+  return { body, quoteDepth, list, marker: markerValue,
+    quotesAfterList, listQuoteDepth, indent, markerIndent, listIndent };
 }
 
 function updateListStack(lists, container, blank) {
@@ -1352,7 +1367,7 @@ function updateListStack(lists, container, blank) {
   const indent = container.list ? container.markerIndent : container.indent;
   while (lists.length && (container.quoteDepth < lists.at(-1).quoteDepth ||
     indent < lists.at(-1).contentIndent)) lists.pop();
-  if (container.list) lists.push({ quoteDepth: container.quoteDepth,
+  if (container.list) lists.push({ quoteDepth: container.listQuoteDepth,
     contentIndent: container.listIndent });
 }
 
@@ -1377,6 +1392,8 @@ function markdownRegions(source) {
   const lists = [];
   let paragraphOpen = false;
   let paragraphQuoteDepth = 0;
+  let paragraphOuterList = false;
+  let paragraphListOwner = null;
   let fence = null;
   let regionStart = 0;
   let nextLineStart = 0;
@@ -1394,7 +1411,12 @@ function markdownRegions(source) {
   for (const line of source.split('\n')) {
     const lineStart = nextLineStart;
     nextLineStart += line.length + 1;
-    const container = markdownContainer(line, kind !== 'html' && !fence);
+    let container = markdownContainer(line, kind !== 'html' && !fence,
+      fence?.quoteDepth ?? Infinity);
+    // An ordered item starting after a paragraph can interrupt it only at 1.
+    if (paragraphOpen && container.quoteDepth === paragraphQuoteDepth &&
+      container.list && /^\d/.test(container.marker) &&
+      !/^1[.)]$/.test(container.marker)) container = markdownContainer(line, false);
     const blank = /^\s*$/.test(container.body);
     updateListStack(lists, container, blank);
     const blockBody = markdownBlockBody(container, lists);
@@ -1406,10 +1428,22 @@ function markdownRegions(source) {
       endMarker = null;
       paragraphOpen = false;
     }
+    let continuation = false;
     if (kind === 'markdown') {
+      const atx = /^ {0,3}#{1,6}(?:[ \t]|$)/.test(blockBody);
+      const thematic = /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/.test(blockBody);
+      const setext = paragraphOpen && /^ {0,3}(?:=+|-+)[ \t]*$/.test(blockBody);
+      // A missing quote marker can continue the open paragraph. A true block
+      // start still ends it, even when that line has no quote marker.
+      const lazyQuote = paragraphOpen && container.quoteDepth < paragraphQuoteDepth &&
+        !container.list && !atx && !thematic && !setext && !blank &&
+        !MARKDOWN_HTML_BLOCK.test(blockBody) && !MARKDOWN_SPECIAL_BLOCK.test(blockBody);
+      const effectiveQuoteDepth = lazyQuote ? paragraphQuoteDepth : container.quoteDepth;
+      const outerListEnded = paragraphOuterList && paragraphListOwner !== lists.at(-1) &&
+        container.quoteDepth > 0;
       const startsLeaf = container.list ||
-        container.quoteDepth !== paragraphQuoteDepth ||
-        /^ {0,3}(?:#{1,6}(?:[ \t]|$)|(?:\*\s*){3,}$|(?:-\s*){3,}$|(?:_\s*){3,}$)/.test(blockBody);
+        effectiveQuoteDepth !== paragraphQuoteDepth || outerListEnded || atx || thematic;
+      continuation = paragraphOpen && !startsLeaf && !blank && !setext;
       if (lines.length && startsLeaf && !fence) {
         flush();
         paragraphOpen = false;
@@ -1432,7 +1466,7 @@ function markdownRegions(source) {
         paragraphOpen = false;
         continue;
       }
-      if (blank || container.list || container.quoteDepth !== paragraphQuoteDepth) paragraphOpen = false;
+      if (blank || container.list || effectiveQuoteDepth !== paragraphQuoteDepth) paragraphOpen = false;
       const special = MARKDOWN_SPECIAL_BLOCK.exec(blockBody);
       const startsTagBlock = MARKDOWN_HTML_TAG_LINE.test(blockBody) &&
         !paragraphOpen;
@@ -1456,15 +1490,26 @@ function markdownRegions(source) {
         }
       }
       if (kind === 'markdown') {
-        const setext = paragraphOpen && /^ {0,3}(?:=+|-+)[ \t]*$/.test(blockBody);
+        if (!continuation) {
+          paragraphOuterList = container.quotesAfterList;
+          paragraphListOwner = lists.at(-1) || null;
+        }
         paragraphOpen = !blank && !setext &&
-          !/^ {0,3}(?:#{1,6}(?:[ \t]|$)|(?:\*\s*){3,}$|(?:-\s*){3,}$|(?:_\s*){3,}$)/.test(blockBody);
-        paragraphQuoteDepth = container.quoteDepth;
+          !atx && !thematic;
+        paragraphQuoteDepth = effectiveQuoteDepth;
+      }
+      if (kind === 'markdown' && (atx || setext || thematic)) {
+        pushLine(setext ? ' '.repeat(line.length) : line, lineStart);
+        flush();
+        paragraphOpen = false;
+        continue;
       }
     }
     const rawLine = kind === 'html' && (quoteDepth > 0 || inList) ?
       ' '.repeat(line.length - blockBody.length) + blockBody : line;
-    pushLine(kind === 'html' ? rawLine : line, lineStart);
+    const inlineLine = continuation && container.quoteDepth > 0 ?
+      ' '.repeat(line.length - container.body.length) + container.body : line;
+    pushLine(kind === 'html' ? rawLine : inlineLine, lineStart);
     if (kind === 'html') {
       if (endMarker?.(blockBody)) {
         flush();
