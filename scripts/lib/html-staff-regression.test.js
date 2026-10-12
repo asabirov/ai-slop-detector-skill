@@ -96,3 +96,58 @@ for (const opening of ['Read <!--', 'Read']) {
     assert.ok(long < 20 || long < small * 8, `lines took ${long} ms`);
   });
 }
+
+test('component source keeps self-closing native tags and names', { timeout: 1000 }, () => {
+  for (const ext of ['jsx', 'tsx', 'vue', 'svelte', 'astro']) {
+    for (const tag of ['code', 'Code', 'script', 'style', 'pre', 'textarea']) {
+      const source = `<${tag}/><p style="font-family:monospace">shown ↗</p>`;
+      const ctx = parse(source, { ext });
+      assert.equal(ctx.html, source);
+      assert.ok(ctx.codeless.includes('shown ↗'), `${ext}: ${source}`);
+      assert.equal(ctx.elements.find(({ tag }) => tag === 'p').parent, -1);
+      assert.ok(rules(source, ext).includes('external-link-arrow'));
+      assert.ok(rules(source, ext).includes('mono-noncode'));
+    }
+  }
+});
+
+for (const balanced of [false, true]) {
+  test(`public parse bounds foreign closing tags: balanced=${balanced}`, { timeout: 4000 }, () => {
+    const median = (size) => {
+      const source = '<svg>'.repeat(size) + (balanced ? '<g></g>' : '</g>').repeat(size) +
+        (balanced ? '</svg>'.repeat(size) : '') + '<p>shown ↗</p>';
+      parse(source, { ext: 'html' });
+      const times = [];
+      for (let i = 0; i < 3; i++) {
+        const start = performance.now();
+        assert.ok(parse(source, { ext: 'html' }).codeless.includes('shown ↗'));
+        times.push(performance.now() - start);
+      }
+      return times.sort((a, b) => a - b)[1];
+    };
+    const small = median(250);
+    const large = median(1000);
+    assert.ok(large < 200, `Foreign closing tags took ${large} ms`);
+    assert.ok(large < 20 || large < small * 8,
+      `4x foreign depth and closes grew ${large / small} times`);
+  });
+}
+
+test('foreign integration points use their owning namespace', { timeout: 1000 }, () => {
+  for (const source of ['<svg><mi><script/></svg><p>shown ↗</p>',
+    '<math><title><script/></math><p>shown ↗</p>',
+    '<math><desc><script/></math><p>shown ↗</p>']) {
+    assert.ok(parse(source, { ext: 'html' }).codeless.includes('shown ↗'), source);
+  }
+  for (const source of ['<svg><foreignObject><script/>hidden ↗</script></foreignObject></svg>',
+    '<math><mtext><script/>hidden ↗</script></mtext></math>']) {
+    assert.ok(!parse(source, { ext: 'html' }).codeless.includes('↗'), source);
+  }
+});
+
+test('blank Markdown paragraphs end their foreign context', { timeout: 1000 }, () => {
+  const source = '<svg><g>\n\n<script/></svg><p>shown ↗</p>';
+  assert.ok(!parse(source, { ext: 'md' }).codeless.includes('↗'));
+  const control = '<svg><g>\n<script/></svg><p>shown ↗</p>';
+  assert.ok(parse(control, { ext: 'md' }).codeless.includes('shown ↗'));
+});

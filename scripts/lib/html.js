@@ -981,20 +981,35 @@ function selfClosingTag(text, foreign = false) {
 }
 
 // Track namespace boundaries needed for slash flags, not a browser tree.
-function selfClosingContext() {
+function selfClosingContext(component = false) {
   const scopes = [];
-  return (text) => {
+  const positions = new Map();
+  const pop = () => {
+    const scope = scopes.pop();
+    if (scope.previous === undefined) positions.delete(scope.name);
+    else positions.set(scope.name, scope.previous);
+  };
+  return (text, paragraphBreak = false) => {
+    if (paragraphBreak) {
+      scopes.length = 0;
+      positions.clear();
+    }
     const match = /^<(\/?)([a-z][a-z0-9-]*)/i.exec(text);
     const name = match[2].toLowerCase();
-    const namespace = name === 'svg' || name === 'math';
-    const integration = ['foreignobject', 'desc', 'title', 'mi', 'mo', 'mn', 'ms', 'mtext'].includes(name);
-    const foreign = namespace || Boolean(scopes.at(-1)?.foreign);
+    const closing = Boolean(match[1]);
+    const parent = scopes.at(-1)?.namespace || 'html';
+    const root = name === 'svg' || name === 'math';
+    const integration = parent === 'svg' ? ['foreignobject', 'desc', 'title'].includes(name) :
+      parent === 'math' && ['mi', 'mo', 'mn', 'ms', 'mtext'].includes(name);
+    const foreign = component || root || parent !== 'html';
     const closes = selfClosingTag(text, foreign);
-    if (match[1]) {
-      const index = scopes.findLastIndex((scope) => scope.name === name);
-      if (index !== -1) scopes.length = index;
-    } else if (!closes && (namespace || (foreign && integration))) {
-      scopes.push({ name, foreign: namespace });
+    if (closing) {
+      const index = positions.get(name);
+      if (index !== undefined) while (scopes.length > index) pop();
+    } else if (!closes && (root || integration)) {
+      const previous = positions.get(name);
+      positions.set(name, scopes.length);
+      scopes.push({ name, namespace: root ? name : 'html', previous });
     }
     return closes;
   };
@@ -1041,8 +1056,8 @@ function rawClosingTag(source, from, name) {
   return null;
 }
 // Scan one immutable region. Offsets include newlines inside attributes.
-function scanRawHtml(source, initialRaw = null) {
-  const selfCloses = selfClosingContext();
+function scanRawHtml(source, initialRaw = null, component = false) {
+  const selfCloses = selfClosingContext(component);
   let cursor = 0;
   let mode = initialRaw === 'comment' ? 'comment' : initialRaw ? 'rawtext' : 'data';
   let start = 0;
@@ -1232,10 +1247,13 @@ function markdownInlineTags(source, initialRaw = null) {
   let nextTick = -2;
   let rawCodeRanges = null;
   let rawCodeCursor = 0;
+  let previousTagEnd = 0;
   const addTag = (text, index) => {
     const match = Object.assign([text], { index });
     tags.push(match);
-    tokens.push({ type: 'tag', index, end: index + text.length, text, selfClosing: selfCloses(text) });
+    const selfClosing = selfCloses(text, blankLineBetween(blanks, previousTagEnd, index));
+    tokens.push({ type: 'tag', index, end: index + text.length, text, selfClosing });
+    previousTagEnd = index + text.length;
   };
   while (cursor < source.length) {
     if (rawName) {
@@ -1883,11 +1901,29 @@ function paragraphs(source, isHtml) {
   return markdownStreams(source).paragraphs;
 }
 
+// Component syntax permits <code/> and <Code/>. Represent those empty
+// elements with paired tags before the shared HTML consumers read them.
+function componentMarkup(source) {
+  const pieces = [];
+  let copied = 0;
+  for (const token of scanRawHtml(source, null, true).tokens) {
+    if (token.type !== 'tag' || token.closing || !token.selfClosing || !NON_VOID_HTML.has(token.name)) continue;
+    pieces.push(source.slice(copied, token.index),
+      token.text.replace(/\/\s*>$/, '>'), `</${token.name}>`);
+    copied = token.end;
+  }
+  pieces.push(source.slice(copied));
+  return pieces.join('');
+}
+
 // Build a parse context once, hand it to every rule. `filePath` lets the CSS a
 // page links be read from disk; `root` resolves root-relative hrefs against a
 // built site's directory. Without filePath the linked CSS is reported
 // unresolved rather than silently skipped.
 function parse(source, { filePath, root, ext } = {}) {
+  const original = source;
+  if (['jsx', 'tsx', 'vue', 'svelte', 'astro'].includes(ext) ||
+    /\.(?:jsx|tsx|vue|svelte|astro)$/i.test(filePath || '')) source = componentMarkup(source);
   const isCss = ext === 'css' || (filePath && /\.css$/i.test(filePath));
   const isMarkdown = ['md', 'markdown'].includes(ext);
   const isHtml = !isCss && !isMarkdown &&
@@ -1903,7 +1939,7 @@ function parse(source, { filePath, root, ext } = {}) {
   const markup = hasMarkup ? markupTokens(markupSource) : null;
   if (markup) for (const el of elements) for (const c of el.classes) markup.classes.add(c);
   return {
-    html: source,
+    html: original,
     isHtml,
     css,
     inlineCss: inline,

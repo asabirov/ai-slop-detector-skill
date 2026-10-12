@@ -119,6 +119,7 @@ raw text for its consumer. A quoted closing tag inside an attribute cannot end
 hidden script or code content. A trailing slash inside an unquoted attribute
 value stays part of that value. It cannot close the element.
 A slash flag cannot close a known non-void HTML element. Foreign elements and unknown component names retain self-closing syntax.
+Component files, including JSX and TSX, also keep self-closing native tags. Namespace lookups use recorded stack positions.
 Markdown prose keeps references literal after an odd number of backslashes,
 even when the file contains raw HTML. References after an even number decode.
 Markdown prose accepts 1 to 7 decimal digits or 1 to 6 hexadecimal digits.
