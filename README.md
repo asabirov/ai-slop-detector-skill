@@ -120,6 +120,7 @@ hidden script or code content. A trailing slash inside an unquoted attribute
 value stays part of that value. It cannot close the element.
 A slash flag cannot close a known non-void HTML element. Foreign elements and unknown component names retain self-closing syntax.
 Component files, including JSX and TSX, also keep self-closing native tags. Namespace lookups use recorded stack positions.
+HTML paragraph starts leave foreign content. An HTML encoding on MathML `annotation-xml` supplies an HTML integration point.
 Markdown prose keeps references literal after an odd number of backslashes,
 even when the file contains raw HTML. References after an even number decode.
 Markdown prose accepts 1 to 7 decimal digits or 1 to 6 hexadecimal digits.
@@ -334,6 +335,58 @@ inputs/style-control.html
 ```text
 
 inputs/opening-control.html
+
+  ✗ [external-link-arrow] shown ↗
+      Diagonal "↗" open-in-new-tab arrow tacked onto a link — decorative external-link cosplay. A link already reads as a link.
+      fix: Drop the glyph. Plain directional →←↑↓ (flows, deltas) are fine.
+
+✗ FAIL  [level ban]  1 file(s), 1 error(s), 0 medium, 0 warning(s)
+```
+
+The following namespace correction compares `5b7de1a` with the repair, also at `--level 1`.
+HTML paragraph starts leave foreign content. MathML `annotation-xml` with an HTML encoding supplies HTML content.
+These transitions keep later text inside an unclosed HTML script.
+
+`fixtures/slop-html-namespace.md`
+
+```markdown
+<svg><p><script/>hidden ↗</script></p></svg>  <math><p><script/>hidden ↗</script></p></math>  <math><annotation-xml encoding="text/html"><script/>hidden ↗</script></annotation-xml></math>  Visible ↗
+```
+
+```diff
+--- 5b7de1a: fixtures/slop-html-namespace.md
++++ repair: fixtures/slop-html-namespace.md
+@@ -4 +4 @@
+-  ✗ [external-link-arrow] hidden ↗        hidden ↗        hidde
++  ✗ [external-link-arrow] Visible ↗
+@@ -8,13 +8 @@
+-  ✗ [external-link-arrow] hidden ↗        hidden ↗        hidden ↗     Visible
+-      Diagonal "↗" open-in-new-tab arrow tacked onto a link — decorative external-link cosplay. A link already reads as a link.
+-      fix: Drop the glyph. Plain directional →←↑↓ (flows, deltas) are fine.
+-
+-  ✗ [external-link-arrow] hidden ↗        hidden ↗     Visible ↗
+-      Diagonal "↗" open-in-new-tab arrow tacked onto a link — decorative external-link cosplay. A link already reads as a link.
+-      fix: Drop the glyph. Plain directional →←↑↓ (flows, deltas) are fine.
+-
+-  ✗ [external-link-arrow] ↗        hidden ↗     Visible ↗
+-      Diagonal "↗" open-in-new-tab arrow tacked onto a link — decorative external-link cosplay. A link already reads as a link.
+-      fix: Drop the glyph. Plain directional →←↑↓ (flows, deltas) are fine.
+-
+-✗ FAIL  [level ban]  1 file(s), 4 error(s), 0 medium, 0 warning(s)
++✗ FAIL  [level ban]  1 file(s), 1 error(s), 0 medium, 0 warning(s)
+```
+
+The foreign-script control produced identical output before and after.
+
+`inputs/foreign-control.md`
+
+```markdown
+<svg><script/></svg><p>shown ↗</p>
+```
+
+```text
+
+inputs/foreign-control.md
 
   ✗ [external-link-arrow] shown ↗
       Diagonal "↗" open-in-new-tab arrow tacked onto a link — decorative external-link cosplay. A link already reads as a link.

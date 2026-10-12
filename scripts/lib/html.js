@@ -980,6 +980,10 @@ function selfClosingTag(text, foreign = false) {
   return false;
 }
 
+const FOREIGN_BREAKOUT = new Set(('b big blockquote body br center code dd div dl dt em embed ' +
+  'h1 h2 h3 h4 h5 h6 head hr i img li listing menu meta nobr ol p pre ruby s small span strong ' +
+  'strike sub sup table tt u ul var').split(' '));
+
 // Track namespace boundaries needed for slash flags, not a browser tree.
 function selfClosingContext(component = false) {
   const scopes = [];
@@ -997,10 +1001,18 @@ function selfClosingContext(component = false) {
     const match = /^<(\/?)([a-z][a-z0-9-]*)/i.exec(text);
     const name = match[2].toLowerCase();
     const closing = Boolean(match[1]);
-    const parent = scopes.at(-1)?.namespace || 'html';
+    let parent = scopes.at(-1)?.namespace || 'html';
+    const breakout = closing ? name === 'br' || name === 'p' : FOREIGN_BREAKOUT.has(name) ||
+      (name === 'font' && tagAttributes(text).some(([attr]) => ['color', 'face', 'size'].includes(attr)));
+    if (parent !== 'html' && breakout) {
+      while (scopes.length && scopes.at(-1).namespace !== 'html') pop();
+      parent = 'html';
+    }
     const root = name === 'svg' || name === 'math';
     const integration = parent === 'svg' ? ['foreignobject', 'desc', 'title'].includes(name) :
-      parent === 'math' && ['mi', 'mo', 'mn', 'ms', 'mtext'].includes(name);
+      parent === 'math' && (['mi', 'mo', 'mn', 'ms', 'mtext'].includes(name) ||
+        (name === 'annotation-xml' && tagAttributes(text).some(([attr, value]) =>
+          attr === 'encoding' && /^(?:text\/html|application\/xhtml\+xml)$/i.test(value))));
     const foreign = component || root || parent !== 'html';
     const closes = selfClosingTag(text, foreign);
     if (closing) {

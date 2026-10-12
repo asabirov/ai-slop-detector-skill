@@ -151,3 +151,20 @@ test('blank Markdown paragraphs end their foreign context', { timeout: 1000 }, (
   const control = '<svg><g>\n<script/></svg><p>shown ↗</p>';
   assert.ok(parse(control, { ext: 'md' }).codeless.includes('shown ↗'));
 });
+
+test('HTML transitions inside foreign content preserve Markdown exclusions', { timeout: 1000 }, () => {
+  for (const ext of ['md', 'html']) {
+    for (const source of ['<svg><p><script/></svg><p>shown ↗</p>',
+      '<math><p><script/></math><p>shown ↗</p>',
+      '<math><annotation-xml encoding="text/html"><script/></math><p>shown ↗</p>',
+      '<math><annotation-xml encoding="APPLICATION/XHTML+XML"><script/></math><p>shown ↗</p>']) {
+      assert.ok(!parse(source, { ext }).codeless.includes('↗'), `${ext}: ${source}`);
+      assert.ok(!rules(source, ext).includes('external-link-arrow'), `${ext}: ${source}`);
+    }
+    const control = '<svg><script/></svg><p>shown ↗</p>';
+    assert.ok(parse(control, { ext }).codeless.includes('shown ↗'));
+  }
+  const source = fixture('slop-html-namespace.md');
+  assert.equal(parse(source, { ext: 'md' }).codeless, 'Visible ↗');
+  assert.deepEqual(rules(source, 'md'), ['external-link-arrow']);
+});
