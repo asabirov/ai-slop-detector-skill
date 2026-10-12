@@ -624,6 +624,86 @@ describe('UI heuristics', { timeout: 1000 }, () => {
         [`beside <h2> "Reports" above <table>: ${note}`]);
     }
   });
+  it('reports data restrictions whose completed word describes records', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const note of [
+      'The export for this view excludes bookings not yet completed.',
+      'The export for this view omits bookings not completed.',
+      'The export for this view counts only jobs completed.',
+      'The export for this view covers only tasks already completed.',
+    ]) {
+      const line = `<div class="text-muted" role="status"><p>Ready.</p><p>${note}</p><button>Export</button></div>`;
+      assert.deepEqual(spans(table + line, 'table-footnote'), [`under <table>: ${note}`]);
+      assert.deepEqual(spans(`<h2>Reports</h2>${line}${table}`, 'table-aside'),
+        [`beside <h2> "Reports" above <table>: ${note.slice(0, 70)}`]);
+    }
+    const control = 'The export for this view excludes bookings not yet confirmed.';
+    const line = `<div class="text-muted" role="status"><p>Ready.</p><p>${control}</p><button>Export</button></div>`;
+    assert.deepEqual(spans(table + line, 'table-footnote'), [`under <table>: ${control}`]);
+    assert.deepEqual(spans(`<h2>Reports</h2>${line}${table}`, 'table-aside'),
+      [`beside <h2> "Reports" above <table>: ${control.slice(0, 70)}`]);
+    const mixed = '<div class="text-muted" role="status">Ready. The export <strong>for this view</strong> excludes <em>bookings not yet completed.</em><button>Export</button></div>';
+    assert.deepEqual(spans(table + mixed, 'table-footnote'),
+      ['under <table>: The export for this view excludes bookings not yet completed.']);
+    assert.deepEqual(spans(`<h2>Reports</h2>${mixed}${table}`, 'table-aside'),
+      ['beside <h2> "Reports" above <table>: The export for this view excludes bookings not yet completed.']);
+  });
+  it('keeps affirmative Export results silent beside a freshness note', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const note = 'Bookings refresh overnight, so late cancellations appear tomorrow.';
+    for (const result of [
+      'The export completed successfully for all selected bookings.',
+      'The export completed without errors for all selected bookings.',
+      'The export completed at noon for all selected bookings.',
+      'The export for all selected bookings is complete.',
+      'The export of all selected bookings has finished.',
+    ]) {
+      const line = `<div class="text-muted" role="status"><p>${result}</p><p>${note}</p><button>Export</button></div>`;
+      assert.deepEqual(spans(table + line, 'table-footnote'), [`under <table>: ${note}`]);
+      assert.deepEqual(spans(`<h2>Reports</h2>${line}${table}`, 'table-aside'),
+        [`beside <h2> "Reports" above <table>: ${note}`]);
+      const pure = line.replace(note, 'Ready.');
+      assert.deepEqual(spans(table + pure, 'table-footnote'), []);
+      assert.deepEqual(spans(`<h2>Reports</h2>${pure}${table}`, 'table-aside'), []);
+    }
+    const numeric = '24 hours can pass before late bookings appear.';
+    const mixed = `<div class="text-muted" role="status">The export <strong>completed successfully</strong> for all selected bookings. ${numeric}<button>Export</button></div>`;
+    assert.deepEqual(spans(table + mixed, 'table-footnote'), [`under <table>: ${numeric}`]);
+    assert.deepEqual(spans(`<h2>Reports</h2>${mixed}${table}`, 'table-aside'),
+      [`beside <h2> "Reports" above <table>: ${numeric}`]);
+  });
+  it('starts a data sentence at quoted lowercase and nested labels', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const note of [
+      '“cancelled” bookings remain visible until the next morning.',
+      '“‘Cancelled’ bookings remain visible until the next morning.”',
+    ]) {
+      for (const body of [
+        `The export completed for all selected bookings. ${note}`,
+        `<p>The export completed for all selected bookings.</p><p>${note}</p>`,
+        `The export completed for all selected bookings. <strong>${note}</strong>`,
+      ]) {
+        const line = `<div class="text-muted" role="status">${body}<button>Export</button></div>`;
+        assert.deepEqual(spans(table + line, 'table-footnote'), [`under <table>: ${note}`]);
+        assert.deepEqual(spans(`<h2>Reports</h2>${line}${table}`, 'table-aside'),
+          [`beside <h2> "Reports" above <table>: ${note.slice(0, 70)}`]);
+      }
+    }
+  });
+  it('keeps a data sentence after nested live feedback on the same line', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const note = '24 hours can pass before late bookings appear.';
+    for (const [inner, outer] of [
+      ['role="status"', 'role="status"'],
+      ['role="status"', ''],
+      ['', 'role="status"'],
+    ]) {
+      const line = `<div class="text-muted" ${outer}><span ${inner}>The export completed for all selected bookings.</span> ${note}<button>Export</button></div>`;
+      assert.deepEqual(spans(table + line, 'table-footnote'), [`under <table>: ${note}`]);
+      assert.deepEqual(spans(`<h2>Reports</h2>${line}${table}`, 'table-aside'),
+        [`beside <h2> "Reports" above <table>: ${note}`]);
+    }
+  });
   it('keeps abbreviations and decimals inside one note', { timeout: 1000 }, () => {
     const table = '<table><tr><td>12</td></tr></table>';
     const note = 'Updated nightly, e.g. 3.14 hours after close, so yesterday stays open.';

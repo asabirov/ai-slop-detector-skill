@@ -394,11 +394,18 @@ function isControlResultFeedback(text, controls) {
   if (!result || !controls.some((label) =>
     label.trim().split(/\s+/)[0].toLowerCase() === result[1].toLowerCase())) return false;
   const predicate = result[2];
-  if (/^(?:(?:has|is|was)\s+)?(?:(?:now|successfully|been)\s+){0,2}(?:complete|completed|finished|succeeded)\b(?=\s+(?:for|with)\b|[.!?]|$)/i.test(predicate)) {
+  if (/^(?:(?:has|is|was)\s+)?(?:(?:now|successfully|been)\s+){0,2}(?:complete|completed|finished|succeeded)\b(?:\s+(?:successfully|without errors|at (?:[a-z]+|\d{1,2}(?::\d{2})?)))?(?=\s+(?:for|with)\b|[.!?]|$)/i.test(predicate)) {
     return true;
   }
-  const qualified = /^(?:for|of)\s+(.+?)\s+(?:(?:has|is|was)\s+)?(?:(?:now|successfully|been)\s+){0,2}completed[.!?]?$/i.exec(predicate);
-  return Boolean(qualified && !/\b(?:lists?|shows?|includes?|contains?|displays?|reports?|indicates?|tracks?|marks?|marked|whether|which|when|is|are|was|were|has|have|had|can|will)\b/i.test(qualified[1]));
+  const qualified = /^(?:for|of)\s+(.+?)\s+(?:(?:has|is|was)\s+)?(?:(?:now|successfully|been)\s+){0,2}(?:complete|completed|finished|succeeded)[.!?]?$/i.exec(predicate);
+  if (!qualified) return false;
+  // A result names the control action, then a short object phrase, then its
+  // completion. A second clause describes the exported data instead.
+  return qualified[1].split(/\s+(?:in|on|from|for|of)\s+/i).every((part) => {
+    const words = part.split(/\s+/);
+    return words.length <= 3 && words.every((word) =>
+      /^[a-z][a-z'-]*$/i.test(word) && !/^(?:not|only|already|yet)$/i.test(word));
+  });
 }
 
 function isVisible(elements, i) {
@@ -439,45 +446,37 @@ const INLINE_TAGS = new Set([
   'u', 'var', 'wbr',
 ]);
 
-// Give each fragment the complete sentence in its own live scope. Scan each
-// scope once, so repeated marked fragments do not rescan the prefix.
+// Give each fragment the complete visible sentence. Keep its live owner on
+// the fragment so an inline live element cannot reset sentence boundaries.
 function sentenceEvents(events) {
   const out = [];
-  let nextSentence = 0;
-  for (let from = 0; from < events.length;) {
-    let to = from + 1;
-    while (to < events.length && events[to].liveScope === events[from].liveScope) to++;
-    const scope = events.slice(from, to);
-    const offsets = [0];
-    const raw = scope.map((event) => {
-      offsets.push(offsets.at(-1) + event.chunk[1].length);
-      return event.chunk[1];
-    }).join('');
-    const starts = [0];
-    for (const match of raw.matchAll(/[.!?]["')”’]?\s+(?=(?:["'“‘(\[]\s*)?(?:\p{Lu}|\p{N}))/gu)) {
-      const prior = raw.slice(Math.max(0, match.index - 12), match.index + 1);
-      if (/(?:^|[\s(])(?:e\.g|i\.e|etc|Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|vs)\.$/i.test(prior)) continue;
-      starts.push(match.index + match[0].length);
+  const offsets = [0];
+  const raw = events.map((event) => {
+    offsets.push(offsets.at(-1) + event.chunk[1].length);
+    return event.chunk[1];
+  }).join('');
+  const starts = [0];
+  for (const match of raw.matchAll(/[.!?]["')”’]?\s+(?=(?:["'“‘(\[]\s*){1,3}[\p{L}\p{N}]|(?:["'“‘(\[]\s*){0,3}[\p{Lu}\p{N}])/gu)) {
+    const prior = raw.slice(Math.max(0, match.index - 12), match.index + 1);
+    if (/(?:^|[\s(])(?:e\.g|i\.e|etc|Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|vs)\.$/i.test(prior)) continue;
+    starts.push(match.index + match[0].length);
+  }
+  const ends = [...starts.slice(1), raw.length];
+  const texts = starts.map((start, index) => raw.slice(start, ends[index])
+    .replace(/\{[^{}]*\}/g, ' ').replace(/\s+/g, ' ').trim());
+  let sentence = 0;
+  for (let k = 0; k < events.length; k++) {
+    const event = events[k];
+    let cursor = offsets[k];
+    while (cursor < offsets[k + 1]) {
+      while (sentence < starts.length - 1 && starts[sentence + 1] <= cursor) sentence++;
+      const end = Math.min(offsets[k + 1], ends[sentence]);
+      out.push({ ...event, pos: event.pos + cursor - offsets[k],
+        chunk: [event.chunk[0] + cursor - offsets[k], raw.slice(cursor, end)],
+        sentenceId: sentence, sentenceText: texts[sentence],
+        singleSentence: starts.length === 1 });
+      cursor = end;
     }
-    const ends = [...starts.slice(1), raw.length];
-    const texts = starts.map((start, index) => raw.slice(start, ends[index])
-      .replace(/\{[^{}]*\}/g, ' ').replace(/\s+/g, ' ').trim());
-    let sentence = 0;
-    for (let k = 0; k < scope.length; k++) {
-      const event = scope[k];
-      let cursor = offsets[k];
-      while (cursor < offsets[k + 1]) {
-        while (sentence < starts.length - 1 && starts[sentence + 1] <= cursor) sentence++;
-        const end = Math.min(offsets[k + 1], ends[sentence]);
-        out.push({ ...event, pos: event.pos + cursor - offsets[k],
-          chunk: [event.chunk[0] + cursor - offsets[k], raw.slice(cursor, end)],
-          sentenceId: nextSentence + sentence, sentenceText: texts[sentence],
-          singleSentence: starts.length === 1 });
-        cursor = end;
-      }
-    }
-    nextSentence += starts.length;
-    from = to;
   }
   return out;
 }
