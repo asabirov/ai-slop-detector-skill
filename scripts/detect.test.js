@@ -350,6 +350,67 @@ test('full Markdown parse bounds unfinished tag growth', { timeout: 2000 }, () =
   }
 });
 
+test('unquoted trailing slashes belong to attribute values', { timeout: 1000 }, () => {
+  for (const ext of ['html', 'md']) {
+    for (const prefix of ext === 'md' ? ['', 'Read '] : ['']) {
+      for (const value of ['/assets/', '/', '"/assets/"', "'/assets/'"]) {
+        for (const tag of ['script', 'code']) {
+          const source = `${prefix}<${tag} data-path=${value}>&nearr;</${tag}><p>Hello.</p>`;
+          assert.ok(!parse(source, { ext }).codeless.includes('↗'), source);
+          assert.ok(!detect(source, { ext, kind: 'artifact', level: 1 }).findings
+            .some((finding) => finding.rule === 'external-link-arrow'), source);
+        }
+        const style = `${prefix}<style data-path=${value}>p{font-family:monospace}</style><p>Hello</p>`;
+        assert.ok(parse(style, { ext }).css.includes('font-family:monospace'), style);
+        assert.ok(detect(style, { ext, kind: 'artifact', level: 1 }).findings
+          .some((finding) => finding.rule === 'mono-noncode'), style);
+      }
+    }
+  }
+  assert.ok(run('slop-html-attributes.md', 1).findings
+    .some((finding) => finding.rule === 'mono-noncode' && finding.span.includes('.slash-css')));
+  assert.strictEqual(parse('<code data-path=/assets/ />shown', { ext: 'html' }).codeless, 'shown');
+});
+
+test('inline Markdown tables retain numeric cell text', { timeout: 1000 }, () => {
+  for (const prefix of ['', 'Read ', '> Read ', '- Read ']) {
+    for (const [text, numeric] of [['123', true], ['<b>123</b>', true],
+      ['&#49;23', true], ['Hello', false], ['123 widgets', false],
+      ['`123`', false], ['<!-- 123 -->', false], ['<code>123</code>', true],
+      ['<invalid=123>', false]]) {
+      const source = `${prefix}<table><tr><td style="font-family:monospace">${text}</td></tr></table>`;
+      if (!prefix && text === '`123`') continue; // Raw HTML keeps backticks as text.
+      const cell = parse(source, { ext: 'md' }).elements.find((el) => el.tag === 'td');
+      assert.strictEqual(cell.numericData && cell.hasDigit, numeric, source);
+      assert.strictEqual(detect(source, { ext: 'md', kind: 'artifact', level: 1 }).findings
+        .some((finding) => finding.rule === 'mono-noncode'), !numeric, source);
+    }
+  }
+});
+
+for (const unit of ['[x](', '[']) {
+  test(`public Markdown parse bounds unfinished links: ${unit}`, { timeout: 5000 }, () => {
+    const median = (count) => {
+      const source = 'Read ' + unit.repeat(count);
+      parse(source, { ext: 'md' });
+      const times = [];
+      for (let i = 0; i < 3; i++) {
+        const start = performance.now();
+        const ctx = parse(source, { ext: 'md' });
+        times.push(performance.now() - start);
+        assert.strictEqual(ctx.codeless, source);
+      }
+      return times.sort((a, b) => a - b)[1];
+    };
+    const small = median(2000);
+    const large = median(8000);
+    assert.ok(large < 20 || large < small * 8,
+      `public parse grew ${large / small} times (${small} ms to ${large} ms)`);
+    assert.strictEqual(parse('Read [label](<target>) and [next](url).', { ext: 'md' }).codeless,
+      'Read label and next.');
+  });
+}
+
 test('keeps Markdown escapes when prose shares a file with raw HTML', { timeout: 1000 }, () => {
   for (const html of ['<span>text</span>', '\n\n<div>text</div>']) {
     for (const count of [1, 2, 3, 4]) {

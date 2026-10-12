@@ -942,6 +942,34 @@ function withoutMarkdownCode(source) {
 // Match CommonMark raw HTML tags. An attribute starts with an ASCII name and
 // has a valid quoted or unquoted value. Invalid angle text stays visible.
 const MARKDOWN_TAG = /<(?:\/[a-z][a-z0-9-]*[ \t\n]*|[a-z][a-z0-9-]*(?:[ \t\n]+[a-z_:][a-z0-9:._-]*(?:[ \t\n]*=[ \t\n]*(?:"[^"]*"|'[^']*'|[^ \t\n"'=<>`]+))?)*[ \t\n]*\/?)>/gi;
+// A slash closes a tag only outside its attribute value.
+function selfClosingTag(text) {
+  let state = 'name';
+  let quote = null;
+  let slash = false;
+  for (const char of text) {
+    if (state === 'quoted') {
+      if (char === quote) state = 'beforeName';
+      continue;
+    }
+    if (char === '>') return slash && state !== 'unquoted';
+    const space = /[ \t\n\f\r]/.test(char);
+    if (state === 'beforeValue') {
+      if (space) continue;
+      if (char === '"' || char === "'") {
+        quote = char;
+        state = 'quoted';
+      } else state = 'unquoted';
+    } else if (state === 'unquoted') {
+      if (space) state = 'beforeName';
+    } else if (char === '=') state = 'beforeValue';
+    else if (space) state = 'beforeName';
+    else state = 'name';
+    if (!space) slash = char === '/' && state !== 'unquoted';
+  }
+  return false;
+}
+
 // Consume each closing candidate once. A greater-than inside a quoted attribute
 // does not finish the token, and an unfinished quote consumes the remaining text.
 function rawClosingTag(source, from, name) {
@@ -998,7 +1026,7 @@ function scanRawHtml(source, initialRaw = null) {
       const head = /^<(\/?)([a-z][a-z0-9-]*)/i.exec(token.text);
       token.name = head[2].toLowerCase();
       token.closing = Boolean(head[1]);
-      token.selfClosing = /\/\s*>$/.test(token.text);
+      token.selfClosing = selfClosingTag(token.text);
     }
     tokens.push(token);
     cursor = end;
@@ -1262,7 +1290,7 @@ function markdownInlineTags(source, initialRaw = null) {
     if (!match || /\n[ \t]*\n/.test(match[0])) { cursor = next + 1; continue; }
     addTag(match[0], next);
     const opening = /^<(script|style|textarea)(?=[\s/>])/i.exec(match[0]);
-    if (opening && !/\/\s*>$/.test(match[0])) {
+    if (opening && !selfClosingTag(match[0])) {
       rawName = opening[1].toLowerCase();
       rawStart = next;
       rawContentStart = next + match[0].length;
@@ -1306,9 +1334,8 @@ function markdownVisibleRuns(source, html, tokens = null) {
   let copied = 0;
   const finish = () => {
     let text = pieces.join('');
-    if (!html) text = text.replace(/^\s{0,3}#{1,6}\s+/, '')
-      .replace(/^\s{0,3}[-*+]\s+/, '')
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+    if (!html) text = markdownLinkLabels(text.replace(/^\s{0,3}#{1,6}\s+/, '')
+      .replace(/^\s{0,3}[-*+]\s+/, ''));
     text = decodeEntities(text, { markdownEscapes: !html }).replace(/\s+/g, ' ').trim();
     if (text) runs.push(text);
     pieces.length = 0;
@@ -1674,23 +1701,49 @@ function protectTextareaCodeEntities(source, textareaRanges) {
     { text: source, restore: (value) => value };
 }
 
-// Markdown text supplies only its valid HTML tags. A style element also keeps
-// its raw CSS text, which the inline scanner owns until the closing tag.
+// Keep text beside valid inline tags, but do not turn rejected angle text into
+// markup. Style bodies keep their original CSS spelling.
 function markdownMarkupSource(source, tokens, initialRaw) {
   const pieces = [];
   let copied = 0;
   let inStyle = initialRaw === 'style';
+  const appendText = (end) => {
+    const text = source.slice(copied, end);
+    pieces.push(inStyle ? text : text.replace(/</g, '&lt;'));
+  };
   for (const token of tokens) {
-    if (inStyle) pieces.push(source.slice(copied, token.index));
+    appendText(token.index);
     if (token.type === 'tag') {
       pieces.push(token.text);
-      if (/^<style(?=[\s/>])/i.test(token.text) && !/\/\s*>$/.test(token.text)) inStyle = true;
+      if (/^<style(?=[\s/>])/i.test(token.text) && !selfClosingTag(token.text)) inStyle = true;
       if (/^<\/style(?=[\s/>])/i.test(token.text)) inStyle = false;
-    }
+    } else pieces.push(' ');
     copied = token.end;
   }
-  if (inStyle) pieces.push(source.slice(copied));
-  return pieces.join(' ');
+  appendText(source.length);
+  return pieces.join('');
+}
+
+// Match the existing simple link syntax without rescanning unfinished suffixes.
+function markdownLinkLabels(source) {
+  const pieces = [];
+  let copied = 0;
+  let cursor = 0;
+  while ((cursor = source.indexOf('[', cursor)) !== -1) {
+    const labelEnd = source.indexOf(']', cursor + 1);
+    if (labelEnd === -1) break;
+    if (labelEnd === cursor + 1 || source[labelEnd + 1] !== '(') {
+      cursor = labelEnd + 1;
+      continue;
+    }
+    const end = source.indexOf(')', labelEnd + 2);
+    if (end === -1) break;
+    pieces.push(source.slice(copied, cursor), source.slice(cursor + 1, labelEnd));
+    copied = end + 1;
+    cursor = copied;
+  }
+  pieces.push(source.slice(copied));
+  return pieces.join('');
 }
 
 function markdownStreams(source) {
@@ -1722,10 +1775,9 @@ function markdownStreams(source) {
       continue;
     }
     const protectedText = protectTextareaCodeEntities(body, scan.textareaRanges);
-    const prose = stripMarkdownTags(protectedText.text, false, visibleTokens)
+    const prose = markdownLinkLabels(stripMarkdownTags(protectedText.text, false, visibleTokens)
       .replace(/^\s{0,3}#{1,6}\s+/gm, '')
-      .replace(/^\s{0,3}[-*+]\s+/gm, '')
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+      .replace(/^\s{0,3}[-*+]\s+/gm, ''));
     const visible = protectedText.restore(decodeEntities(prose, { markdownEscapes: true }));
     chunks.push(visible);
     runs.push(...markdownVisibleRuns(protectedText.text, false, visibleTokens)

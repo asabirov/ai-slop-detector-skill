@@ -114,9 +114,10 @@ names, selectors and tag shapes work on the page as written.
 Standalone CSS keeps character references literal. HTML decodes references in
 style attributes before the visual rules read them. Quoted attribute data,
 including `>`, stays outside visible prose. Readable attributes have separate
-prose streams. One forward HTML token scan separates comments, tags, and raw
-text before the prose, markup, and CSS checks read them. A quoted closing tag
-inside an attribute cannot end hidden script or code content.
+prose streams. Each HTML token scan moves forward through comments, tags, and
+raw text for its consumer. A quoted closing tag inside an attribute cannot end
+hidden script or code content. A trailing slash inside an unquoted attribute
+value stays part of that value. It cannot close the element.
 Markdown prose keeps references literal after an odd number of backslashes,
 even when the file contains raw HTML. References after an even number decode.
 Markdown prose accepts 1 to 7 decimal digits or 1 to 6 hexadecimal digits.
@@ -124,7 +125,11 @@ Longer references stay literal in Markdown prose. Inside raw HTML blocks,
 HTML decodes them without these Markdown limits. The parser also reads
 human-readable attributes in raw HTML, including single-quoted values.
 Raw HTML in Markdown still supplies markup and CSS to visual rules. Inline
-`<style>` contents count, while commented or fenced styles do not. Markdown
+`<style>` contents count, while commented or fenced styles do not. Inline HTML
+keeps its text, so numeric table cells retain the monospace exemption.
+The simple Markdown link scanner skips unfinished suffixes without repeated
+searches. Tests measure public parse growth for unfinished links and raw HTML.
+These checks do not establish a bound for every possible input. Markdown
 syntax is removed before references are decoded, so
 an encoded bracket cannot turn visible text into a link destination.
 The parser excludes script, style, and code
