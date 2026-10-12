@@ -46,9 +46,12 @@ function splitOutsideFunctions(value, delimiter) {
     if (ch === '"' || ch === "'") quote = ch;
     else if (ch === '(') depth++;
     else if (ch === ')') depth = Math.max(0, depth - 1);
-    else if (ch === delimiter && depth === 0) { parts.push(value.slice(start, i)); start = i + 1; }
+    else if (depth === 0 && (delimiter === 'whitespace' ? /\s/.test(ch) : ch === delimiter)) {
+      if (start < i) parts.push(value.slice(start, i));
+      start = i + 1;
+    }
   }
-  parts.push(value.slice(start));
+  if (start < value.length || delimiter !== 'whitespace') parts.push(value.slice(start));
   return parts;
 }
 function pixels(value) {
@@ -104,9 +107,25 @@ function cssRule(id, level, why, fix, predicate) {
 }
 const background = (p) => p.background || p['background-image'] || p['background-color'] || '';
 const bordered = (p) => /^1px\s+solid\b/.test(p.border || '');
-const invisibleColor = (v) => /\btransparent\b|#[a-f0-9]{3}0\b|#[a-f0-9]{6}00\b|(?:rgba?|hsla?)\((?:[^,)]*,){3}\s*(?:0(?:\.0+)?|\.0+)%?\s*\)|(?:rgba?|hsla?)\([^)]*\/\s*(?:0(?:\.0+)?|\.0+)%?\s*\)/.test(v);
+const colorFunction = (token) => /^(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\(/.test(token) && token.endsWith(')');
+const zeroAlpha = (token) => /^(?:0(?:\.0+)?|\.0+)%?$/.test(token.trim());
+function invisibleColor(value) {
+  for (const token of splitOutsideFunctions(value, 'whitespace')) {
+    if (token === 'transparent' || /^#[a-f0-9]{3}0$|^#[a-f0-9]{6}00$/.test(token)) return true;
+    if (!colorFunction(token) || token.startsWith('color-mix(')) continue;
+    const name = token.slice(0, token.indexOf('('));
+    const args = token.slice(name.length + 1, -1);
+    const slash = splitOutsideFunctions(args, '/');
+    if (slash.length === 2 && zeroAlpha(slash[1])) return true;
+    if (/^(?:rgba?|hsla?)$/.test(name)) {
+      const comma = splitOutsideFunctions(args, ',');
+      if (comma.length === 4 && zeroAlpha(comma[3])) return true;
+    }
+  }
+  return false;
+}
 const paintedBackground = (v) => !!v && !/^(?:none|inherit|initial|unset)$/.test(v) &&
-  !(/^(?:transparent|#[a-f0-9]{4}|#[a-f0-9]{8}|(?:rgba?|hsla?)\([^)]*\))$/.test(v) && invisibleColor(v));
+  !(splitOutsideFunctions(v, 'whitespace').length === 1 && invisibleColor(v));
 const paintedBorder = (v) => !!v && /\b(?:solid|dashed|dotted|double|groove|ridge|inset|outset)\b/.test(v) &&
   !/\b(?:none|hidden)\b/.test(v) && !/^0(?:px|rem|em)?(?:\s|$)/.test(v) && !invisibleColor(v);
 function paintedLonghandBorder(p) {
@@ -114,15 +133,15 @@ function paintedLonghandBorder(p) {
   const expand = (values) => [values[0], values[1] || values[0], values[2] || values[0], values[3] || values[1] || values[0]];
   const widths = expand(p['border-width'].split(/\s+/));
   const styles = expand(p['border-style'].split(/\s+/));
-  const colors = p['border-color'] ? expand(splitOutsideFunctions(p['border-color'], ' ').filter(Boolean)) : [];
+  const colors = p['border-color'] ? expand(splitOutsideFunctions(p['border-color'], 'whitespace')) : [];
   return widths.some((width, side) => !/^0(?:\.0+)?(?:px|rem|em)?$/.test(width) &&
     /^(?:solid|dashed|dotted|double|groove|ridge|inset|outset)$/.test(styles[side]) &&
     (!colors.length || !invisibleColor(colors[side])));
 }
 function paintedShadow(v) {
   if (!v || v === 'none' || invisibleColor(v)) return false;
-  const geometry = v.replace(/#[a-f0-9]{3,8}\b|(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\([^)]*\)/g, '');
-  const lengths = geometry.trim().split(/\s+/).filter((token) => token !== 'inset' && !/^[a-z]+$/.test(token));
+  const lengths = splitOutsideFunctions(v, 'whitespace').filter((token) =>
+    token !== 'inset' && !/^[a-z]+$/.test(token) && !/^#[a-f0-9]{3,8}$/.test(token) && !colorFunction(token));
   return !(lengths.length >= 2 && lengths.length <= 4 &&
     lengths.every((token) => /^0(?:\.0+)?(?:px|rem|em)?$/.test(token)));
 }

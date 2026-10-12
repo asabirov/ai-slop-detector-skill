@@ -91,6 +91,39 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     has(nested('box-shadow:0 2px 0 0 navy'), 'nested-cards');
     has(nested('box-shadow:0 2px 0 0 rgb(255,0,0)'), 'nested-cards');
   });
+  it('splits border sides at CSS whitespace outside color functions', { timeout: 1000 }, () => {
+    for (const space of [' ', '\n', '\t']) {
+      has(nested(`border-width:3px;border-style:solid;border-color:transparent${space}navy`), 'nested-cards');
+      lacks(nested(`border-width:3px;border-style:solid;border-color:transparent${space}transparent`), 'nested-cards');
+    }
+    has(fs.readFileSync(path.join(fixtures, 'slop-ui-nested-cards-css-values.html'), 'utf8'), 'nested-cards');
+  });
+  it('keeps transparent color arguments inside visible expressions', { timeout: 1000 }, () => {
+    for (const mix of ['color-mix(in srgb, transparent 50%, navy)', 'color-mix(in srgb, rgb(0 0 0 / 0) 50%, navy)']) {
+      has(nested(`border:3px solid ${mix}`), 'nested-cards');
+      has(nested(`box-shadow:0 3px 0 ${mix}`), 'nested-cards');
+    }
+    has(nested('background:rgb(from transparent r g b / 1)'), 'nested-cards');
+    lacks(nested('background:transparent'), 'nested-cards');
+  });
+  it('ignores explicit zero alpha in supported modern color forms', { timeout: 1000 }, () => {
+    for (const color of ['color(srgb 1 0 0 / 0)', 'hwb(0 0% 0% / 0)', 'lab(50 40 20 / 0)',
+      'lch(50 40 20 / 0)', 'oklab(0.5 0.1 0.1 / 0)', 'oklch(0.5 0.2 30 / 0)']) {
+      lacks(nested(`background:${color}`), 'nested-cards');
+      lacks(nested(`border:3px solid ${color}`), 'nested-cards');
+      lacks(nested(`box-shadow:0 3px 0 ${color}`), 'nested-cards');
+      const visible = color.replace(/\/ 0\)$/, '/ 1)');
+      has(nested(`background:${visible}`), 'nested-cards');
+      has(nested(`border:3px solid ${visible}`), 'nested-cards');
+      has(nested(`box-shadow:0 3px 0 ${visible}`), 'nested-cards');
+    }
+  });
+  it('reads shadow geometry after balanced color functions', { timeout: 1000 }, () => {
+    for (const color of ['rgb(calc(255) 0 0)', 'color-mix(in srgb, navy, white)']) {
+      lacks(nested(`box-shadow:0 0 ${color}`), 'nested-cards');
+      has(nested(`box-shadow:0 3px ${color}`), 'nested-cards');
+    }
+  });
 
   it('reads gradient clipping and glass from inline styles', { timeout: 1000 }, () => {
     const source = '<h1 style="background:linear-gradient(90deg, purple, pink);background-clip:text">Notes</h1><section style="backdrop-filter:blur(8px)">Records</section>';
