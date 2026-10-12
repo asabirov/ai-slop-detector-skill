@@ -86,6 +86,12 @@ information. Component style mismatches need a rendered comparison; uncertain
 ones are reported as needing a design review. These are agent review instructions, not additional
 CLI rules.
 
+The editorial checks also report unnecessary status distinctions and manual
+commands on automatic features. They ask which distinctions matter and whether
+the system can act instead. Status counts alone do not decide a finding.
+Required manual recovery and controls for consent or user decisions remain
+acceptable. Both checks address the examples in [issue #91](https://github.com/asabirov/ai-slop-detector-skill/issues/91).
+
 For unclear marketing lines, the skill can run a fresh-reader check
 (see [SKILL.md](SKILL.md)); the CLI does not.
 
