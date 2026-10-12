@@ -127,9 +127,19 @@ function invisibleColor(value) {
 const backgroundLayout = new Set(['none', 'center', 'top', 'right', 'bottom', 'left', 'repeat',
   'no-repeat', 'repeat-x', 'repeat-y', 'space', 'round', 'scroll', 'fixed', 'local',
   'border-box', 'padding-box', 'content-box', 'cover', 'contain', 'auto']);
-const paintedBackground = (v) => !!v && !/^(?:inherit|initial|unset)$/.test(v) &&
-  splitOutsideFunctions(v, 'whitespace').flatMap((token) => splitOutsideFunctions(token, '/'))
-    .some((token) => token && !backgroundLayout.has(token) && !invisibleColor(token));
+const backgroundLength = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[a-z%]+)?$/;
+const backgroundMath = /^(?:calc|min|max|clamp)\(/;
+function paintedBackground(v) {
+  if (!v || /^(?:inherit|initial|unset)$/.test(v)) return false;
+  return splitOutsideFunctions(v, ',').some((layer) =>
+    splitOutsideFunctions(layer, 'whitespace').flatMap((part) => splitOutsideFunctions(part, '/'))
+      .some((token) => {
+        if (!token || backgroundLayout.has(token) || backgroundLength.test(token) || backgroundMath.test(token)) return false;
+        if (invisibleColor(token)) return false;
+        // A remaining token can be a color or image. Function arguments stay together.
+        return /^(?:#[a-f0-9]+|[a-z][a-z-]*(?:\(.*\))?)$/.test(token);
+      }));
+}
 const paintedBorder = (v) => !!v && splitOutsideFunctions(v, 'whitespace')
   .some((token) => /^(?:solid|dashed|dotted|double|groove|ridge|inset|outset)$/.test(token)) &&
   !/^0(?:px|rem|em)?(?:\s|$)/.test(v) && !invisibleColor(v);

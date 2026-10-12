@@ -145,6 +145,29 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     lacks(nested('background:none transparent'), 'nested-cards');
     lacks(nested('background:transparent center'), 'nested-cards');
   });
+  it('ignores numeric background positions when the color is transparent', { timeout: 1000 }, () => {
+    has(fs.readFileSync(path.join(fixtures, 'slop-ui-nested-cards-background-layers.html'), 'utf8'), 'nested-cards');
+    for (const position of ['50% 50%', '0 0', '8px 12px', 'calc(50% - 1px) center']) {
+      lacks(nested(`background:${position} transparent`), 'nested-cards');
+      has(nested(`background:${position} white`), 'nested-cards');
+    }
+  });
+  it('ignores background sizes without an image or painted color', { timeout: 1000 }, () => {
+    for (const size of ['100% 100%', 'auto', 'calc(100% - 1px) 2rem']) {
+      lacks(nested(`background:center / ${size} transparent`), 'nested-cards');
+      has(nested(`background:center / ${size} white`), 'nested-cards');
+    }
+    has(nested('background:linear-gradient(navy, white) center / 100% 100% transparent'), 'nested-cards');
+  });
+  it('ignores empty background layers and preserves painted layers', { timeout: 1000 }, () => {
+    for (const value of ['none, none transparent', 'none,none transparent']) {
+      lacks(nested(`background:${value}`), 'nested-cards');
+    }
+    lacks(nested('background-image:none, none'), 'nested-cards');
+    lacks(nested('background-image:none,none'), 'nested-cards');
+    has(nested('background:none, none white'), 'nested-cards');
+    has(nested('background-image:none, linear-gradient(navy, white)'), 'nested-cards');
+  });
 
   it('reads gradient clipping and glass from inline styles', { timeout: 1000 }, () => {
     const source = '<h1 style="background:linear-gradient(90deg, purple, pink);background-clip:text">Notes</h1><section style="backdrop-filter:blur(8px)">Records</section>';

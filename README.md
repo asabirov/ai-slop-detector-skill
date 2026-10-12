@@ -197,9 +197,12 @@ The rule expands the side values in `border-width`, `border-style`, and
 `border-width` uses the initial medium width when a visible style is set.
 The rule checks border styles outside color functions, so a missing color
 channel does not disable a solid border. It ignores transparent color tokens,
-nonpainting background shorthands such as `none transparent` and
-`transparent center`, and explicit zero alpha in RGB, HSL, HWB, Lab, LCH,
-OKLab, OKLCH, and `color()` values. It checks shadow lengths outside balanced
+nonpainting background shorthands with numeric positions, sizes, and empty
+layers. This includes `50% 50% transparent`, `center / 100% 100% transparent`,
+and `none, none transparent`. It recognizes unsigned decimal zero alpha in
+RGB, HSL, HWB, Lab, LCH, OKLab, OKLCH, and `color()` values. Signed zero,
+exponent forms, and missing alpha channels remain outside this check.
+It checks shadow lengths outside balanced
 color functions and ignores shadows with zero geometry. Complex color
 expressions remain painted when their final alpha is unknown.
 Class names alone do not establish a painted card.
