@@ -276,6 +276,8 @@ test('keeps text after an HTML comment ending with --!>', { timeout: 1000 }, () 
   for (const source of [
     'Write <!-- hidden --!> ↗ here.',
     '<div><!-- hidden --!> ↗ here.</div>',
+    '<div><!-->↗</div>',
+    '<div><!--->↗</div>',
     '<!-- hidden --!>\n\nWrite \\&nearr; here.',
   ]) {
     assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
@@ -396,10 +398,12 @@ test('keeps HTML code hidden across a Markdown blank line', { timeout: 1000 }, (
   assert.ok(!detect('<div><code>\n\n↗\n</code></div>',
     { level: 1, kind: 'artifact', ext: 'md' }).findings
     .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.strictEqual(markdownArrow('<div><code>\n\n↗\n</code>\nWrite \\&nearr; here.'), false);
 });
 
 test('accepts type 6 HTML names and multiline opening prefixes', { timeout: 1000 }, () => {
-  for (const source of ['<search>\\&nearr;</search>', '<div\n>\\&nearr;</div>']) {
+  for (const source of ['<search>\\&nearr;</search>', '<div\n>\\&nearr;</div>',
+    '<textarea\n>\\&nearr;\n</textarea>']) {
     assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
       .some((finding) => finding.rule === 'external-link-arrow'), source);
   }
@@ -412,6 +416,74 @@ test('limits Markdown tags to paragraphs and accepts CRLF whitespace', { timeout
   assert.ok(!detect('Read <x\r\ndata-x="↗"> text.',
     { level: 1, kind: 'artifact', ext: 'md' }).findings
     .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+const markdownArrow = (source) => detect(source,
+  { level: 1, kind: 'artifact', ext: 'md' }).findings
+  .some((finding) => finding.rule === 'external-link-arrow');
+
+test('reads code span closing backticks inside code without Markdown escapes', { timeout: 1000 }, () => {
+  for (const source of ['Read `↗\\` here.', 'Read ``↗\\`` here.']) {
+    assert.strictEqual(markdownArrow(source), false, source);
+  }
+  assert.strictEqual(markdownArrow('Read `code\\` ↗ `tail` here.'), true);
+  assert.strictEqual(markdownArrow('Read \\`↗\\` here.'), true);
+  assert.strictEqual(markdownArrow('Read `text <span title="\\`">↗ here.'), true);
+});
+
+test('keeps raw HTML script and style text in one lexical state', { timeout: 1000 }, () => {
+  for (const source of ['<div><script>const x="<!--";</script>↗</div>',
+    '<div><style>/* <!-- */</style>↗</div>',
+    '<div><script>const x="<span title=\'";</script>↗</div>']) {
+    assert.strictEqual(markdownArrow(source), true, source);
+  }
+  assert.strictEqual(markdownArrow('<div><script>↗</script></div>'), false);
+});
+
+test('keeps later comments hidden after earlier comments are removed', { timeout: 1000 }, () => {
+  for (const source of ['Text <!-- first --> <span>x</span> <!-- ↗ --> tail',
+    'Text <!-- a longer first comment --> <span>x</span> <!-- ↗ --> tail',
+    '<div><!-- first --> x <!-- ↗ --> tail</div>']) {
+    assert.strictEqual(markdownArrow(source), false, source);
+  }
+  assert.strictEqual(markdownArrow('Text <!-- first --> <span>↗</span> tail'), true);
+});
+
+test('keeps attribute data separate from tags and comments', { timeout: 1000 }, () => {
+  for (const source of ['<div title="Read <script>↗</script> now.">text</div>',
+    '<div title="Read <code>↗</code> now.">text</div>',
+    '<div title="Read\n<!-- ↗ --> now.">text</div>',
+    '<div title=\'Read &nearr; now.\'>text</div>',
+    'A <!-- x --> <span title="Read <!-- ↗ --> now.">text</span>.']) {
+    assert.strictEqual(markdownArrow(source), true, source);
+  }
+  assert.strictEqual(markdownArrow('<div title="\n<code>\n">\n\n\\&nearr;'), false);
+  assert.strictEqual(markdownArrow('<div data-x=a"b>↗</div>'), true);
+});
+
+test('keeps inline textarea tag spellings as text', { timeout: 1000 }, () => {
+  assert.strictEqual(markdownArrow('Read <textarea><code>↗</code></textarea> here.'), true);
+  assert.strictEqual(markdownArrow('Read <textarea><!-- ↗ --></textarea> here.'), true);
+});
+
+test('ends raw HTML and fences with their list or quote containers', { timeout: 1000 }, () => {
+  for (const source of ['- item\n\n  <div>\n  text\n\\&nearr;',
+    '- item\n  - <div>\n    text\n  \\&nearr;',
+    '10. <div>\n    text\n\\&nearr;',
+    '> - <div>\n>   text\n> \\&nearr;']) {
+    assert.strictEqual(markdownArrow(source), false, source);
+  }
+  assert.strictEqual(markdownArrow('- ~~~\n  ↗\n  ~~~'), false);
+  for (const source of ['> ~~~\n> code\n<span>\n\\&nearr;\n</span>',
+    '- ~~~\n  code\n<span>\n\\&nearr;\n</span>']) {
+    assert.strictEqual(markdownArrow(source), true, source);
+  }
+  assert.strictEqual(markdownArrow('- > <div>\n  > \\&nearr;\n  > </div>'), true);
+});
+
+test('scans many unfinished HTML prefixes within its budget', { timeout: 1000 }, () => {
+  const ctx = parse('<div>\n' + '<a '.repeat(3000), { ext: 'md' });
+  assert.ok(ctx.isHtml === false);
 });
 
 test('keeps boundary-prefix custom elements inside a visible run', { timeout: 1000 }, () => {

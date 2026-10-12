@@ -12,3 +12,5 @@ Write &#0008599; and &#x002197; here with <span>text</span>.
 <span>
 \&nearr;
 </span>
+
+<div><script>const marker = "<!--";</script>↗</div>

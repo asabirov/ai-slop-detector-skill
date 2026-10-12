@@ -116,12 +116,14 @@ even when the file contains raw HTML. References after an even number decode.
 Markdown prose accepts 1 to 7 decimal digits or 1 to 6 hexadecimal digits.
 Longer references stay literal in Markdown prose. Inside raw HTML blocks,
 HTML decodes them without these Markdown limits. The parser also reads
-human-readable attributes in raw HTML and excludes script, style, and code
+human-readable attributes in raw HTML, including single-quoted values.
+It excludes script, style, and code
 contents from Markdown prose. Autolinks and literal angle-bracket text remain
 visible to text rules. A comment marker inside a quoted HTML attribute stays
 attribute data. Textarea content keeps tag and comment spellings as text.
 Raw HTML blocks can start after completed headings and fences. A raw HTML
-region ends when its list item ends.
+region ends when its list item ends. The text parser remains approximate for
+malformed HTML tags that cross a Markdown blank line.
 
 In markup, `p`, `div`, headings, `span`, `li`, table cells, `section`, `header`,
 `footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible text run. This keeps

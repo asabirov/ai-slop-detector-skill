@@ -102,6 +102,9 @@ stay literal there. Raw HTML blocks use HTML reference rules, including longer n
 Markdown code syntax does not remove text from raw HTML blocks or readable attributes.
 Quoted HTML attributes keep comment markers as data. Textarea content keeps tag and
 comment spellings as text. Raw HTML ends when its Markdown list item ends.
+HTML tag and comment state persists across source lines. A code element can stay
+hidden after a Markdown block boundary, while the new block uses Markdown reference
+rules. Malformed HTML tags across a Markdown blank line remain approximate.
 
 In markup, `p`, `div`, headings, `span`, `li`, `td`, `th`, `section`, `header`,
 `footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible run. The definition
