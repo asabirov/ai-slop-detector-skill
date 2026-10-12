@@ -24,9 +24,13 @@ const rules = [
 describe('UI heuristics', { timeout: 1000 }, () => {
   for (const rule of rules) {
     it(`${rule} catches its fixture`, { timeout: 1000 }, () => {
-      has(fs.readFileSync(path.join(fixtures, `slop-ui-${rule}.html`), 'utf8'), rule);
+      const fixture = rule === 'nested-cards' ? 'slop-ui-nested-cards-painted.html' : `slop-ui-${rule}.html`;
+      has(fs.readFileSync(path.join(fixtures, fixture), 'utf8'), rule);
     });
   }
+  it('the original unpainted nested card fixture stays silent at paranoid', { timeout: 1000 }, () => {
+    assert.deepEqual(scan(fs.readFileSync(path.join(fixtures, 'slop-ui-nested-cards.html'), 'utf8')).findings, []);
+  });
   for (const file of fs.readdirSync(fixtures).filter((name) => name.startsWith('clean.'))) {
     it(`${file} stays silent at paranoid`, { timeout: 1000 }, () => {
       assert.deepEqual(scan(fs.readFileSync(path.join(fixtures, file), 'utf8'), file).findings, []);
