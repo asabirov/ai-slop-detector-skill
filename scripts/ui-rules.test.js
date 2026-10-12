@@ -24,14 +24,165 @@ const rules = [
 describe('UI heuristics', { timeout: 1000 }, () => {
   for (const rule of rules) {
     it(`${rule} catches its fixture`, { timeout: 1000 }, () => {
-      has(fs.readFileSync(path.join(fixtures, `slop-ui-${rule}.html`), 'utf8'), rule);
+      const fixture = rule === 'nested-cards' ? 'slop-ui-nested-cards-painted.html' : `slop-ui-${rule}.html`;
+      has(fs.readFileSync(path.join(fixtures, fixture), 'utf8'), rule);
     });
   }
+  it('the original unpainted nested card fixture stays silent at paranoid', { timeout: 1000 }, () => {
+    assert.deepEqual(scan(fs.readFileSync(path.join(fixtures, 'slop-ui-nested-cards.html'), 'utf8')).findings, []);
+  });
   for (const file of fs.readdirSync(fixtures).filter((name) => name.startsWith('clean.'))) {
     it(`${file} stays silent at paranoid`, { timeout: 1000 }, () => {
       assert.deepEqual(scan(fs.readFileSync(path.join(fixtures, file), 'utf8'), file).findings, []);
     });
   }
+
+  it('does not count unpainted card, panel, or tile wrappers as cards', { timeout: 1000 }, () => {
+    for (const name of ['card', 'panel', 'tile']) {
+      lacks(`<section class="${name}"><div class="${name}">Field notes</div></section>`, 'nested-cards');
+      lacks(`<section class="${name}"><div class="card" style="background:white">Field notes</div></section>`, 'nested-cards');
+    }
+    lacks('<section class="card" style="background:transparent;border:none;box-shadow:none"><div class="card" style="background:white">Field notes</div></section>', 'nested-cards');
+    for (const style of [
+      'border:0 solid red', 'background:rgba(0,0,0,0)', 'box-shadow:0 0 0 transparent',
+      'background:#0000', 'background:hsla(0,0%,0%,0)', 'background:rgb(0 0 0 / 0)',
+      'border:1px solid #0000', 'box-shadow:0 2px 4px #0000',
+    ]) {
+      lacks(`<section class="tile" style="${style}"><div class="card" style="background:white">Field notes</div></section>`, 'nested-cards');
+    }
+  });
+  it('counts nested cards with painted CSS, inline styles, or utility classes', { timeout: 1000 }, () => {
+    has('<style>.card { background:white; border:1px solid #ddd }</style><section class="card"><div class="card">Field notes</div></section>', 'nested-cards');
+    has('<section class="card" style="border:1px solid #ddd"><div class="card" style="box-shadow:0 2px 6px #777">Field notes</div></section>', 'nested-cards');
+    has('<section class="card border"><div class="card bg-white">Field notes</div></section>', 'nested-cards');
+    has('<style>.card { background:none; background-color:white }</style><section class="card"><div class="card">Field notes</div></section>', 'nested-cards');
+    has('<section class="card" style="background:linear-gradient(white, transparent)"><div class="card" style="background:white">Field notes</div></section>', 'nested-cards');
+    has('<style>.card { border-width:1px; border-style:solid; border-color:#ddd }</style><section class="card"><div class="card">Field notes</div></section>', 'nested-cards');
+    has('<section style="background:white;border-radius:8px"><div style="border:1px solid #ddd;border-radius:8px">Field notes</div></section>', 'nested-cards');
+  });
+
+  const nested = (style) => `<section class="card" style="${style}"><div class="card" style="background:white">Field notes</div></section>`;
+  it('counts painted sides when other border widths are zero', { timeout: 1000 }, () => {
+    has(nested('border-width:0 3px;border-style:solid;border-color:navy'), 'nested-cards');
+    has(nested('border-width:0 0 0 3px;border-style:solid;border-color:navy'), 'nested-cards');
+    lacks(nested('border-width:0;border-style:solid;border-color:navy'), 'nested-cards');
+  });
+  it('checks longhand border color before counting paint', { timeout: 1000 }, () => {
+    lacks(nested('border-width:3px;border-style:solid;border-color:transparent'), 'nested-cards');
+    has(nested('border-width:3px;border-style:solid;border-color:navy'), 'nested-cards');
+  });
+  it('recognizes zero alpha in both rgb and rgba separator forms', { timeout: 1000 }, () => {
+    for (const name of ['rgb', 'rgba']) {
+      lacks(nested(`background:${name}(0 0 0 / 0)`), 'nested-cards');
+      lacks(nested(`background:${name}(0,0,0,0)`), 'nested-cards');
+      lacks(nested(`background:${name}(0 0 0 / .0)`), 'nested-cards');
+      lacks(nested(`background:${name}(0,0,0,.0)`), 'nested-cards');
+      has(nested(`background:${name}(0 0 0 / 1)`), 'nested-cards');
+      has(nested(`background:${name}(0,0,0,1)`), 'nested-cards');
+    }
+    has(nested('background:rgb(255,0,0)'), 'nested-cards');
+    has(nested('background:hsl(0,0%,0%)'), 'nested-cards');
+    has(nested('border:3px solid rgb(255,0,0)'), 'nested-cards');
+  });
+  it('ignores zero-geometry shadows with a color token', { timeout: 1000 }, () => {
+    lacks(nested('box-shadow:0 0 0 0 navy'), 'nested-cards');
+    lacks(nested('box-shadow:navy 0 0 0 0'), 'nested-cards');
+    lacks(nested('box-shadow:0 0 0 0 color(srgb 1 0 0)'), 'nested-cards');
+    has(nested('box-shadow:0 2px 0 0 navy'), 'nested-cards');
+    has(nested('box-shadow:0 2px 0 0 rgb(255,0,0)'), 'nested-cards');
+  });
+  it('splits border sides at CSS whitespace outside color functions', { timeout: 1000 }, () => {
+    for (const space of [' ', '\n', '\t']) {
+      has(nested(`border-width:3px;border-style:solid;border-color:transparent${space}navy`), 'nested-cards');
+      lacks(nested(`border-width:3px;border-style:solid;border-color:transparent${space}transparent`), 'nested-cards');
+    }
+    has(fs.readFileSync(path.join(fixtures, 'slop-ui-nested-cards-css-values.html'), 'utf8'), 'nested-cards');
+  });
+  it('keeps transparent color arguments inside visible expressions', { timeout: 1000 }, () => {
+    for (const mix of ['color-mix(in srgb, transparent 50%, navy)', 'color-mix(in srgb, rgb(0 0 0 / 0) 50%, navy)']) {
+      has(nested(`border:3px solid ${mix}`), 'nested-cards');
+      has(nested(`box-shadow:0 3px 0 ${mix}`), 'nested-cards');
+    }
+    has(nested('background:rgb(from transparent r g b / 1)'), 'nested-cards');
+    lacks(nested('background:transparent'), 'nested-cards');
+  });
+  it('ignores explicit zero alpha in supported modern color forms', { timeout: 1000 }, () => {
+    for (const color of ['color(srgb 1 0 0 / 0)', 'hwb(0 0% 0% / 0)', 'lab(50 40 20 / 0)',
+      'lch(50 40 20 / 0)', 'oklab(0.5 0.1 0.1 / 0)', 'oklch(0.5 0.2 30 / 0)']) {
+      lacks(nested(`background:${color}`), 'nested-cards');
+      lacks(nested(`border:3px solid ${color}`), 'nested-cards');
+      lacks(nested(`box-shadow:0 3px 0 ${color}`), 'nested-cards');
+      const visible = color.replace(/\/ 0\)$/, '/ 1)');
+      has(nested(`background:${visible}`), 'nested-cards');
+      has(nested(`border:3px solid ${visible}`), 'nested-cards');
+      has(nested(`box-shadow:0 3px 0 ${visible}`), 'nested-cards');
+    }
+  });
+  it('reads shadow geometry after balanced color functions', { timeout: 1000 }, () => {
+    for (const color of ['rgb(calc(255) 0 0)', 'color-mix(in srgb, navy, white)']) {
+      lacks(nested(`box-shadow:0 0 ${color}`), 'nested-cards');
+      has(nested(`box-shadow:0 3px ${color}`), 'nested-cards');
+    }
+  });
+  it('keeps a solid border when its color has a missing channel', { timeout: 1000 }, () => {
+    lacks(nested('border:3px none navy'), 'nested-cards');
+    lacks(nested('border:3px hidden navy'), 'nested-cards');
+    has(nested('border:3px solid rgb(0 0 0 / 1)'), 'nested-cards');
+    for (const color of ['rgb(none 0 0 / 1)', 'lab(50 none none)', 'color-mix(in srgb, rgb(none 0 0), navy)']) {
+      has(nested(`border:3px solid ${color}`), 'nested-cards');
+    }
+  });
+  it('uses the initial border width when a visible style omits it', { timeout: 1000 }, () => {
+    lacks(nested('border-style:none;border-color:navy'), 'nested-cards');
+    lacks(nested('border-width:0;border-style:solid;border-color:navy'), 'nested-cards');
+    has(nested('border-width:3px;border-style:solid;border-color:navy'), 'nested-cards');
+    has(nested('border-style:solid;border-color:navy'), 'nested-cards');
+    has(fs.readFileSync(path.join(fixtures, 'slop-ui-nested-cards-initial-border.html'), 'utf8'), 'nested-cards');
+  });
+  it('ignores background shorthand tokens that do not paint', { timeout: 1000 }, () => {
+    has(nested('background:none white'), 'nested-cards');
+    lacks(nested('background:transparent'), 'nested-cards');
+    lacks(nested('background:none transparent'), 'nested-cards');
+    lacks(nested('background:transparent center'), 'nested-cards');
+  });
+  it('ignores numeric background positions when the color is transparent', { timeout: 1000 }, () => {
+    has(fs.readFileSync(path.join(fixtures, 'slop-ui-nested-cards-background-layers.html'), 'utf8'), 'nested-cards');
+    for (const position of ['50% 50%', '0 0', '8px 12px', 'calc(50% - 1px) center']) {
+      lacks(nested(`background:${position} transparent`), 'nested-cards');
+      has(nested(`background:${position} white`), 'nested-cards');
+    }
+  });
+  it('ignores background sizes without an image or painted color', { timeout: 1000 }, () => {
+    for (const size of ['100% 100%', 'auto', 'calc(100% - 1px) 2rem']) {
+      lacks(nested(`background:center / ${size} transparent`), 'nested-cards');
+      has(nested(`background:center / ${size} white`), 'nested-cards');
+    }
+    has(nested('background:linear-gradient(navy, white) center / 100% 100% transparent'), 'nested-cards');
+  });
+  it('ignores empty background layers and preserves painted layers', { timeout: 1000 }, () => {
+    for (const value of ['none, none transparent', 'none,none transparent']) {
+      lacks(nested(`background:${value}`), 'nested-cards');
+    }
+    lacks(nested('background-image:none, none'), 'nested-cards');
+    lacks(nested('background-image:none,none'), 'nested-cards');
+    has(nested('background:none, none white'), 'nested-cards');
+    has(nested('background-image:none, linear-gradient(navy, white)'), 'nested-cards');
+  });
+  it('keeps painted colors with CSS line breaks', { timeout: 1000 }, () => {
+    for (const space of [' ', '\t', '\n', '\r']) {
+      has(nested(`background:rgb(0${space}0 128)`), 'nested-cards');
+      has(nested(`background:color-mix(in srgb,${space}navy, white)`), 'nested-cards');
+      lacks(nested(`background:rgb(0${space}0 128 / 0)`), 'nested-cards');
+    }
+  });
+  it('keeps painted images with CSS line breaks', { timeout: 1000 }, () => {
+    for (const space of [' ', '\t', '\n', '\r']) {
+      has(nested(`background:linear-gradient(navy,${space}white)`), 'nested-cards');
+      has(nested(`background-image:none, linear-gradient(navy,${space}white)`), 'nested-cards');
+    }
+    lacks(nested('background:none, none transparent'), 'nested-cards');
+    lacks(nested('background:center / 100% 100% transparent'), 'nested-cards');
+  });
 
   it('reads gradient clipping and glass from inline styles', { timeout: 1000 }, () => {
     const source = '<h1 style="background:linear-gradient(90deg, purple, pink);background-clip:text">Notes</h1><section style="backdrop-filter:blur(8px)">Records</section>';

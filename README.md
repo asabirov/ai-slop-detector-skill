@@ -189,6 +189,26 @@ HTML, JSX, TSX, Vue, Svelte, and Astro. Dynamic classes, Tailwind configuration,
 CSS cascade resolution, and contrast checks need a rendered review. See the
 [CLI reference](docs/ai-slop-detector.md) for coverage and thresholds.
 
+`nested-cards` counts a `card`, `panel`, or `tile` class only when an applied
+declaration gives the element a border, background, or box shadow. A rounded
+element with one of those styles also counts, even without a card-like class.
+The rule expands the side values in `border-width`, `border-style`, and
+`border-color` across CSS whitespace outside color functions. An omitted
+`border-width` uses the initial medium width when a visible style is set.
+The rule checks border styles outside color functions, so a missing color
+channel does not disable a solid border. It ignores transparent color tokens,
+nonpainting background shorthands with numeric positions, sizes, and empty
+layers. This includes `50% 50% transparent`, `center / 100% 100% transparent`,
+and `none, none transparent`. It recognizes unsigned decimal zero alpha in
+RGB, HSL, HWB, Lab, LCH, OKLab, OKLCH, and `color()` values. Signed zero,
+exponent forms, and missing alpha channels remain outside this check.
+It checks shadow lengths outside balanced
+color functions and ignores shadows with zero geometry. Complex color
+expressions remain painted when their final alpha is unknown.
+Class names alone do not establish a painted card.
+This static check cannot resolve inherited styles, complex selectors, later
+cascade resets, or dynamic classes. Review those cases in the rendered page.
+
 ## Changing a rule
 
 The rule set is a shared contract. Do not fork it, and do not silence a rule in
