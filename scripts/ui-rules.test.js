@@ -811,6 +811,7 @@ describe('UI heuristics', { timeout: 1000 }, () => {
       'The export of all booking reports covering June completed.',
       'The export of all booking reports on bookings completed.',
       'The export of all booking reports covering bookings completed.',
+      'The export of all booking reports detailed for June completed.',
     ]) {
       for (const text of ['Ready.', note]) {
         const wrapper = `<div class="text-muted" role="status"><p>${result}</p><p>${text}</p><button>Export</button></div>`;
@@ -839,6 +840,8 @@ describe('UI heuristics', { timeout: 1000 }, () => {
       'The export for June reports on bookings completed.',
       'The export for June 2026 reports on all bookings completed.',
       'The export for June and July reports on all bookings completed.',
+      'The export for Q2 reports on all bookings completed.',
+      'The export for June detailed all bookings completed.',
       'The export for June lists pending bookings completed.',
     ]) {
       const wrapper = `<div class="text-muted" role="status"><p>Ready.</p><p>${note}</p><button>Export</button></div>`;

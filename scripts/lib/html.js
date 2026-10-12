@@ -415,13 +415,16 @@ function isControlResultFeedback(text, controls) {
   for (let i = 1; i < words.length; i++) {
     const word = words[i].toLowerCase();
     if (clauseStart.has(word) || (auxiliary.has(word) && words[i] === word)) return false;
-    if (nonVerbs.has(word) || !word.endsWith('s') || word.endsWith('ss') || i === words.length - 1) continue;
-    const next = words[i + 1].toLowerCase();
     const scope = words.slice(0, i).join(' ');
     // A date or view can precede a data verb. A result noun has a different prefix.
     const scopeSubject = qualified[1].toLowerCase() === 'for' &&
       (/^[A-Z][a-z]+(?: \d{4})?(?: (?:and|to|through) [A-Z][a-z]+(?: \d{4})?)*$/.test(scope) ||
+        /^Q [1-4](?: \d{4})?$/.test(scope) ||
         /^(?:today|yesterday|tomorrow|(?:this|that|current) (?:view|table))$/i.test(scope));
+    if (i === words.length - 1) continue;
+    const next = words[i + 1].toLowerCase();
+    if (scopeSubject && word.endsWith('ed') && !objectBoundary.has(next)) return false;
+    if (nonVerbs.has(word) || !word.endsWith('s') || word.endsWith('ss')) continue;
     if (scopeSubject && ['on', 'about'].includes(next) &&
       words[i + 2] && (words[i + 3] || /s$/i.test(words[i + 2]))) return false;
     if (objectBoundary.has(next)) continue;
