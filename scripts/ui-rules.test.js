@@ -773,6 +773,80 @@ describe('UI heuristics', { timeout: 1000 }, () => {
         [`beside <h2> "Reports" above <table>: ${note}`]);
     }
   });
+  it('keeps the full numeric note across nested and adjacent live spans', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const note = '24 hours can pass before late bookings appear.';
+    for (const body of [
+      '<span role="status">24 hours</span> can pass before late bookings appear.',
+      '24 hours can <span aria-live="polite">pass before late</span> bookings appear.',
+      '<span role="status">24 hours</span> <span aria-live="polite">can pass before</span> late bookings appear.',
+    ]) {
+      const wrapper = `<div class="text-muted" role="status">The export completed. ${body}<button>Export</button></div>`;
+      assert.deepEqual(spans(table + wrapper, 'table-footnote'), [`under <table>: ${note}`]);
+      assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+        [`beside <h2> "Reports" above <table>: ${note}`]);
+    }
+    for (const body of [
+      '<span role="status">24 hours</span> can pass before late bookings appear.',
+      '24 hours can <span aria-live="polite">pass before late</span> bookings appear.',
+      '<span role="status">24 hours</span> <span aria-live="polite">can pass before</span> late bookings appear.',
+    ]) {
+      const wrapper = `<div class="text-muted">${body}<button>Export</button></div>`;
+      assert.deepEqual(spans(table + wrapper, 'table-footnote'), [`under <table>: ${note}`]);
+      assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+        [`beside <h2> "Reports" above <table>: ${note}`]);
+    }
+  });
+  it('treats completion object nouns as nouns in both table positions', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const note = 'Updated each morning, so late bookings appear tomorrow.';
+    for (const result of [
+      'The export of all booking counts completed.',
+      'The export of 12 reports completed.',
+      'The export of three lists completed.',
+      'The export of three shows completed.',
+      'The export for booking Will completed.',
+      'The export of all booking reports about June completed.',
+      'The export of all booking counts across teams completed.',
+      'The export of all booking reports covering June completed.',
+      'The export of all booking reports on bookings completed.',
+      'The export of all booking reports covering bookings completed.',
+    ]) {
+      for (const text of ['Ready.', note]) {
+        const wrapper = `<div class="text-muted" role="status"><p>${result}</p><p>${text}</p><button>Export</button></div>`;
+        const expected = text === note ? [`under <table>: ${note}`] : [];
+        assert.deepEqual(spans(table + wrapper, 'table-footnote'), expected);
+        assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+          text === note ? [`beside <h2> "Reports" above <table>: ${note}`] : []);
+      }
+    }
+  });
+  it('reports record clauses with listed and alternate verbs', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const verb of ['lists', 'counts', 'reports', 'shows', 'summarizes', 'records', 'details', 'groups', 'identifies', 'highlights']) {
+      for (const ending of ['completed', 'confirmed']) {
+        const note = `The export for June ${verb} all bookings ${ending}.`;
+        const wrapper = `<div class="text-muted" role="status"><p>Ready.</p><p>${note}</p><button>Export</button></div>`;
+        assert.deepEqual(spans(table + wrapper, 'table-footnote'), [`under <table>: ${note}`]);
+        assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+          [`beside <h2> "Reports" above <table>: ${note}`]);
+      }
+    }
+    for (const note of [
+      'The export for June lists completed bookings completed.',
+      'The export for June highlights cancelled bookings completed.',
+      'The export for June reports on all bookings completed.',
+      'The export for June reports on bookings completed.',
+      'The export for June 2026 reports on all bookings completed.',
+      'The export for June and July reports on all bookings completed.',
+      'The export for June lists pending bookings completed.',
+    ]) {
+      const wrapper = `<div class="text-muted" role="status"><p>Ready.</p><p>${note}</p><button>Export</button></div>`;
+      assert.deepEqual(spans(table + wrapper, 'table-footnote'), [`under <table>: ${note}`]);
+      assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+        [`beside <h2> "Reports" above <table>: ${note}`]);
+    }
+  });
   it('keeps abbreviations and decimals inside one note', { timeout: 1000 }, () => {
     const table = '<table><tr><td>12</td></tr></table>';
     const note = 'Updated nightly, e.g. 3.14 hours after close, so yesterday stays open.';

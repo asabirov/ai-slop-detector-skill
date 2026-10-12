@@ -397,13 +397,44 @@ function isControlResultFeedback(text, controls) {
   if (/^(?:(?:has|is|was)\s+)?(?:(?:now|successfully|been)\s+){0,2}(?:complete|completed|finished|succeeded)\b(?:\s+(?:successfully|without errors|at (?:[a-z]+|\d{1,2}(?::\d{2})?)))?(?=\s+(?:for|with)\b|[.!?]|$)/i.test(predicate)) {
     return true;
   }
-  const qualified = /^(?:for|of)\s+(.+?)\s+(?:(?:has|is|was)\s+)?(?:(?:now|successfully|been)\s+){0,2}(?:complete|completed|finished|succeeded)[.!?]?$/i.exec(predicate);
+  const qualified = /^(for|of)\s+(.+?)\s+(?:(?:has|is|was)\s+)?(?:(?:now|successfully|been)\s+){0,2}(?:complete|completed|finished|succeeded)[.!?]?$/i.exec(predicate);
   if (!qualified) return false;
-  // The object can include numbers, quoted labels, and several modifiers.
-  // A second verb clause describes the exported data, not the action result.
-  const object = qualified[1].replace(/“[^”]*”|"[^"]*"|'[^']*'/g, 'quoted');
-  return !/\b(?:lists?|shows?|includes?|contains?|displays?|reports?|indicates?|tracks?|marks?|excludes?|omits?|counts?|covers?|whether|which|when|is|are|was|were|has|have|had|can|will)\b/i.test(object) &&
-    !/\b(?:not|only|already|yet|marked)\s*$/i.test(object);
+  // A result object can contain nouns such as "reports" and "counts".
+  // A finite verb with its own object instead describes the exported data.
+  const object = qualified[2].replace(/“[^”]*”|"[^"]*"|'[^']*'/g, 'quoted');
+  const words = object.match(/[a-z]+|\d+/gi) || [];
+  const clauseStart = new Set(['which', 'whether', 'when']);
+  const auxiliary = new Set(['is', 'are', 'was', 'were', 'has', 'have', 'had', 'can', 'will']);
+  const nonVerbs = new Set(['this', 'these', 'those', 'its', 'his', 'us', 'as']);
+  const objectBoundary = new Set([
+    'of', 'for', 'from', 'in', 'on', 'at', 'to', 'by', 'with', 'without', 'as',
+    'about', 'across', 'against', 'among', 'around', 'between', 'over', 'under',
+    'within', 'via', 'per', 'near', 'along', 'before', 'after', 'until',
+    'through', 'throughout', 'not', 'yet', 'already', 'marked',
+  ]);
+  for (let i = 1; i < words.length; i++) {
+    const word = words[i].toLowerCase();
+    if (clauseStart.has(word) || (auxiliary.has(word) && words[i] === word)) return false;
+    if (nonVerbs.has(word) || !word.endsWith('s') || word.endsWith('ss') || i === words.length - 1) continue;
+    const next = words[i + 1].toLowerCase();
+    const scope = words.slice(0, i).join(' ');
+    // A date or view can precede a data verb. A result noun has a different prefix.
+    const scopeSubject = qualified[1].toLowerCase() === 'for' &&
+      (/^[A-Z][a-z]+(?: \d{4})?(?: (?:and|to|through) [A-Z][a-z]+(?: \d{4})?)*$/.test(scope) ||
+        /^(?:today|yesterday|tomorrow|(?:this|that|current) (?:view|table))$/i.test(scope));
+    if (scopeSubject && ['on', 'about'].includes(next) &&
+      words[i + 2] && (words[i + 3] || /s$/i.test(words[i + 2]))) return false;
+    if (objectBoundary.has(next)) continue;
+    if (next.endsWith('ed') &&
+      (!words[i + 2] || objectBoundary.has(words[i + 2].toLowerCase()))) continue;
+    if (next.endsWith('ing')) {
+      const objectHead = words[i + 2]?.toLowerCase();
+      if (scopeSubject && objectHead && (objectHead.endsWith('s') || objectHead === 'data')) return false;
+      continue;
+    }
+    return false;
+  }
+  return !/\b(?:not|only|already|yet|marked)\s*$/i.test(object);
 }
 
 function isVisible(elements, i) {
@@ -570,14 +601,18 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
           if (liveScope === null) liveScope = p;
           liveOwners.push(p);
         }
-        if (p === kept[0] ||
-          (elements[p].live && !hasLiveAncestor(elements, p, kept[0]))) break;
+        if (p === kept[0]) break;
       }
       return { ...event, markers, liveScope, liveOwners };
     });
     const fragments = sentenceEvents(scopedEvents);
+    const liveText = new Map();
     for (const event of fragments) {
       if (!/\S/u.test(event.chunk[1])) continue;
+      if (event.liveScope !== null) {
+        const key = `${event.sentenceId}:${event.liveScope}`;
+        liveText.set(key, (liveText.get(key) || '') + event.chunk[1]);
+      }
       for (const owner of event.liveOwners) {
         if (!liveSentences.has(owner)) liveSentences.set(owner, new Set());
         liveSentences.get(owner).add(`${id}:${event.sentenceId}`);
@@ -585,7 +620,6 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
     }
     let group = [];
     let gap = [];
-    let liveScope = null;
     let groupIndex = 0;
     const feedbackBySentence = new Map();
     const finishGroup = () => {
@@ -595,23 +629,33 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
       let feedback = feedbackBySentence.get(group[0].sentenceId);
       if (feedback === undefined) {
         feedback = isControlFeedback(sentence, controls) ||
-          ((liveScope !== null || inLiveRegion) &&
+          ((group.some((event) => event.liveScope !== null) || inLiveRegion) &&
             (ACTION_FEEDBACK.test(sentence) || isControlResultFeedback(sentence, controls)));
         feedbackBySentence.set(group[0].sentenceId, feedback);
       }
       const key = `group:${id}:${groupIndex++}`;
       const owners = new Set(group.flatMap((event) => event.markers));
+      const oneLiveScope = group[0].liveScope !== null &&
+        group.filter((event) => /\S/u.test(event.chunk[1]))
+          .every((event) => event.liveScope === group[0].liveScope);
       for (const owner of owners) {
         notes.get(owner)?.delete(id);
         attach(owner, { id, order: group[0].pos, text: feedback ? '' : text,
-          sourceOwner: owner }, key);
+          sourceOwner: oneLiveScope ? group[0].liveScope : owner }, key);
       }
       group = [];
       gap = [];
     };
     for (const event of fragments) {
-      if (group.length && (event.liveScope !== liveScope ||
-        event.sentenceId !== group[0].sentenceId)) finishGroup();
+      if (group.length) {
+        const previous = group.at(-1);
+        // Keep partial live spans in one visible sentence. A complete live line remains separate.
+        const separateLiveLine = event.liveScope !== previous.liveScope &&
+          !event.liveOwners.some((owner) => previous.liveOwners.includes(owner)) &&
+          [event, previous].some((part) => part.liveScope !== null &&
+            /[.!?]["')”’]?\s*$/.test(liveText.get(`${part.sentenceId}:${part.liveScope}`) || ''));
+        if (event.sentenceId !== group[0].sentenceId || separateLiveLine) finishGroup();
+      }
       if (!/\S/u.test(event.chunk[1])) {
         if (group.length) gap.push(event);
         continue;
@@ -622,7 +666,6 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
       }
       if (group.length) group.push(...gap);
       gap = [];
-      liveScope = event.liveScope;
       group.push(event);
     }
     finishGroup();

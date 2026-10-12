@@ -116,9 +116,11 @@ Three rule packs over one engine.
   Saving feedback. Inline elements share a prose line, and
   a line break starts another. Hidden controls, selected options, and textarea
   data are not action labels. Completion feedback can name a number, a quoted
-  label, or a longer group of bookings. A clause that lists or shows records is
-  a data note. A separate note still counts, including one inside nested live
-  status, as does any basis. An unrelated control does not hide a note.
+  label, or a longer group of bookings. Words such as "counts" and "reports"
+  can be nouns in that group. A clause describing records is a data note, even
+  when it ends in "completed." A separate note still counts. Its complete
+  visible sentence includes values inside nested live spans. Any basis also
+  counts. An unrelated control does not hide a note.
 - **Text** reads visible prose plus the attributes a person actually reads
   (`title`, `alt`, `placeholder`, `aria-label`, `data-tip`, the meta
   description). Catches "not just X, but Y", hedge openers, sycophancy residue,
