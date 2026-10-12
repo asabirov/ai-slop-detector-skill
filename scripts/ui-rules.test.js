@@ -61,6 +61,37 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     has('<section style="background:white;border-radius:8px"><div style="border:1px solid #ddd;border-radius:8px">Field notes</div></section>', 'nested-cards');
   });
 
+  const nested = (style) => `<section class="card" style="${style}"><div class="card" style="background:white">Field notes</div></section>`;
+  it('counts painted sides when other border widths are zero', { timeout: 1000 }, () => {
+    has(nested('border-width:0 3px;border-style:solid;border-color:navy'), 'nested-cards');
+    has(nested('border-width:0 0 0 3px;border-style:solid;border-color:navy'), 'nested-cards');
+    lacks(nested('border-width:0;border-style:solid;border-color:navy'), 'nested-cards');
+  });
+  it('checks longhand border color before counting paint', { timeout: 1000 }, () => {
+    lacks(nested('border-width:3px;border-style:solid;border-color:transparent'), 'nested-cards');
+    has(nested('border-width:3px;border-style:solid;border-color:navy'), 'nested-cards');
+  });
+  it('recognizes zero alpha in both rgb and rgba separator forms', { timeout: 1000 }, () => {
+    for (const name of ['rgb', 'rgba']) {
+      lacks(nested(`background:${name}(0 0 0 / 0)`), 'nested-cards');
+      lacks(nested(`background:${name}(0,0,0,0)`), 'nested-cards');
+      lacks(nested(`background:${name}(0 0 0 / .0)`), 'nested-cards');
+      lacks(nested(`background:${name}(0,0,0,.0)`), 'nested-cards');
+      has(nested(`background:${name}(0 0 0 / 1)`), 'nested-cards');
+      has(nested(`background:${name}(0,0,0,1)`), 'nested-cards');
+    }
+    has(nested('background:rgb(255,0,0)'), 'nested-cards');
+    has(nested('background:hsl(0,0%,0%)'), 'nested-cards');
+    has(nested('border:3px solid rgb(255,0,0)'), 'nested-cards');
+  });
+  it('ignores zero-geometry shadows with a color token', { timeout: 1000 }, () => {
+    lacks(nested('box-shadow:0 0 0 0 navy'), 'nested-cards');
+    lacks(nested('box-shadow:navy 0 0 0 0'), 'nested-cards');
+    lacks(nested('box-shadow:0 0 0 0 color(srgb 1 0 0)'), 'nested-cards');
+    has(nested('box-shadow:0 2px 0 0 navy'), 'nested-cards');
+    has(nested('box-shadow:0 2px 0 0 rgb(255,0,0)'), 'nested-cards');
+  });
+
   it('reads gradient clipping and glass from inline styles', { timeout: 1000 }, () => {
     const source = '<h1 style="background:linear-gradient(90deg, purple, pink);background-clip:text">Notes</h1><section style="backdrop-filter:blur(8px)">Records</section>';
     has(source, 'gradient-text');

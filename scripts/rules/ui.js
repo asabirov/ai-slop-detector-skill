@@ -104,13 +104,28 @@ function cssRule(id, level, why, fix, predicate) {
 }
 const background = (p) => p.background || p['background-image'] || p['background-color'] || '';
 const bordered = (p) => /^1px\s+solid\b/.test(p.border || '');
-const invisibleColor = (v) => /\btransparent\b|#[a-f0-9]{3}0\b|#[a-f0-9]{6}00\b|(?:rgba|hsla)\([^)]*,\s*0(?:\.0+)?%?\s*\)|(?:rgb|hsl)\([^)]*\/\s*0(?:\.0+)?%?\s*\)/.test(v);
+const invisibleColor = (v) => /\btransparent\b|#[a-f0-9]{3}0\b|#[a-f0-9]{6}00\b|(?:rgba?|hsla?)\((?:[^,)]*,){3}\s*(?:0(?:\.0+)?|\.0+)%?\s*\)|(?:rgba?|hsla?)\([^)]*\/\s*(?:0(?:\.0+)?|\.0+)%?\s*\)/.test(v);
 const paintedBackground = (v) => !!v && !/^(?:none|inherit|initial|unset)$/.test(v) &&
   !(/^(?:transparent|#[a-f0-9]{4}|#[a-f0-9]{8}|(?:rgba?|hsla?)\([^)]*\))$/.test(v) && invisibleColor(v));
 const paintedBorder = (v) => !!v && /\b(?:solid|dashed|dotted|double|groove|ridge|inset|outset)\b/.test(v) &&
   !/\b(?:none|hidden)\b/.test(v) && !/^0(?:px|rem|em)?(?:\s|$)/.test(v) && !invisibleColor(v);
-const paintedShadow = (v) => !!v && v !== 'none' && !invisibleColor(v) &&
-  !/^(?:inset\s+)?0(?:px)?\s+0(?:px)?(?:\s+0(?:px)?){0,2}$/.test(v);
+function paintedLonghandBorder(p) {
+  if (!p['border-width'] || !p['border-style']) return false;
+  const expand = (values) => [values[0], values[1] || values[0], values[2] || values[0], values[3] || values[1] || values[0]];
+  const widths = expand(p['border-width'].split(/\s+/));
+  const styles = expand(p['border-style'].split(/\s+/));
+  const colors = p['border-color'] ? expand(splitOutsideFunctions(p['border-color'], ' ').filter(Boolean)) : [];
+  return widths.some((width, side) => !/^0(?:\.0+)?(?:px|rem|em)?$/.test(width) &&
+    /^(?:solid|dashed|dotted|double|groove|ridge|inset|outset)$/.test(styles[side]) &&
+    (!colors.length || !invisibleColor(colors[side])));
+}
+function paintedShadow(v) {
+  if (!v || v === 'none' || invisibleColor(v)) return false;
+  const geometry = v.replace(/#[a-f0-9]{3,8}\b|(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\([^)]*\)/g, '');
+  const lengths = geometry.trim().split(/\s+/).filter((token) => token !== 'inset' && !/^[a-z]+$/.test(token));
+  return !(lengths.length >= 2 && lengths.length <= 4 &&
+    lengths.every((token) => /^0(?:\.0+)?(?:px|rem|em)?$/.test(token)));
+}
 const buttonish = (s) => /(?:^|[\s,.#>])(?:button|btn|cta)(?:$|[\s,.#:_-])/.test(s);
 const cardish = (s) => /(?:^|[\s,.#>])(?:card|panel|tile|callout|alert)(?:$|[\s,.#:_-])/.test(s);
 
@@ -139,7 +154,7 @@ module.exports = [
       const p = row.props;
       const hasPaint = [p.background, p['background-image'], p['background-color']].some(paintedBackground) ||
         [p.border, p['border-top'], p['border-right'], p['border-bottom'], p['border-left']].some(paintedBorder) ||
-        (paintedBorder(`${p['border-width'] || ''} ${p['border-style'] || ''}`.trim()) && p['border-width'] !== '0') ||
+        paintedLonghandBorder(p) ||
         splitOutsideFunctions(p['box-shadow'] || '', ',').some(paintedShadow);
       if (!hasPaint && pixels(p['border-radius']) <= 0) continue;
       for (const el of targets(ctx, row)) {

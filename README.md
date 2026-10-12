@@ -192,7 +192,11 @@ CSS cascade resolution, and contrast checks need a rendered review. See the
 `nested-cards` counts a `card`, `panel`, or `tile` class only when an applied
 declaration gives the element a border, background, or box shadow. A rounded
 element with one of those styles also counts, even without a card-like class.
+The rule expands the side values in `border-width`, `border-style`, and
+`border-color`. It ignores transparent colors and shadows with zero geometry.
 Class names alone do not establish a painted card.
+This static check cannot resolve inherited styles, complex selectors, later
+cascade resets, or dynamic classes. Review those cases in the rendered page.
 
 ## Changing a rule
 
