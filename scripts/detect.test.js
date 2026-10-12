@@ -369,7 +369,7 @@ test('unquoted trailing slashes belong to attribute values', { timeout: 1000 }, 
   }
   assert.ok(run('slop-html-attributes.md', 1).findings
     .some((finding) => finding.rule === 'mono-noncode' && finding.span.includes('.slash-css')));
-  assert.strictEqual(parse('<code data-path=/assets/ />shown', { ext: 'html' }).codeless, 'shown');
+  assert.strictEqual(parse('<code data-path=/assets/ />shown', { ext: 'html' }).codeless, '');
 });
 
 test('inline Markdown tables retain numeric cell text', { timeout: 1000 }, () => {

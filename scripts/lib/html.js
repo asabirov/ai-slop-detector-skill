@@ -856,7 +856,7 @@ function stripFences(text, replacement) {
     const container = markdownContainer(line, !fence, fence?.quoteDepth ?? Infinity, lists);
     const blank = /^\s*$/.test(container.body);
     updateListStack(lists, container, blank);
-    const body = markdownBlockBody(container, lists);
+    const body = markdownBlockBody(container, lists.at(-1));
     if (fence && (container.quoteDepth < fence.quoteDepth ||
       (fence.listOwner && lists[fence.listDepth - 1] !== fence.listOwner))) fence = null;
     if (fence) {
@@ -942,8 +942,18 @@ function withoutMarkdownCode(source) {
 // Match CommonMark raw HTML tags. An attribute starts with an ASCII name and
 // has a valid quoted or unquoted value. Invalid angle text stays visible.
 const MARKDOWN_TAG = /<(?:\/[a-z][a-z0-9-]*[ \t\n]*|[a-z][a-z0-9-]*(?:[ \t\n]+[a-z_:][a-z0-9:._-]*(?:[ \t\n]*=[ \t\n]*(?:"[^"]*"|'[^']*'|[^ \t\n"'=<>`]+))?)*[ \t\n]*\/?)>/gi;
-// A slash closes a tag only outside its attribute value.
-function selfClosingTag(text) {
+// HTML ignores the slash flag on non-void elements. Unknown component and
+// foreign tag names retain the detector's self-closing syntax.
+const NON_VOID_HTML = new Set(('a abbr address article aside audio b bdi bdo blockquote body button ' +
+  'canvas caption cite code colgroup data datalist dd del details dfn dialog div dl dt em fieldset ' +
+  'figcaption figure footer form h1 h2 h3 h4 h5 h6 head header hgroup html i iframe ins kbd label ' +
+  'legend li main map mark menu meter nav noscript object ol optgroup option output p picture pre ' +
+  'progress q rp rt ruby s samp script search section select slot small span strong style sub ' +
+  'summary sup table tbody td template textarea tfoot th thead time title tr u ul var video').split(' '));
+
+function selfClosingTag(text, foreign = false) {
+  const name = /^<\/?([a-z][a-z0-9-]*)/i.exec(text)?.[1];
+  if (!foreign && name && NON_VOID_HTML.has(name.toLowerCase())) return false;
   let state = 'name';
   let quote = null;
   let slash = false;
@@ -968,6 +978,26 @@ function selfClosingTag(text) {
     if (!space) slash = char === '/' && state !== 'unquoted';
   }
   return false;
+}
+
+// Track namespace boundaries needed for slash flags, not a browser tree.
+function selfClosingContext() {
+  const scopes = [];
+  return (text) => {
+    const match = /^<(\/?)([a-z][a-z0-9-]*)/i.exec(text);
+    const name = match[2].toLowerCase();
+    const namespace = name === 'svg' || name === 'math';
+    const integration = ['foreignobject', 'desc', 'title', 'mi', 'mo', 'mn', 'ms', 'mtext'].includes(name);
+    const foreign = namespace || Boolean(scopes.at(-1)?.foreign);
+    const closes = selfClosingTag(text, foreign);
+    if (match[1]) {
+      const index = scopes.findLastIndex((scope) => scope.name === name);
+      if (index !== -1) scopes.length = index;
+    } else if (!closes && (namespace || (foreign && integration))) {
+      scopes.push({ name, foreign: namespace });
+    }
+    return closes;
+  };
 }
 
 // Consume each closing candidate once. A greater-than inside a quoted attribute
@@ -1012,11 +1042,12 @@ function rawClosingTag(source, from, name) {
 }
 // Scan one immutable region. Offsets include newlines inside attributes.
 function scanRawHtml(source, initialRaw = null) {
+  const selfCloses = selfClosingContext();
   let cursor = 0;
   let mode = initialRaw === 'comment' ? 'comment' : initialRaw ? 'rawtext' : 'data';
   let start = 0;
   let quote = null;
-  let canOpenQuote = false;
+  let attributeState = 'name';
   let commentOpenedHere = false;
   let rawName = initialRaw === 'comment' ? null : initialRaw;
   const tokens = [];
@@ -1026,7 +1057,7 @@ function scanRawHtml(source, initialRaw = null) {
       const head = /^<(\/?)([a-z][a-z0-9-]*)/i.exec(token.text);
       token.name = head[2].toLowerCase();
       token.closing = Boolean(head[1]);
-      token.selfClosing = selfClosingTag(token.text);
+      token.selfClosing = selfCloses(token.text);
     }
     tokens.push(token);
     cursor = end;
@@ -1048,7 +1079,7 @@ function scanRawHtml(source, initialRaw = null) {
       start = next;
       cursor = nameStart + 1;
       quote = null;
-      canOpenQuote = false;
+      attributeState = 'name';
       mode = 'tag';
       continue;
     }
@@ -1057,10 +1088,6 @@ function scanRawHtml(source, initialRaw = null) {
         const char = source[cursor++];
         if (quote) {
           if (char === quote) quote = null;
-        } else if (char === '=') canOpenQuote = true;
-        else if (canOpenQuote && (char === '"' || char === "'")) {
-          quote = char;
-          canOpenQuote = false;
         } else if (char === '>') {
           emit('tag', cursor);
           const opened = tokens[tokens.length - 1];
@@ -1070,7 +1097,18 @@ function scanRawHtml(source, initialRaw = null) {
             mode = 'rawtext';
           }
           break;
-        } else if (canOpenQuote && !/\s/.test(char)) canOpenQuote = false;
+        } else if (attributeState === 'beforeValue') {
+          if (/[ \t\n\f\r]/.test(char)) continue;
+          if (char === '"' || char === "'") {
+            quote = char;
+            attributeState = 'beforeName';
+          } else attributeState = 'unquoted';
+        } else if (attributeState === 'unquoted') {
+          if (/[ \t\n\f\r]/.test(char)) attributeState = 'beforeName';
+        } else if (char === '=' && attributeState !== 'beforeName') attributeState = 'beforeValue';
+        else if (/[ \t\n\f\r]/.test(char)) {
+          if (attributeState === 'name') attributeState = 'afterName';
+        } else if (char !== '/') attributeState = 'name';
       }
       continue;
     }
@@ -1113,6 +1151,7 @@ const MARKDOWN_TAG_AT = new RegExp(MARKDOWN_TAG.source, 'iy');
 
 function inlineProtectedRanges(source) {
   const ranges = [];
+  const blanks = blankLineOffsets(source);
   let cursor = 0;
   let noLongCommentClose = false;
   while ((cursor = source.indexOf('<', cursor)) !== -1) {
@@ -1124,7 +1163,7 @@ function inlineProtectedRanges(source) {
         source.indexOf('-->', cursor + 4);
       if (longEnd === -1 && !shortEnd) noLongCommentClose = true;
       const close = shortEnd || (longEnd === -1 ? null : longEnd + 3);
-      if (close && close > cursor + 4) {
+      if (close && close > cursor + 4 && !blankLineBetween(blanks, cursor + 4, close)) {
         ranges.push({ start: cursor, end: close });
         cursor = close;
         continue;
@@ -1169,7 +1208,9 @@ function codeSpanCandidates(source) {
 // The next token owns its complete source range. A spelling inside a comment
 // or raw-text element cannot open another element or a Markdown code span.
 function markdownInlineTags(source, initialRaw = null) {
+  const selfCloses = selfClosingContext();
   const tags = [];
+  const blanks = blankLineOffsets(source);
   const tokens = [];
   const textareaRanges = [];
   const codeRanges = [];
@@ -1194,7 +1235,7 @@ function markdownInlineTags(source, initialRaw = null) {
   const addTag = (text, index) => {
     const match = Object.assign([text], { index });
     tags.push(match);
-    tokens.push({ type: 'tag', index, end: index + text.length, text });
+    tokens.push({ type: 'tag', index, end: index + text.length, text, selfClosing: selfCloses(text) });
   };
   while (cursor < source.length) {
     if (rawName) {
@@ -1274,7 +1315,7 @@ function markdownInlineTags(source, initialRaw = null) {
         continue;
       }
       const close = nextInlineCommentEnd(next + 4);
-      if (close) {
+      if (close && !blankLineBetween(blanks, next + 4, close.end)) {
         const finish = close.end;
         tokens.push({ type: 'comment', index: next, end: finish,
           text: source.slice(next, finish) });
@@ -1290,7 +1331,7 @@ function markdownInlineTags(source, initialRaw = null) {
     if (!match || /\n[ \t]*\n/.test(match[0])) { cursor = next + 1; continue; }
     addTag(match[0], next);
     const opening = /^<(script|style|textarea)(?=[\s/>])/i.exec(match[0]);
-    if (opening && !selfClosingTag(match[0])) {
+    if (opening && !tokens.at(-1).selfClosing) {
       rawName = opening[1].toLowerCase();
       rawStart = next;
       rawContentStart = next + match[0].length;
@@ -1413,7 +1454,7 @@ function stripMarkdownHidden(source, rawHtml, sourceTokens = null, openHidden = 
       continue;
     }
     const opening = /^<(script|style|code|pre)(?=[\s/>])/i.exec(token.text);
-    if (opening) {
+    if (opening && !token.selfClosing) {
       hidden = opening[1].toLowerCase();
       start = token.index;
     }
@@ -1492,21 +1533,24 @@ function markdownContainer(line, parseList = true, maxQuoteDepth = Infinity, lis
     quotesAfterList, listQuoteDepth, indent, indents, markerIndent };
 }
 
-function updateListStack(lists, container, blank) {
-  if (blank && !container.list) return;
+function retainedListDepth(lists, container, blank) {
+  if (blank && !container.list) return lists.length;
   // Losing an outer owner also ends every item nested inside it.
   const ended = lists.findIndex((owner) => {
     const indent = container.list && container.listQuoteDepth === owner.quoteDepth ?
       container.markerIndent : (container.indents[owner.quoteDepth] || 0);
     return container.quoteDepth < owner.quoteDepth || indent < owner.contentIndent;
   });
-  if (ended !== -1) lists.length = ended;
+  return ended === -1 ? lists.length : ended;
+}
+
+function updateListStack(lists, container, blank) {
+  lists.length = retainedListDepth(lists, container, blank);
   lists.push(...container.listItems);
 }
 
-function markdownBlockBody(container, lists, preserveSource = false) {
+function markdownBlockBody(container, owner, preserveSource = false) {
   const body = container.blockBody;
-  const owner = lists.at(-1);
   const indent = !container.list && owner?.quoteDepth === container.quoteDepth ? owner.contentIndent : 0;
   const available = /^ */.exec(body)[0].length;
   const removed = container.indent >= indent ? Math.min(indent, available) : 0;
@@ -1560,18 +1604,21 @@ function markdownRegions(source) {
       container = markdownContainer(line, false, Infinity, lists);
     }
     const blank = /^\s*$/.test(container.body);
-    const paragraphLists = paragraphOpen ? lists.slice() : [];
-    updateListStack(lists, container, blank);
-    const blockBody = markdownBlockBody(container, lists);
+    // Classify the line before changing owners. A lazy continuation keeps
+    // the existing stack without copying it or restoring removed entries.
+    const retainedDepth = retainedListDepth(lists, container, blank);
+    const nextOwner = container.listItems.at(-1) || lists[retainedDepth - 1];
+    const blockBody = markdownBlockBody(container, nextOwner);
     if (kind === 'html' && ((endMarker === null && blank) ||
       container.quoteDepth < quoteDepth ||
-      (inList && lists[listDepth - 1] !== listOwner))) {
+      (inList && (retainedDepth < listDepth || lists[listDepth - 1] !== listOwner)))) {
       flush();
       kind = 'markdown';
       endMarker = null;
       paragraphOpen = false;
     }
     let continuation = false;
+    const startedAsHtml = kind === 'html';
     if (kind === 'markdown') {
       const openingFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(blockBody);
       const opensFence = openingFence &&
@@ -1579,7 +1626,8 @@ function markdownRegions(source) {
       const atx = /^ {0,3}#{1,6}(?:[ \t]|$)/.test(blockBody);
       const thematic = /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/.test(blockBody);
       const ownsUnderline = container.quoteDepth === paragraphQuoteDepth &&
-        (!paragraphListOwner || (lists.includes(paragraphListOwner) && !container.list));
+        (!paragraphListOwner || (retainedDepth === lists.length &&
+          lists.at(-1) === paragraphListOwner && !container.list));
       const setext = paragraphOpen && ownsUnderline && /^ {0,3}(?:=+|-+)[ \t]*$/.test(blockBody);
       // A missing quote marker can continue the open paragraph. A true block
       // start still ends it, even when that line has no quote marker.
@@ -1587,15 +1635,16 @@ function markdownRegions(source) {
         !container.list && !atx && !thematic && !setext && !blank && !opensFence &&
         !MARKDOWN_HTML_BLOCK.test(blockBody) && !MARKDOWN_SPECIAL_BLOCK.test(blockBody);
       const effectiveQuoteDepth = lazyQuote ? paragraphQuoteDepth : container.quoteDepth;
-      const outerListEnded = paragraphOuterList && paragraphListOwner !== lists.at(-1) &&
+      const outerListEnded = paragraphOuterList && paragraphListOwner !== nextOwner &&
         container.quoteDepth > 0;
       const startsLeaf = container.list ||
         effectiveQuoteDepth !== paragraphQuoteDepth || outerListEnded || atx || thematic;
       continuation = paragraphOpen && !startsLeaf && !blank && !setext && !opensFence;
       // Lazy paragraph lines retain their list owners for later owned lines.
-      if (continuation && !MARKDOWN_HTML_BLOCK.test(blockBody) &&
-        !MARKDOWN_SPECIAL_BLOCK.test(blockBody) && !/^ {0,3}<!--/.test(blockBody)) {
-        lists.splice(0, lists.length, ...paragraphLists);
+      if (!(continuation && !MARKDOWN_HTML_BLOCK.test(blockBody) &&
+        !MARKDOWN_SPECIAL_BLOCK.test(blockBody) && !/^ {0,3}<!--/.test(blockBody))) {
+        lists.length = retainedDepth;
+        lists.push(...container.listItems);
       }
       if (lines.length && startsLeaf && !fence) {
         flush();
@@ -1662,10 +1711,11 @@ function markdownRegions(source) {
         continue;
       }
     }
-    const sourceBody = markdownBlockBody(container, lists, true);
+    if (startedAsHtml) updateListStack(lists, container, blank);
+    const sourceBody = markdownBlockBody(container, lists.at(-1), true);
     const rawLine = kind === 'html' && (quoteDepth > 0 || inList) ?
       ' '.repeat(line.length - sourceBody.length) + sourceBody : line;
-    const inlineLine = continuation && container.quoteDepth > 0 ?
+    const inlineLine = blank && !container.list ? ' '.repeat(line.length) : continuation && container.quoteDepth > 0 ?
       ' '.repeat(line.length - container.body.length) + container.body : line;
     pushLine(kind === 'html' ? rawLine : inlineLine, lineStart);
     if (kind === 'html') {
@@ -1715,7 +1765,7 @@ function markdownMarkupSource(source, tokens, initialRaw) {
     appendText(token.index);
     if (token.type === 'tag') {
       pieces.push(token.text);
-      if (/^<style(?=[\s/>])/i.test(token.text) && !selfClosingTag(token.text)) inStyle = true;
+      if (/^<style(?=[\s/>])/i.test(token.text) && !token.selfClosing) inStyle = true;
       if (/^<\/style(?=[\s/>])/i.test(token.text)) inStyle = false;
     } else pieces.push(' ');
     copied = token.end;

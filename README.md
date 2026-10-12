@@ -118,6 +118,7 @@ prose streams. Each HTML token scan moves forward through comments, tags, and
 raw text for its consumer. A quoted closing tag inside an attribute cannot end
 hidden script or code content. A trailing slash inside an unquoted attribute
 value stays part of that value. It cannot close the element.
+A slash flag cannot close a known non-void HTML element. Foreign elements and unknown component names retain self-closing syntax.
 Markdown prose keeps references literal after an odd number of backslashes,
 even when the file contains raw HTML. References after an even number decode.
 Markdown prose accepts 1 to 7 decimal digits or 1 to 6 hexadecimal digits.
@@ -128,7 +129,8 @@ Raw HTML in Markdown still supplies markup and CSS to visual rules. Inline
 `<style>` contents count, while commented or fenced styles do not. Inline HTML
 keeps its text, so numeric table cells retain the monospace exemption.
 The simple Markdown link scanner skips unfinished suffixes without repeated
-searches. Tests measure public parse growth for unfinished links and raw HTML.
+searches. Lazy list continuations keep their owners without copying the complete stack.
+Tests measure public parse growth for unfinished links, raw HTML, and lazy lists.
 These checks do not establish a bound for every possible input. Markdown
 syntax is removed before references are decoded, so
 an encoded bracket cannot turn visible text into a link destination.
@@ -144,6 +146,7 @@ line inside an active fence or raw HTML block keeps that block open. A raw HTML
 region ends when its list item ends. The parser determines Markdown leaf blocks
 before it reads inline comments, tags, and code spans. Sibling list items end
 separate inline blocks, including items numbered `2.` or `02.`.
+Blank paragraphs end inline comment candidates, including blank lines inside lists and quotes.
 A new ordered list interrupts an open paragraph only with content and a start
 value of one, including `01.`. An empty marker cannot interrupt a paragraph.
 A line without its list indentation or quote marker can continue a paragraph.
@@ -158,6 +161,7 @@ spaces of code indentation. Short `<!-->` and
 do not open code spans. In raw HTML blocks, script and style closing tags can
 contain quoted `>` characters, attributes, or a trailing slash. A quote inside
 an unquoted attribute value stays data and does not hide the next `>`.
+This also applies after an equals sign inside that value.
 A rejected Markdown closing candidate cannot consume a nested valid close.
 Inline raw closes accept a form-feed separator. Vertical tab and nonbreaking space are not
 closing-tag separators. The text parser remains approximate for malformed HTML
@@ -165,6 +169,179 @@ tags across a blank line and unfinished tags at the end of a file. Malformed
 HTML nesting also remains approximate. Some raw HTML block closers with a
 different tag name remain a known limit. An unclosed `pre` block can stay hidden
 after a list or quote ends.
+
+
+<details>
+<summary>Raw HTML recovery examples</summary>
+
+These examples compare `5180d6a` with the repair in this README. Both versions ran the real CLI with `--level 1`.
+
+Blank paragraphs end inline comment candidates. A quote after an equals sign inside an unquoted value stays data.
+
+HTML script, style, and code elements remain open after a slash flag. The detector excludes code content by policy.
+
+`fixtures/slop-html-paragraph.md`
+
+```markdown
+Read <!-- hidden
+
+↗ -->
+```
+
+```diff
+--- 5180d6a: fixtures/slop-html-paragraph.md
++++ repair: fixtures/slop-html-paragraph.md
+@@ -1 +1,10 @@
+-✓ PASS  [level ban]  1 file(s), 0 error(s), 0 medium, 0 warning(s)
++
++fixtures/slop-html-paragraph.md
++
++  ✗ [external-link-arrow] Read <!-- hidden
++
++↗ -->
++      Diagonal "↗" open-in-new-tab arrow tacked onto a link — decorative external-link cosplay. A link already reads as a link.
++      fix: Drop the glyph. Plain directional →←↑↓ (flows, deltas) are fine.
++
++✗ FAIL  [level ban]  1 file(s), 1 error(s), 0 medium, 0 warning(s)
+```
+
+`fixtures/slop-html-recovery.html`
+
+```html
+<script a=b="c>const label="x";</script><p>shown ↗</p>
+```
+
+```diff
+--- 5180d6a: fixtures/slop-html-recovery.html
++++ repair: fixtures/slop-html-recovery.html
+@@ -1 +1,8 @@
+-✓ PASS  [level ban]  1 file(s), 0 error(s), 0 medium, 0 warning(s)
++
++fixtures/slop-html-recovery.html
++
++  ✗ [external-link-arrow] shown ↗
++      Diagonal "↗" open-in-new-tab arrow tacked onto a link — decorative external-link cosplay. A link already reads as a link.
++      fix: Drop the glyph. Plain directional →←↑↓ (flows, deltas) are fine.
++
++✗ FAIL  [level ban]  1 file(s), 1 error(s), 0 medium, 0 warning(s)
+```
+
+`fixtures/slop-html-slash.html`
+
+```html
+<script/>const a="↗";</script>
+<code data-path=/assets/ />hidden ↗</code>
+<style/>p{font-family:monospace}</style><p>Hello</p>
+```
+
+```diff
+--- 5180d6a: fixtures/slop-html-slash.html
++++ repair: fixtures/slop-html-slash.html
+@@ -4,3 +4,3 @@
+-  ✗ [external-link-arrow] const a="↗"; hidden ↗ p{font-family:mon
+-      Diagonal "↗" open-in-new-tab arrow tacked onto a link — decorative external-link cosplay. A link already reads as a link.
+-      fix: Drop the glyph. Plain directional →←↑↓ (flows, deltas) are fine.
++  ✗ [mono-noncode] p → <p> · monospace
++      Monospace font on an element that is not code — fake-terminal decoration. Real code gets mono; a metadata line does not.
++      fix: Use a readable proportional font, or put the content in a <code>/<pre> if it really is code. If you want a label to stand out, weight or size it — do not costume it as code. Numeric table data may use monospace or font-variant-numeric: tabular-nums.
+@@ -8,5 +8 @@
+-  ✗ [external-link-arrow] const a="↗"; hidden ↗ p{font-family:monospace} Hel
+-      Diagonal "↗" open-in-new-tab arrow tacked onto a link — decorative external-link cosplay. A link already reads as a link.
+-      fix: Drop the glyph. Plain directional →←↑↓ (flows, deltas) are fine.
+-
+-✗ FAIL  [level ban]  1 file(s), 2 error(s), 0 medium, 0 warning(s)
++✗ FAIL  [level ban]  1 file(s), 1 error(s), 0 medium, 0 warning(s)
+```
+
+`fixtures/slop-html-slash.md`
+
+```markdown
+<style/>p{font-family:monospace}</style><p>Hello</p>
+```
+
+```diff
+--- 5180d6a: fixtures/slop-html-slash.md
++++ repair: fixtures/slop-html-slash.md
+@@ -1 +1,8 @@
+-✓ PASS  [level ban]  1 file(s), 0 error(s), 0 medium, 0 warning(s)
++
++fixtures/slop-html-slash.md
++
++  ✗ [mono-noncode] p → <p> · monospace
++      Monospace font on an element that is not code — fake-terminal decoration. Real code gets mono; a metadata line does not.
++      fix: Use a readable proportional font, or put the content in a <code>/<pre> if it really is code. If you want a label to stand out, weight or size it — do not costume it as code. Numeric table data may use monospace or font-variant-numeric: tabular-nums.
++
++✗ FAIL  [level ban]  1 file(s), 1 error(s), 0 medium, 0 warning(s)
+```
+
+The following similar controls produced identical output before and after.
+
+`inputs/paragraph-control.md`
+
+```markdown
+Read <!-- hidden
+↗ -->
+```
+
+```text
+✓ PASS  [level ban]  1 file(s), 0 error(s), 0 medium, 0 warning(s)
+```
+
+`inputs/script-control.html`
+
+```html
+<script>const a="↗";</script><p>Hello.</p>
+```
+
+```text
+✓ PASS  [level ban]  1 file(s), 0 error(s), 0 medium, 0 warning(s)
+```
+
+`inputs/code-control.html`
+
+```html
+<code data-path=/assets/>shown ↗
+```
+
+```text
+✓ PASS  [level ban]  1 file(s), 0 error(s), 0 medium, 0 warning(s)
+```
+
+`inputs/style-control.html`
+
+```html
+<style>p{font-family:monospace}</style><p>Hello</p>
+```
+
+```text
+
+inputs/style-control.html
+
+  ✗ [mono-noncode] p → <p> · monospace
+      Monospace font on an element that is not code — fake-terminal decoration. Real code gets mono; a metadata line does not.
+      fix: Use a readable proportional font, or put the content in a <code>/<pre> if it really is code. If you want a label to stand out, weight or size it — do not costume it as code. Numeric table data may use monospace or font-variant-numeric: tabular-nums.
+
+✗ FAIL  [level ban]  1 file(s), 1 error(s), 0 medium, 0 warning(s)
+```
+
+`inputs/opening-control.html`
+
+```html
+<script a="b=c">const label="x";</script><p>shown ↗</p>
+```
+
+```text
+
+inputs/opening-control.html
+
+  ✗ [external-link-arrow] shown ↗
+      Diagonal "↗" open-in-new-tab arrow tacked onto a link — decorative external-link cosplay. A link already reads as a link.
+      fix: Drop the glyph. Plain directional →←↑↓ (flows, deltas) are fine.
+
+✗ FAIL  [level ban]  1 file(s), 1 error(s), 0 medium, 0 warning(s)
+```
+
+</details>
 
 In markup, `p`, `div`, headings, `span`, `li`, table cells, `section`, `header`,
 `footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible text run. This keeps
