@@ -120,7 +120,9 @@ human-readable attributes in raw HTML, including single-quoted values.
 It excludes script, style, and code
 contents from Markdown prose. Autolinks and literal angle-bracket text remain
 visible to text rules. A comment marker inside a quoted HTML attribute stays
-attribute data. Textarea content keeps tag and comment spellings as text.
+attribute data. A raw HTML comment can end with `--!>`.
+When Markdown escapes that sequence, the comment stays open.
+Textarea content keeps tag and comment spellings as text.
 Raw HTML blocks can start after completed headings and fences. Script, style,
 and textarea state stays active across a Markdown block boundary. A list-shaped
 line inside an active fence or raw HTML block keeps that block open. A raw HTML

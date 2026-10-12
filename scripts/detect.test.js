@@ -517,6 +517,21 @@ test('keeps source offsets while it separates readable attributes', { timeout: 1
   assert.deepStrictEqual(ctx.paragraphs, ['text', 'Visit the site ↗']);
 });
 
+test('keeps alternate comment endings in their HTML or Markdown context', { timeout: 1000 }, () => {
+  const escaped = parse('<div><!--\n\n--!> plain visible?\n\n' +
+    '<span title="Visit ↗ now">text</span>', { ext: 'md' });
+  assert.deepStrictEqual(escaped.runs, []);
+  assert.deepStrictEqual(escaped.attrs, []);
+  const raw = parse('<div><!-- hidden --!><span title="Visit ↗ now">text</span></div>',
+    { ext: 'md' });
+  assert.deepStrictEqual(raw.runs, ['text']);
+  assert.deepStrictEqual(raw.attrs, ['Visit ↗ now']);
+  const inline = parse('Text <!-- hidden --!> <span title="Visit ↗ now">text</span>',
+    { ext: 'md' });
+  assert.deepStrictEqual(inline.runs, ['Text <!-- hidden --!>', 'text']);
+  assert.deepStrictEqual(inline.attrs, ['Visit ↗ now']);
+});
+
 test('removes ordered-list continuation indentation before block checks', { timeout: 1000 }, () => {
   assert.strictEqual(markdownArrow('10. item\n\n    ~~~\n    ↗\n    ~~~'), false);
   assert.strictEqual(markdownArrow('10. item\n\n    <div>\n    \\&nearr;\n    </div>'), true);

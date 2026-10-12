@@ -1026,8 +1026,15 @@ function markdownInlineTags(source, initialRaw = null) {
   const tokens = [];
   const textareaRanges = [];
   const codeRanges = [];
-  const commentEnds = [...source.matchAll(/-->/g)].map((match) => match.index);
+  const commentEnds = [...source.matchAll(/--!?>/g)].map((match) => ({
+    index: match.index, end: match.index + match[0].length, spelling: match[0],
+  }));
   let commentCursor = 0;
+  const nextInlineCommentEnd = (from) => {
+    while (commentEnds[commentCursor] && (commentEnds[commentCursor].index < from ||
+      commentEnds[commentCursor].spelling !== '-->')) commentCursor++;
+    return commentEnds[commentCursor];
+  };
   let cursor = 0;
   let rawName = initialRaw;
   let rawStart = initialRaw ? 0 : null;
@@ -1045,10 +1052,9 @@ function markdownInlineTags(source, initialRaw = null) {
   while (cursor < source.length) {
     if (rawName) {
       if (rawName === 'comment') {
-        while (commentEnds[commentCursor] < cursor) commentCursor++;
-        const end = commentEnds[commentCursor];
-        if (end === undefined) break;
-        const finish = end + 3;
+        const close = nextInlineCommentEnd(cursor);
+        if (!close) break;
+        const finish = close.end;
         tokens.push({ type: 'comment', index: rawStart, end: finish,
           text: source.slice(rawStart, finish) });
         commentCursor++;
@@ -1101,11 +1107,9 @@ function markdownInlineTags(source, initialRaw = null) {
     if (next === -1) break;
     if (markdownEscaped(source, next)) { cursor = next + 1; continue; }
     if (source.startsWith('<!--', next)) {
-      while (commentEnds[commentCursor] !== undefined &&
-        commentEnds[commentCursor] < next + 4) commentCursor++;
-      const end = commentEnds[commentCursor];
-      if (end !== undefined) {
-        const finish = end + 3;
+      const close = nextInlineCommentEnd(next + 4);
+      if (close) {
+        const finish = close.end;
         tokens.push({ type: 'comment', index: next, end: finish,
           text: source.slice(next, finish) });
         commentCursor++;
@@ -1211,10 +1215,11 @@ function stripMarkdownHidden(source, rawHtml, sourceTokens = null, openHidden = 
   let start = hidden ? 0 : null;
   let after = 0;
   if (hidden === 'comment') {
-    const close = /--!?>/g.exec(source);
+    const close = tokens.find((token) => token.type === 'comment' && token.index === 0 &&
+      (rawHtml ? /--!?>$/.test(token.text) : token.text.endsWith('-->')));
     if (!close) return { text: maskSourceRanges(source,
       [{ start: 0, end: source.length }]), hidden };
-    after = close.index + close[0].length;
+    after = close.end;
     ranges.push({ start: 0, end: after });
     hidden = null;
     start = null;

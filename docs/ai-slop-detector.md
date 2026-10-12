@@ -101,7 +101,9 @@ number of backslashes. An even number lets the reference decode. Markdown prose 
 stay literal there. Raw HTML blocks use HTML reference rules, including longer numeric forms.
 Markdown code syntax does not remove text from raw HTML blocks or readable attributes.
 Quoted HTML attributes keep comment markers as data. Textarea content keeps tag and
-comment spellings as text. Raw HTML ends when its Markdown list item ends.
+comment spellings as text. A raw HTML comment accepts `--!>` as an end marker.
+If Markdown escapes that sequence in a new paragraph, the HTML comment stays open.
+Raw HTML ends when its Markdown list item ends.
 HTML tag and comment state persists across source lines. A code element can stay
 hidden after a Markdown block boundary, while the new block uses Markdown reference
 rules. Script, style, and textarea text also retains its lexical state across that
