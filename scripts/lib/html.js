@@ -399,13 +399,11 @@ function isControlResultFeedback(text, controls) {
   }
   const qualified = /^(?:for|of)\s+(.+?)\s+(?:(?:has|is|was)\s+)?(?:(?:now|successfully|been)\s+){0,2}(?:complete|completed|finished|succeeded)[.!?]?$/i.exec(predicate);
   if (!qualified) return false;
-  // A result names the control action, then a short object phrase, then its
-  // completion. A second clause describes the exported data instead.
-  return qualified[1].split(/\s+(?:in|on|from|for|of)\s+/i).every((part) => {
-    const words = part.split(/\s+/);
-    return words.length <= 3 && words.every((word) =>
-      /^[a-z][a-z'-]*$/i.test(word) && !/^(?:not|only|already|yet)$/i.test(word));
-  });
+  // The object can include numbers, quoted labels, and several modifiers.
+  // A second verb clause describes the exported data, not the action result.
+  const object = qualified[1].replace(/“[^”]*”|"[^"]*"|'[^']*'/g, 'quoted');
+  return !/\b(?:lists?|shows?|includes?|contains?|displays?|reports?|indicates?|tracks?|marks?|excludes?|omits?|counts?|covers?|whether|which|when|is|are|was|were|has|have|had|can|will)\b/i.test(object) &&
+    !/\b(?:not|only|already|yet|marked)\s*$/i.test(object);
 }
 
 function isVisible(elements, i) {
@@ -446,6 +444,14 @@ const INLINE_TAGS = new Set([
   'u', 'var', 'wbr',
 ]);
 
+function hasLiveAncestor(elements, from, stop) {
+  for (let p = elements[from].parent; p >= 0; p = elements[p].parent) {
+    if (elements[p].live) return true;
+    if (p === stop) break;
+  }
+  return false;
+}
+
 // Give each fragment the complete visible sentence. Keep its live owner on
 // the fragment so an inline live element cannot reset sentence boundaries.
 function sentenceEvents(events) {
@@ -473,8 +479,7 @@ function sentenceEvents(events) {
       const end = Math.min(offsets[k + 1], ends[sentence]);
       out.push({ ...event, pos: event.pos + cursor - offsets[k],
         chunk: [event.chunk[0] + cursor - offsets[k], raw.slice(cursor, end)],
-        sentenceId: sentence, sentenceText: texts[sentence],
-        singleSentence: starts.length === 1 });
+        sentenceId: sentence, sentenceText: texts[sentence] });
       cursor = end;
     }
   }
@@ -485,6 +490,7 @@ function sentenceEvents(events) {
 // and live scope, so neighboring prose cannot change a marked note.
 function noteLines(elements, ends, kept, controls, isMarked = () => false) {
   const notes = new Map(); // element index -> line identity -> scoped line
+  const liveSentences = new Map();
   const visibleLines = [];
   const eligible = new Set(kept);
   let nextId = 0;
@@ -530,7 +536,7 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
           for (let p = event.owner; p >= 0; p = elements[p].parent) {
             if (!scopes.has(p)) scopes.set(p, []);
             scopes.get(p).push(event.chunk);
-            if (p === i || elements[p].live) break;
+            if (p === i || (elements[p].live && !hasLiveAncestor(elements, p, i))) break;
           }
         }
         for (const [owner, chunks] of scopes) {
@@ -557,17 +563,26 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
     const scopedEvents = events.map((event) => {
       const markers = [];
       let liveScope = null;
+      const liveOwners = [];
       for (let p = event.owner; p >= 0; p = elements[p].parent) {
         if (isMarked(elements[p])) markers.push(p);
         if (elements[p].live) {
-          liveScope = p;
-          break;
+          if (liveScope === null) liveScope = p;
+          liveOwners.push(p);
         }
-        if (p === kept[0]) break;
+        if (p === kept[0] ||
+          (elements[p].live && !hasLiveAncestor(elements, p, kept[0]))) break;
       }
-      return { ...event, markers, liveScope };
+      return { ...event, markers, liveScope, liveOwners };
     });
     const fragments = sentenceEvents(scopedEvents);
+    for (const event of fragments) {
+      if (!/\S/u.test(event.chunk[1])) continue;
+      for (const owner of event.liveOwners) {
+        if (!liveSentences.has(owner)) liveSentences.set(owner, new Set());
+        liveSentences.get(owner).add(`${id}:${event.sentenceId}`);
+      }
+    }
     let group = [];
     let gap = [];
     let liveScope = null;
@@ -589,7 +604,7 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
       for (const owner of owners) {
         notes.get(owner)?.delete(id);
         attach(owner, { id, order: group[0].pos, text: feedback ? '' : text,
-          sourceOwner: owner, singleSentence: group[0].singleSentence }, key);
+          sourceOwner: owner }, key);
       }
       group = [];
       gap = [];
@@ -638,10 +653,10 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
       .map((record) => {
         let live = false;
         for (let p = record.sourceOwner; p >= 0; p = elements[p].parent) {
-          const ownerLines = lineIds.get(p);
-          if (elements[p].live && record.singleSentence !== false &&
-            ownerLines?.size === 1 && ownerLines.has(record.id)) {
+          if (elements[p].live && liveSentences.get(p)?.size === 1) {
             live = true;
+          } else if (elements[p].live) {
+            live = false;
             break;
           }
         }

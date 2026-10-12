@@ -181,7 +181,7 @@ floor once the words inside its links and buttons are removed — which is what 
 pager is.
 
 A control's own feedback is outside the styling half of both rules. A line with
-`role="status"`, `role="alert"`, `aria-live="polite"` or `"assertive"` is feedback.
+`role="status"`, `role="alert"`, `aria-live="polite"` or `"assertive"` can carry feedback.
 The parser reads actual attributes. It does not treat quoted text, a token list
 (`role="status alert"`), or a JSX expression (`role={"status"}`) as a live region.
 
@@ -195,8 +195,11 @@ and unquoted `type` and `value` attributes at their actual boundaries. Hidden
 button text and SVG metadata do not name the action. A link does not count as a
 control.
 
-Feedback exempts its own line only. A different note in the same wrapper still
-counts, even when a short line follows it. Inline children form one prose line.
+Feedback exempts its own line only. Completion can name numeric, quoted, and
+longer booking groups. A clause that lists or shows records is a data note.
+A different note in the same wrapper still counts, including inside a nested
+live region. Text outside a live region does not change its feedback exemption.
+Inline children form one prose line.
 Button text and live-region text do not become part of that prose. Styling on
 the note still counts when its words are in an inline child.
 For example, an Export button does not hide

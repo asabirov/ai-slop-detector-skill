@@ -704,6 +704,75 @@ describe('UI heuristics', { timeout: 1000 }, () => {
         [`beside <h2> "Reports" above <table>: ${note}`]);
     }
   });
+  it('keeps short data clauses with completion words', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const note of [
+      'The export for June lists bookings completed.',
+      'The export for today shows payments completed.',
+      'The export for today lists bookings from stays completed.',
+      'The export for June includes bookings from stays completed.',
+      'The export for bookings not yet completed.',
+      'The export for bookings marked completed.',
+    ]) {
+      const wrapper = `<div class="text-muted" role="status"><p>Ready.</p><p>${note}</p><button>Export</button></div>`;
+      assert.deepEqual(spans(table + wrapper, 'table-footnote'), [`under <table>: ${note}`]);
+      assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+        [`beside <h2> "Reports" above <table>: ${note.slice(0, 70)}`]);
+      const confirmed = wrapper.replace('completed.', 'confirmed.');
+      assert.deepEqual(spans(table + confirmed, 'table-footnote'), [`under <table>: ${note.replace('completed.', 'confirmed.')}`]);
+    }
+  });
+  it('accepts numeric, quoted, and longer export objects', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const note = '“cancelled” bookings remain visible until the next morning.';
+    for (const result of [
+      'The export for 12 bookings completed.',
+      'The export of 24 bookings completed.',
+      'The export for “cancelled” bookings completed.',
+      'The export for all four selected bookings completed.',
+      'The export of all four selected bookings completed.',
+      'The export for all marked bookings completed.',
+      'The export for “only” bookings completed.',
+      'The export for only active bookings completed.',
+      'The export for already settled bookings completed.',
+      'The export for not yet paid bookings completed.',
+      'The export for bookings marked as cancelled completed.',
+    ]) {
+      for (const content of [`<p>${result}</p>`, result]) {
+        const wrapper = `<div class="text-muted" role="status">${content}<p>${note}</p><button>Export</button></div>`;
+        assert.deepEqual(spans(table + wrapper, 'table-footnote'), [`under <table>: ${note}`]);
+        assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+          [`beside <h2> "Reports" above <table>: ${note}`]);
+        const onlyResult = `<div class="text-muted" role="status">${content}<p>Ready.</p><button>Export</button></div>`;
+        assert.deepEqual(spans(table + onlyResult, 'table-footnote'), []);
+        assert.deepEqual(spans(`<h2>Reports</h2>${onlyResult}${table}`, 'table-aside'), []);
+      }
+    }
+  });
+  it('keeps a live control result exempt when nearby text is outside its owner', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const status = '<span class="text-muted" role="status">Your file is ready to download.</span>';
+    for (const outside of ['Ready.', 'Updated nightly, so yesterday stays open.']) {
+      const marker = outside === 'Ready.' ? '' : ' class="text-muted"';
+      const wrapper = `<div>${status} <span${marker}>${outside}</span><button>Export</button></div>`;
+      const expected = outside === 'Ready.' ? [] : [`under <table>: ${outside}`];
+      assert.deepEqual(spans(`<section>${table}${wrapper}</section>`, 'table-footnote'), expected);
+      const aside = outside === 'Ready.' ? [] : [`beside <h2> "Reports" above <table>: ${outside}`];
+      assert.deepEqual(spans(`<section><h2>Reports</h2>${wrapper}${table}</section>`, 'table-aside'), aside);
+    }
+  });
+  it('keeps a separate note inside nested live markup', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    for (const [inner, note] of [
+      ['role="status"', '“cancelled” bookings remain visible until the next morning.'],
+      ['aria-live="polite"', '24 hours can pass before late bookings appear.'],
+    ]) {
+      const wrapper = `<div class="text-muted" role="status">The export completed for all selected bookings. <span ${inner}>${note}</span><button>Export</button></div>`;
+      assert.deepEqual(spans(table + wrapper, 'table-footnote'), [`under <table>: ${note}`]);
+      assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+        [`beside <h2> "Reports" above <table>: ${note}`]);
+    }
+  });
   it('keeps abbreviations and decimals inside one note', { timeout: 1000 }, () => {
     const table = '<table><tr><td>12</td></tr></table>';
     const note = 'Updated nightly, e.g. 3.14 hours after close, so yesterday stays open.';
