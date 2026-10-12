@@ -109,7 +109,11 @@ hidden after a Markdown block boundary, while the new block uses Markdown refere
 rules. Script, style, and textarea text also retains its lexical state across that
 boundary. A marker-shaped line inside an active fence or raw HTML block stays in
 that block. Markdown code syntax does not take ownership of an earlier comment
-or textarea. Malformed HTML tags across a Markdown blank line remain approximate.
+or textarea. Inline comments, tags, and code spans stop at a new Markdown leaf
+block. Short inline comments close before later code spans. Backticks in tags
+and comments do not open code spans. In raw HTML blocks, script and style
+closing tags with attributes or a trailing slash restore later text. The README records the
+parser's remaining malformed HTML limits.
 
 In markup, `p`, `div`, headings, `span`, `li`, `td`, `th`, `section`, `header`,
 `footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible run. The definition

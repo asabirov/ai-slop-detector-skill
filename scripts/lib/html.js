@@ -808,7 +808,7 @@ function stripFences(text, replacement) {
   let fence = null;
   const lists = [];
   for (const line of text.split('\n')) {
-    const container = markdownContainer(line);
+    const container = markdownContainer(line, !fence);
     const blank = /^\s*$/.test(container.body);
     updateListStack(lists, container, blank);
     const body = markdownBlockBody(container, lists);
@@ -897,6 +897,27 @@ function withoutMarkdownCode(source) {
 // Match CommonMark raw HTML tags. An attribute starts with an ASCII name and
 // has a valid quoted or unquoted value. Invalid angle text stays visible.
 const MARKDOWN_TAG = /<(?:\/[a-z][a-z0-9-]*[ \t\n]*|[a-z][a-z0-9-]*(?:[ \t\n]+[a-z_:][a-z0-9:._-]*(?:[ \t\n]*=[ \t\n]*(?:"[^"]*"|'[^']*'|[^ \t\n"'=<>`]+))?)*[ \t\n]*\/?)>/gi;
+// One forward search finds each closing candidate and its next greater-than.
+// An unfinished candidate cannot make every later candidate rescan the suffix.
+function rawClosingTag(source, from, name, accept = () => true) {
+  let cursor = from;
+  let greater = -1;
+  const prefix = `</${name}`;
+  while ((cursor = source.indexOf('</', cursor)) !== -1) {
+    if (source.slice(cursor, cursor + prefix.length).toLowerCase() !== prefix ||
+      !/[\s/>]/.test(source[cursor + prefix.length] || '')) {
+      cursor += 2;
+      continue;
+    }
+    if (greater < cursor) greater = source.indexOf('>', cursor + prefix.length);
+    if (greater === -1) return null;
+    const candidate = { index: cursor, end: greater + 1,
+      text: source.slice(cursor, greater + 1) };
+    if (accept(candidate)) return candidate;
+    cursor += prefix.length;
+  }
+  return null;
+}
 // Scan one immutable region. Offsets include newlines inside attributes.
 function scanRawHtml(source, initialRaw = null) {
   let cursor = 0;
@@ -968,12 +989,10 @@ function scanRawHtml(source, initialRaw = null) {
       else break;
       continue;
     }
-    const closing = new RegExp(`</${rawName}[ \\t\\n]*>`, 'gi');
-    closing.lastIndex = cursor;
-    const match = closing.exec(source);
+    const match = rawClosingTag(source, cursor, rawName);
     if (match) {
       start = match.index;
-      emit('tag', match.index + match[0].length);
+      emit('tag', match.end);
       rawName = null;
     } else break;
   }
@@ -992,6 +1011,34 @@ function markdownEscaped(source, offset) {
 }
 
 const MARKDOWN_TAG_AT = new RegExp(MARKDOWN_TAG.source, 'iy');
+
+function inlineProtectedRanges(source) {
+  const ranges = [];
+  let cursor = 0;
+  let noLongCommentClose = false;
+  while ((cursor = source.indexOf('<', cursor)) !== -1) {
+    if (source.startsWith('<!--', cursor)) {
+      const shortEnd = source[cursor + 4] === '>' ? cursor + 5 :
+        source[cursor + 4] === '-' && source[cursor + 5] === '>' ? cursor + 6 : null;
+      const longEnd = shortEnd || noLongCommentClose ? -1 :
+        source.indexOf('-->', cursor + 4);
+      if (longEnd === -1 && !shortEnd) noLongCommentClose = true;
+      const close = shortEnd || (longEnd === -1 ? null : longEnd + 3);
+      if (close && close > cursor + 4) {
+        ranges.push({ start: cursor, end: close });
+        cursor = close;
+        continue;
+      }
+    }
+    MARKDOWN_TAG_AT.lastIndex = cursor;
+    const match = MARKDOWN_TAG_AT.exec(source);
+    if (match && !/\n[ \t]*\n/.test(match[0])) {
+      ranges.push({ start: cursor, end: cursor + match[0].length });
+      cursor += match[0].length;
+    } else cursor++;
+  }
+  return ranges;
+}
 
 function codeSpanCandidates(source) {
   const lengths = new Map();
@@ -1063,24 +1110,27 @@ function markdownInlineTags(source, initialRaw = null) {
         rawStart = null;
         continue;
       }
-      const closing = new RegExp(`</${rawName}(?=[\\s/>])[^>]*>`, 'gi');
-      closing.lastIndex = cursor;
       if (rawCodeRanges === null) {
         rawCodeRanges = [];
-        if (source.includes('`')) stripCodeSpans(source, ' ', [], (start, end) => {
-          rawCodeRanges.push({ start, end });
-        });
+        if (source.includes('`')) {
+          const protectedRanges = inlineProtectedRanges(source);
+          stripCodeSpans(source, ' ', protectedRanges, (start, end) => {
+            rawCodeRanges.push({ start, end });
+          });
+        }
       }
-      let match;
-      while ((match = closing.exec(source)) !== null) {
-        while (rawCodeRanges[rawCodeCursor]?.end <= match.index) rawCodeCursor++;
-        if (!markdownEscaped(source, match.index) &&
-          !(rawCodeRanges[rawCodeCursor]?.start <= match.index)) break;
-      }
+      const match = rawClosingTag(source, cursor, rawName, (candidate) => {
+        while (rawCodeRanges[rawCodeCursor]?.end <= candidate.index) rawCodeCursor++;
+        // Inline Markdown accepts only a plain closing tag. Raw HTML blocks
+        // use browser recovery and can accept attributes or a trailing slash.
+        return /^[ \t\n]*>$/.test(candidate.text.slice(rawName.length + 2)) &&
+          !markdownEscaped(source, candidate.index) &&
+          !(rawCodeRanges[rawCodeCursor]?.start <= candidate.index);
+      });
       if (!match) break;
-      const finish = match.index + match[0].length;
+      const finish = match.end;
       if (rawName === 'textarea') textareaRanges.push({ start: rawContentStart, end: match.index });
-      addTag(match[0], match.index);
+      addTag(match.text, match.index);
       cursor = finish;
       rawName = null;
       rawStart = null;
@@ -1107,6 +1157,14 @@ function markdownInlineTags(source, initialRaw = null) {
     if (next === -1) break;
     if (markdownEscaped(source, next)) { cursor = next + 1; continue; }
     if (source.startsWith('<!--', next)) {
+      const shortEnd = source[next + 4] === '>' ? next + 5 :
+        source[next + 4] === '-' && source[next + 5] === '>' ? next + 6 : null;
+      if (shortEnd !== null) {
+        tokens.push({ type: 'comment', index: next, end: shortEnd,
+          text: source.slice(next, shortEnd) });
+        cursor = shortEnd;
+        continue;
+      }
       const close = nextInlineCommentEnd(next + 4);
       if (close) {
         const finish = close.end;
@@ -1127,7 +1185,7 @@ function markdownInlineTags(source, initialRaw = null) {
     if (opening && !/\/\s*>$/.test(match[0])) {
       rawName = opening[1].toLowerCase();
       rawStart = next;
-      if (rawName === 'textarea') rawContentStart = next + match[0].length;
+      rawContentStart = next + match[0].length;
     }
     cursor = next + match[0].length;
   }
@@ -1227,7 +1285,8 @@ function stripMarkdownHidden(source, rawHtml, sourceTokens = null, openHidden = 
   for (const token of tokens) {
     if (token.index < after) continue;
     if (hidden) {
-      const closing = token.type === 'tag' && /^<\/(script|style|code|pre)\s*>$/i.exec(token.text);
+      const closing = token.type === 'tag' &&
+        /^<\/(script|style|code|pre)(?=[\s/>])[^>]*>$/i.exec(token.text);
       if (closing && closing[1].toLowerCase() === hidden) {
         ranges.push({ start, end: token.end });
         hidden = null;
@@ -1258,7 +1317,7 @@ function stripMarkdownHidden(source, rawHtml, sourceTokens = null, openHidden = 
 const MARKDOWN_HTML_BLOCK = /^ {0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?=[\s/>]|$)/i;
 const MARKDOWN_HTML_TAG_LINE = new RegExp(`^ {0,3}${MARKDOWN_TAG.source}\\s*$`, 'i');
 const MARKDOWN_SPECIAL_BLOCK = /^ {0,3}<(script|pre|style|textarea)(?=[\s>]|$)/i;
-function markdownContainer(line) {
+function markdownContainer(line, parseList = true) {
   let body = line;
   let quoteDepth = 0;
   let list = false;
@@ -1274,7 +1333,8 @@ function markdownContainer(line) {
       quoteDepth++;
       continue;
     }
-    const marker = !list && /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+/.exec(body);
+    const marker = parseList && !list &&
+      /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+/.exec(body);
     if (marker) {
       list = true;
       markerIndent = indent;
@@ -1334,7 +1394,7 @@ function markdownRegions(source) {
   for (const line of source.split('\n')) {
     const lineStart = nextLineStart;
     nextLineStart += line.length + 1;
-    const container = markdownContainer(line);
+    const container = markdownContainer(line, kind !== 'html' && !fence);
     const blank = /^\s*$/.test(container.body);
     updateListStack(lists, container, blank);
     const blockBody = markdownBlockBody(container, lists);
@@ -1347,6 +1407,13 @@ function markdownRegions(source) {
       paragraphOpen = false;
     }
     if (kind === 'markdown') {
+      const startsLeaf = container.list ||
+        container.quoteDepth !== paragraphQuoteDepth ||
+        /^ {0,3}(?:#{1,6}(?:[ \t]|$)|(?:\*\s*){3,}$|(?:-\s*){3,}$|(?:_\s*){3,}$)/.test(blockBody);
+      if (lines.length && startsLeaf && !fence) {
+        flush();
+        paragraphOpen = false;
+      }
       if (fence && (container.quoteDepth < fence.quoteDepth ||
         (fence.listOwner && lists[fence.listDepth - 1] !== fence.listOwner))) fence = null;
       if (fence) {

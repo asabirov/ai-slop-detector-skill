@@ -126,8 +126,14 @@ Textarea content keeps tag and comment spellings as text.
 Raw HTML blocks can start after completed headings and fences. Script, style,
 and textarea state stays active across a Markdown block boundary. A list-shaped
 line inside an active fence or raw HTML block keeps that block open. A raw HTML
-region ends when its list item ends. The text parser remains approximate for
-malformed HTML tags that cross a Markdown blank line.
+region ends when its list item ends. Inline comments, tags, and code spans stop
+at a new heading, list item, or quote block. Short `<!-->` and `<!--->` comments
+end before later code spans. Backticks in tags and comments do not open code
+spans. In raw HTML blocks, script and style closing tags with attributes or a
+trailing slash restore the following text. The text parser remains approximate
+for malformed HTML tags across a blank line, unfinished tags at the end of a file, and malformed
+HTML nesting. Some raw HTML block closers with a different tag name remain a
+known limit. An unclosed `pre` block can stay hidden after a list or quote ends.
 
 In markup, `p`, `div`, headings, `span`, `li`, table cells, `section`, `header`,
 `footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible text run. This keeps

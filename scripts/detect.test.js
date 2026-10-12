@@ -1489,3 +1489,79 @@ test('a heading rule still reads the words and not the markup', () => {
   assert.ok(ids.has('emoji-heading'), `expected emoji-heading, got ${[...ids].join(', ')}`);
   assert.ok(ids.has('heading-italic'), `expected heading-italic, got ${[...ids].join(', ')}`);
 });
+
+// Review cases for Markdown and raw HTML token ownership.
+const reviewRead = (source) => parse(source, { ext: 'md' });
+const reviewArrow = (source) => detect(source, { ext: 'md', kind: 'artifact', level: 1 })
+  .findings.some((finding) => finding.rule === 'external-link-arrow');
+
+for (const [name, source, expected] of [
+  ['short comment', 'Read <!--> ` -->↗ `', false],
+  ['short comment with extra dash', 'Read <!---> ` -->↗ `', false],
+  ['comment before heading', 'Read <!-- hidden\n# Heading ↗\n-->', true],
+  ['comment before list', 'Read <!-- hidden\n- item ↗\n-->', true],
+  ['comment before quote', 'Read <!-- hidden\n> quoted ↗\n-->', true],
+  ['quoted tag before heading', 'Read <x a="\n# ↗\n">', true],
+  ['code span before heading', '`hidden\n# ↗\n`', true],
+  ['script slash close', '<script>hidden</script/>↗', true],
+  ['script attributed close', '<script>hidden</script x>↗', true],
+  ['style attributed close', '<style>hidden</style x>↗', true],
+  ['ordinary comment control', 'Read <!-- hidden --> ` -->↗ `', false],
+  ['ordinary script control', '<script>hidden</script>↗', true],
+  ['same paragraph comment control', 'Read <!-- hidden\nordinary ↗\n-->', false],
+  ['same paragraph attribute control', 'Read <x a="\nordinary ↗\n">', false],
+]) test(name, { timeout: 1000 }, () => assert.equal(reviewArrow(source), expected));
+
+for (const [name, source, runs, attrs] of [
+  ['attribute tick before script', 'Read <span title="tick ` here">start</span><script>hidden</script> visible ↗ ` tail',
+    ['Read', 'start', 'visible ↗ ` tail'], ['tick ` here']],
+  ['attribute tick before textarea', 'Read <span title="tick ` here">start</span><textarea>value</textarea><span title="readable label">↗</span> ` tail',
+    ['Read', 'start', 'value', '↗', '` tail'], ['tick ` here', 'readable label']],
+  ['comment tick before script', 'Read <!-- ` --> <script>hidden</script> visible ↗ ` tail',
+    ['Read visible ↗ ` tail'], []],
+  ['comment tick before textarea', 'Read <!-- ` --> <textarea>value</textarea><span title="readable label">↗</span> ` tail',
+    ['Read value', '↗', '` tail'], ['readable label']],
+  ['inline script content tick', 'Print <script>const x = `value</script> visible ↗ ` tail',
+    ['Print'], []],
+  ['inline malformed script close', 'Read <script>hidden</script foo>↗', ['Read'], []],
+  ['inline malformed style close', 'Read <style>hidden</style/>↗', ['Read'], []],
+  ['later script after attribute tick', 'Read <script>one</script><span title="tick ` here">start</span><script>two</script> visible ↗ ` tail',
+    ['Read', 'start', 'visible ↗ ` tail'], ['tick ` here']],
+  ['nested tag tick in inline script', 'Read <script><span title="tick ` here"></span></script> visible ↗ ` tail',
+    ['Read visible ↗ ` tail'], []],
+  ['nested comment tick in inline script', 'Read <script><!-- ` --></script> visible ↗ ` tail',
+    ['Read visible ↗ ` tail'], []],
+  ['invalid angle text tick in inline script', 'Read <script><bad ` text</script> visible ↗ ` tail',
+    ['Read'], []],
+  ['unfinished comment tick in inline script', 'Read <script><!-- bad `</script> visible ↗ ` tail',
+    ['Read'], []],
+  ['raw script close keeps Markdown heading literal', '<script>hidden</script x>\n# Heading ↗',
+    ['# Heading ↗'], []],
+  ['raw style close keeps Markdown list literal', '<style>hidden</style/>\n- item ↗',
+    ['- item ↗'], []],
+  ['marker shaped fence close', '> ~~~\n> - ~~~\n> ↗\n> ~~~', [], []],
+  ['marker shaped raw text', '- <div>\n  - <span title="readable label">shown</span>\n  </div>',
+    ['-', 'shown'], ['readable label']],
+]) test(name, { timeout: 1000 }, () => {
+  const result = reviewRead(source);
+  assert.deepEqual(result.runs, runs);
+  assert.deepEqual(result.attrs, attrs);
+});
+
+test('unfinished script closes scale within a geometric budget', { timeout: 1400 }, () => {
+  const sizes = [2000, 4000, 8000];
+  const times = [];
+  for (const size of sizes) {
+    const source = 'Read <script>' + '</script x=" '.repeat(size);
+    assert.equal(reviewRead(source).codeless, 'Read');
+    const samples = [];
+    for (let i = 0; i < 3; i++) {
+      const start = performance.now();
+      assert.equal(reviewRead(source).codeless, 'Read');
+      samples.push(performance.now() - start);
+    }
+    times.push(samples.sort((a, b) => a - b)[1]);
+  }
+  assert.ok(times[2] < 800, `largest sample took ${times[2].toFixed(1)} ms`);
+  assert.ok(times[2] < 5 * Math.max(times[1], 1), `geometric samples: ${times}`);
+});
