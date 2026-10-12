@@ -13,6 +13,7 @@ function scan(content, file = 'sample.html') {
 function ids(content, file) { return scan(content, file).findings.map((finding) => finding.rule); }
 function has(content, rule, file) { assert.ok(ids(content, file).includes(rule), `Expected ${rule} in ${file || 'HTML'}`); }
 function lacks(content, rule, file) { assert.ok(!ids(content, file).includes(rule), `Unexpected ${rule} in ${file || 'HTML'}`); }
+function spans(content, rule) { return scan(content).findings.filter((finding) => finding.rule === rule).map((finding) => finding.span); }
 
 const rules = [
   'gradient-text', 'ai-gradient', 'glow-shadow', 'glassmorphism', 'nested-cards',
@@ -452,6 +453,53 @@ describe('UI heuristics', { timeout: 1000 }, () => {
         lacks(`<h2>Reports</h2>${note}${table}`, 'table-aside');
       }
     }
+  });
+  it('keeps a mixed-marker Save sentence as feedback', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const feedback = '<div><p><span>Saving </span><small>a new booking notifies every room participant.</small></p><button>Save</button></div>';
+    assert.deepEqual(spans(table + feedback, 'table-footnote'), []);
+    assert.deepEqual(spans(`<h2>Reports</h2>${feedback}${table}`, 'table-aside'), []);
+    const withNote = '<div><p><span>Saving </span><small>a new booking notifies every room participant.</small></p>' +
+      '<p class="text-muted">Updated nightly, so yesterday stays open.</p><button>Save</button></div>';
+    assert.deepEqual(spans(table + withNote, 'table-footnote'),
+      ['under <table>: Updated nightly, so yesterday stays open.']);
+    assert.deepEqual(spans(`<h2>Reports</h2>${withNote}${table}`, 'table-aside'),
+      ['beside <h2> "Reports" above <table>: Updated nightly, so yesterday stays open.']);
+  });
+  it('reports the data note after Export completion in a live wrapper', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const feedback = '<p>The export completed for <strong>all selected bookings.</strong></p>';
+    const note = '<p>Updated each morning, so late bookings appear tomorrow.</p>';
+    const wrapper = `<div class="text-muted" role="status">${feedback}${note}<button>Export</button></div>`;
+    assert.deepEqual(spans(table + wrapper, 'table-footnote'),
+      ['under <table>: Updated each morning, so late bookings appear tomorrow.']);
+    assert.deepEqual(spans(`<h2>Reports</h2>${wrapper}${table}`, 'table-aside'),
+      ['beside <h2> "Reports" above <table>: Updated each morning, so late bookings appear tomorrow.']);
+    const onlyFeedback = `<div class="text-muted" role="status">${feedback}<button>Export</button></div>`;
+    assert.deepEqual(spans(table + onlyFeedback, 'table-footnote'), []);
+    assert.deepEqual(spans(`<h2>Reports</h2>${onlyFeedback}${table}`, 'table-aside'), []);
+  });
+  it('keeps an earlier note when later groups share its marker', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const note = 'Updated nightly, so yesterday stays open.';
+    for (const first of [note, `<span class="text-muted">${note}</span>`]) {
+      const line = `<div class="text-muted">${first} <span role="status">Ready.</span> Saving a new time notifies the observer.<button>Save</button></div>`;
+      assert.deepEqual(spans(table + line, 'table-footnote'), [`under <table>: ${note}`]);
+      assert.deepEqual(spans(`<h2>Reports</h2>${line}${table}`, 'table-aside'),
+        [`beside <h2> "Reports" above <table>: ${note}`]);
+    }
+    for (const tail of ['Draft', '12']) {
+      const line = `<div class="text-muted">${note} <span role="status">Ready.</span> ${tail}</div>`;
+      assert.deepEqual(spans(table + line, 'table-footnote'), [`under <table>: ${note}`]);
+    }
+  });
+  it('leaves unsupported Exporting prose visible to the table rules', { timeout: 1000 }, () => {
+    const table = '<table><tr><td>12</td></tr></table>';
+    const line = '<div class="text-muted"><p><span>Exporting </span><strong>these bookings downloads a file to your device.</strong></p><button>Export</button></div>';
+    const text = 'Exporting these bookings downloads a file to your device.';
+    assert.deepEqual(spans(table + line, 'table-footnote'), [`under <table>: ${text}`]);
+    assert.deepEqual(spans(`<h2>Reports</h2>${line}${table}`, 'table-aside'),
+      [`beside <h2> "Reports" above <table>: ${text}`]);
   });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');

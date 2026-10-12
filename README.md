@@ -109,9 +109,11 @@ Three rule packs over one engine.
   as a table: `<DataTable/>` and `<LineChart/>` are what a screen actually ships.
   Native font stacks, numeric table data, a count line, a chart legend, a caption
   naming its figure, and a total, unit, byline or control beside a heading are
-  allowed. A live status line or a sentence about using its nearby visible
-  button or submit input is feedback, even when styled small or muted. Move
-  booking can produce Saving feedback. Inline elements share a prose line, and
+  allowed. A live status line can report an action or its result, even when
+  styled small or muted. Outside a live region, only the action pairs in the
+  [CLI reference](docs/ai-slop-detector.md) count as feedback. The action must
+  match a nearby visible button or submit input. Move booking can produce
+  Saving feedback. Inline elements share a prose line, and
   a line break starts another. Hidden controls, selected options, and textarea
   data are not action labels. A separate note still counts, as does any basis,
   including one inside live status. An unrelated control does not hide a note.

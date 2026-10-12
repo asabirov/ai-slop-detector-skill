@@ -389,6 +389,12 @@ function isControlFeedback(text, controls) {
   }));
 }
 
+function isControlResultFeedback(text, controls) {
+  const result = /^(?:the\s+)?([a-z]+)\b.*\b(?:complete|completed|finished|succeeded)\b/i.exec(text.trim());
+  return Boolean(result && controls.some((label) =>
+    label.trim().split(/\s+/)[0].toLowerCase() === result[1].toLowerCase()));
+}
+
 function isVisible(elements, i) {
   for (let p = i; p >= 0; p = elements[p].parent) {
     if (elements[p].hidden) return false;
@@ -434,9 +440,9 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
   const visibleLines = [];
   const eligible = new Set(kept);
   let nextId = 0;
-  const attach = (owner, record) => {
+  const attach = (owner, record, key = record.id) => {
     if (!notes.has(owner)) notes.set(owner, new Map());
-    notes.get(owner).set(record.id, record);
+    notes.get(owner).set(key, record);
   };
   for (const i of kept) {
     const parent = elements[i].parent;
@@ -484,7 +490,8 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
           // Feedback only empties its own scope. A live inline child must not
           // empty ordinary text beside it on the same visible line.
           const feedback = isControlFeedback(scopedText, controls) ||
-            (inLiveRegion && ACTION_FEEDBACK.test(scopedText));
+            (inLiveRegion && (ACTION_FEEDBACK.test(scopedText) ||
+              isControlResultFeedback(scopedText, controls)));
           attach(owner, { id, order: line[0].pos, text: feedback ? '' : scopedText, sourceOwner: owner });
         }
       }
@@ -499,46 +506,66 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
   // A marked run can cross inline siblings and neutral wrappers. Plain words
   // break it. Whitespace stays in it. Live text starts another scope.
   for (const { id, events, root, inLiveRegion } of visibleLines) {
-    let group = [];
-    let gap = [];
-    let liveScope = null;
-    const finishGroup = () => {
-      if (!group.length) return;
-      const text = joinedText(group.map((event) => event.chunk));
-      const feedback = isControlFeedback(text, controls) ||
-        ((liveScope !== null || inLiveRegion) && ACTION_FEEDBACK.test(text));
-      const owners = new Set(group.flatMap((event) => event.markers));
-      for (const owner of owners) {
-        const record = notes.get(owner)?.get(id);
-        if (record) record.text = feedback ? '' : text;
-      }
-      group = [];
-      gap = [];
-    };
-    for (const event of events) {
+    const scopedEvents = events.map((event, index) => {
       const markers = [];
-      let eventLive = null;
+      let liveScope = null;
       for (let p = event.owner; p >= 0; p = elements[p].parent) {
         if (isMarked(elements[p])) markers.push(p);
         if (elements[p].live) {
-          eventLive = p;
+          liveScope = p;
           break;
         }
         if (p === root) break;
       }
-      const scoped = { ...event, markers };
+      return { ...event, index, markers, liveScope };
+    });
+    let group = [];
+    let gap = [];
+    let liveScope = null;
+    let groupIndex = 0;
+    const finishGroup = () => {
+      if (!group.length) return;
+      const text = joinedText(group.map((event) => event.chunk));
+      let from = 0;
+      for (let j = group[0].index - 1; j >= 0; j--) {
+        if (scopedEvents[j].liveScope !== liveScope) {
+          from = j + 1;
+          break;
+        }
+      }
+      const context = joinedText(scopedEvents.slice(from, group[group.length - 1].index + 1)
+        .map((event) => event.chunk));
+      const boundary = /[.!?]["')”’]?\s+(?=\p{Lu})/gu;
+      let sentenceStart = 0;
+      for (const match of context.matchAll(boundary)) sentenceStart = match.index + match[0].length;
+      const sentence = context.slice(sentenceStart);
+      const feedback = isControlFeedback(sentence, controls) ||
+        ((liveScope !== null || inLiveRegion) &&
+          (ACTION_FEEDBACK.test(sentence) || isControlResultFeedback(sentence, controls)));
+      const key = `group:${id}:${groupIndex++}`;
+      const owners = new Set(group.flatMap((event) => event.markers));
+      for (const owner of owners) {
+        notes.get(owner)?.delete(id);
+        attach(owner, { id, order: group[0].pos, text: feedback ? '' : text,
+          sourceOwner: owner }, key);
+      }
+      group = [];
+      gap = [];
+    };
+    for (const scoped of scopedEvents) {
+      const event = scoped;
       if (!/\S/u.test(event.chunk[1])) {
         if (group.length) gap.push(scoped);
         continue;
       }
-      if (!markers.length) {
+      if (!event.markers.length) {
         finishGroup();
         continue;
       }
-      if (group.length && eventLive !== liveScope) finishGroup();
+      if (group.length && event.liveScope !== liveScope) finishGroup();
       if (group.length) group.push(...gap);
       gap = [];
-      liveScope = eventLive;
+      liveScope = event.liveScope;
       group.push(scoped);
     }
     finishGroup();
@@ -555,12 +582,14 @@ function noteLines(elements, ends, kept, controls, isMarked = () => false) {
   }
   // A single-line live region is feedback. A live wrapper with several lines
   // cannot exempt every line; matched action feedback already has empty text.
+  const lineIds = new Map([...notes].map(([i, records]) =>
+    [i, new Set([...records.values()].map((record) => record.id))]));
   return new Map([...notes].map(([i, lines]) => [i,
     [...lines.values()].sort((a, b) => a.order - b.order)
       .map((record) => {
         let live = false;
         for (let p = record.sourceOwner; p >= 0; p = elements[p].parent) {
-          const ownerLines = notes.get(p);
+          const ownerLines = lineIds.get(p);
           if (elements[p].live && ownerLines?.size === 1 && ownerLines.has(record.id)) {
             live = true;
             break;
