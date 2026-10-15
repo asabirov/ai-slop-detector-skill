@@ -47,6 +47,44 @@ const sycophancyOpener = {
   ]),
 };
 
+// A single reply cannot show what the other person said. Compare only explicit
+// adjacent Incoming/Reply pairs, and require two shared content words in the
+// thanked-for clause. The skill handles threads without these labels.
+const REPLY_STOP = new Set([
+  'about', 'after', 'again', 'before', 'being', 'could', 'every',
+  'everything', 'from', 'have', 'into', 'just', 'sent', 'that', 'their',
+  'them', 'there', 'these', 'this', 'those', 'with', 'your',
+  'всего', 'всё', 'все', 'данные', 'добрый', 'день', 'спасибо', 'этого',
+  'этому', 'этот', 'эти',
+]);
+
+function contentWords(s) {
+  return new Set((s.toLowerCase().match(/[\p{L}]{5,}/gu) || [])
+    .filter((word) => !REPLY_STOP.has(word)));
+}
+
+const replyEcho = {
+  id: 'reply-echo',
+  level: 2,
+  severity: 'warning',
+  why: 'A reply thanks the other person by repeating two actions or details they just reported. The recap adds no decision or useful information.',
+  fix: 'Remove the repeated clause. Acknowledge briefly and give the next action or decision.',
+  test(ctx) {
+    const hits = [];
+    const pairs = /^Incoming(?:\s*\((?:RU|EN)\))?:\s*(.+)\r?\n(?:Reply|Comment|Message)(?:\s*\((?:RU|EN)\))?:\s*(.+)$/gmi;
+    let pair;
+    while ((pair = pairs.exec(ctx.text)) !== null) {
+      const reply = pair[2];
+      const thanks = reply.match(/(?:thanks?\s+for|спасибо,?\s+что)\s+([^.!?\n]{1,180})/i);
+      if (!thanks || !/(?:\band\b|(?:^|\s)и(?:\s|$))/i.test(thanks[1])) continue;
+      const incoming = contentWords(pair[1]);
+      const shared = [...contentWords(thanks[1])].filter((word) => incoming.has(word));
+      if (shared.length >= 2) hits.push(thanks[0].slice(0, 100));
+    }
+    return hits;
+  },
+};
+
 // ── level 2 · recommended (strong structural + exact-phrase tells) ───────
 
 const negativeParallelism = {
@@ -236,6 +274,7 @@ const burstiness = {
 
 module.exports = [
   sycophancyOpener,
+  replyEcho,
   negativeParallelism,
   hedgeOpener,
   worldOpener,
