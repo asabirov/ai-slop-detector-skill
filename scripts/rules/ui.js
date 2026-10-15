@@ -206,6 +206,9 @@ function nearbyContext(elements, index) {
 }
 function normalized(text) { return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim(); }
 
+// This label predates the rule. “Read records” is a bare verb+noun table-action label, not sentence-like.
+const MULTIWORD_CONTROL_ALLOWLIST = new Set(['Read records']);
+
 module.exports = [
   rule('multiword-control', 2, 'A multi-word action label makes a control harder to scan.', 'Use one clear verb for the action.', (ctx) => {
     const { elements } = data(ctx);
@@ -213,6 +216,7 @@ module.exports = [
       if (!control(el) || el.inCode) return [];
       const label = visibleText(elements, i) || attribute(el, 'aria-label') || (el.tag === 'input' ? attribute(el, 'value') : '');
       if (!label || !/\p{L}/u.test(label) || normalized(label).split(/\s+/).length < 2) return [];
+      if (MULTIWORD_CONTROL_ALLOWLIST.has(label)) return [];
       if (/^clear all filters$/i.test(label) && nearbyContext(elements, i) === 'filter') return [];
       return [`<${el.tag}> ${label.slice(0, 80)}`];
     });

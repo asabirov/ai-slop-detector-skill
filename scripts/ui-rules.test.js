@@ -41,6 +41,13 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
     assert.deepEqual(hits('<button aria-label="Close"><svg aria-hidden="true"></svg></button>', 'multiword-control'), []);
     assert.equal(hits('<input type="submit" value="Send answer">', 'multiword-control').length, 1);
   });
+  it('keeps the pre-existing Read records label silent without widening the exception', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<button>Read records</button>', 'multiword-control'), []);
+    for (const label of ['Read record', 'Read records now', 'Send answer',
+      'Open the newer question', 'Close without answering', 'Bring back now']) {
+      assert.equal(hits(`<button>${label}</button>`, 'multiword-control').length, 1, label);
+    }
+  });
   it('flags a badge that repeats a field value', { timeout: 1000 }, () => {
     assert.equal(hits('<section><input value="Needs review"><span class="status-badge">Needs review</span></section>', 'restated-status-badge').length, 1);
     assert.deepEqual(hits('<section><input value="Draft"><span class="status-badge">Needs review</span></section>', 'restated-status-badge'), []);
