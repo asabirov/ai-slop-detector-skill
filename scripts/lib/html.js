@@ -145,16 +145,18 @@ function markupElements(html) {
       }
       continue;
     }
-    const classAttr = /(?:^|\s)(?:class|className)\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
-    const classValue = classAttr ? (classAttr[1] ?? classAttr[2]) : '';
-    const styleAttr = /(?:^|\s)style\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
-    const idAttr = /\bid\s*=\s*"([^"]*)"/i.exec(attrs);
+    const attributes = Object.create(null);
+    for (const attr of attrs.matchAll(/(?:^|\s)([a-z][\w:-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/gi)) {
+      attributes[attr[1].toLowerCase()] = decodeEntities(attr[2] ?? attr[3] ?? attr[4] ?? '');
+    }
+    const classValue = attributes.class ?? attributes.classname ?? '';
     const parent = stack.length ? stack[stack.length - 1] : -1;
     const el = {
       tag,
       classes: new Set(classValue.trim().split(/\s+/).filter(Boolean)),
-      id: idAttr ? idAttr[1].trim() : null,
+      id: attributes.id?.trim() || null,
       parent,
+      attributes,
       text: '',
       // `text` loses order: a run belongs to the innermost open element, so
       // `<p><strong>Amounts</strong> in EUR.</p>` gives the <p> " in EUR." and
@@ -162,7 +164,7 @@ function markupElements(html) {
       // backwards. `chunks` keeps each run's position in the document so a
       // subtree can be read in the order a person reads it.
       chunks: [],
-      style: styleAttr ? decodeEntities(styleAttr[1] ?? styleAttr[2]) : '',
+      style: attributes.style || '',
       inTable: tag === 'td' || tag === 'th' || (parent >= 0 && out[parent].inTable),
       inCode: CODE_TAGS.has(tag) || (parent >= 0 && out[parent].inCode),
     };
@@ -518,9 +520,9 @@ function blocksBesideHeading(elements) {
 // An element's own prose plus its descendants', in the order a person reads it.
 // `text` on one element leaves a nested run out: `<h2>Revenue <b>per unit</b></h2>`
 // gives the <h2> "Revenue " and the <b> "per unit".
-function subtreeText(elements, ends, i) {
+function subtreeText(elements, ends, i, include = () => true) {
   const chunks = [];
-  for (let k = i; k < ends[i]; k++) chunks.push(...elements[k].chunks);
+  for (let k = i; k < ends[i]; k++) if (include(elements[k], k)) chunks.push(...elements[k].chunks);
   return orderedText(chunks);
 }
 
@@ -887,6 +889,8 @@ module.exports = {
   selectorTargets,
   blocksUnderData,
   blocksBesideHeading,
+  subtreeEnds,
+  subtreeText,
   CODE_TAGS,
   cssBlocks,
   stylesheetLinks,

@@ -5,6 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { detect, kindForPath } = require('./detect');
+const { parse } = require('./lib/html');
+const { RULES } = require('./rules');
 
 const fixtures = path.join(__dirname, '..', 'fixtures');
 function scan(content, file = 'sample.html') {
@@ -20,6 +22,88 @@ const rules = [
   'family-ceiling', 'stock-display-face', 'mono-uppercase-label', 'accent-budget',
   'hairline-grid', 'double-edge', 'button-drift', 'everything-centred', 'stock-palette',
 ];
+
+describe('redundant UI copy', { timeout: 1000 }, () => {
+  const names = ['multiword-control', 'inset-accent-marker', 'repeated-field-caption',
+    'restated-status-badge', 'marker-explainer', 'restated-control-period',
+    'restated-table-count', 'context-noun-control'];
+  const hits = (html, name) => RULES.find((rule) => rule.id === name).test(parse(html, { ext: 'html' }));
+  for (const name of names) {
+    it(`${name} flags its positive fixture and leaves its negative fixture silent`, { timeout: 1000 }, () => {
+      assert.ok(hits(fs.readFileSync(path.join(fixtures, 'slop-ui-redundant-copy.html'), 'utf8'), name).length);
+      assert.deepEqual(hits(fs.readFileSync(path.join(fixtures, 'near-miss-ui-redundant-copy.html'), 'utf8'), name), []);
+    });
+  }
+  it('reports a sentence link once and leaves short controls silent', { timeout: 1000 }, () => {
+    assert.equal(hits('<a role="button" href="/report">Open the payout report</a>', 'multiword-control').length, 1);
+    assert.deepEqual(hits('<button>Save</button><button>Undo</button><button aria-label="Close"><svg></svg></button>', 'multiword-control'), []);
+    assert.equal(hits('<button aria-label="Open settings"><svg aria-hidden="true"></svg></button>', 'multiword-control').length, 1);
+    assert.deepEqual(hits('<button aria-label="Close"><svg aria-hidden="true"></svg></button>', 'multiword-control'), []);
+    assert.equal(hits('<input type="submit" value="Send answer">', 'multiword-control').length, 1);
+  });
+  it('keeps the pre-existing Read records label silent without widening the exception', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<button>Read records</button>', 'multiword-control'), []);
+    for (const label of ['Read record', 'Read records now', 'Send answer',
+      'Open the newer question', 'Close without answering', 'Bring back now']) {
+      assert.equal(hits(`<button>${label}</button>`, 'multiword-control').length, 1, label);
+    }
+  });
+  it('flags a badge that repeats a field value', { timeout: 1000 }, () => {
+    assert.equal(hits('<section><input value="Needs review"><span class="status-badge">Needs review</span></section>', 'restated-status-badge').length, 1);
+    assert.deepEqual(hits('<section><input value="Draft"><span class="status-badge">Needs review</span></section>', 'restated-status-badge'), []);
+  });
+  it('counts table body rows without counting its header', { timeout: 1000 }, () => {
+    assert.equal(hits('<section><p>3 of the 214 payouts this year</p><table><thead><tr><th>Payout</th></tr></thead><tbody><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></tbody></table></section>', 'restated-table-count').length, 1);
+  });
+  it('reads a selected period option', { timeout: 1000 }, () => {
+    assert.equal(hits('<div><select><option selected>1Y</option></select><p>Change against the previous 12 months</p></div>', 'restated-control-period').length, 1);
+    assert.deepEqual(hits('<div><select><option>1Y</option><option selected>6M</option></select><p>Change against the previous 12 months</p></div>', 'restated-control-period'), []);
+  });
+  it('uses the selected period and ignores other period controls', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<div><button aria-pressed="false">1Y</button><button aria-pressed="true">6M</button><p>Change against the previous 12 months</p></div>', 'restated-control-period'), []);
+    assert.equal(hits('<div><button aria-pressed="true">6M</button><p>Change against the previous 6 months</p></div>', 'restated-control-period').length, 1);
+    assert.equal(hits('<div><button aria-pressed="true">1Y</button><p>Compared with the last 12 months</p></div>', 'restated-control-period').length, 1);
+  });
+  it('keeps a count line that adds an approval deadline', { timeout: 1000 }, () => {
+    const html = '<section><p>3 of the 214 payouts this year need approval by Friday.</p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>';
+    assert.deepEqual(hits(html, 'restated-table-count'), []);
+  });
+  it('keeps a count line with an inline approval deadline', { timeout: 1000 }, () => {
+    const html = '<section><p>3 of the 214 payouts this year<strong> need approval by Friday.</strong></p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>';
+    assert.deepEqual(hits(html, 'restated-table-count'), []);
+    assert.equal(hits(html.replace(' this year<strong> need approval by Friday.</strong>', ' this <strong>year</strong>'), 'restated-table-count').length, 1);
+  });
+  it('uses only the current option as field state', { timeout: 1000 }, () => {
+    const select = '<select><option selected value="Draft">Draft</option><option value="Approved">Approved</option></select>';
+    assert.deepEqual(hits(select + '<span class="badge">Approved</span>', 'restated-status-badge'), []);
+    assert.equal(hits(select + '<span class="badge">Draft</span>', 'restated-status-badge').length, 1);
+  });
+  it('counts one field through deeply nested caption spans', { timeout: 1000 }, () => {
+    const html = '<div>' + '<span>'.repeat(1600) + '<input>As parsed' + '</span>'.repeat(1600) + '</div>';
+    assert.deepEqual(hits(html, 'repeated-field-caption'), []);
+  });
+  it('rejects a long caption through nested spans within the budget', { timeout: 1000 }, () => {
+    const html = '<div>' + '<span>'.repeat(3200) + '<input>This caption contains more than five words' + '</span>'.repeat(3200) + '</div>';
+    assert.deepEqual(hits(html, 'repeated-field-caption'), []);
+  });
+  it('uses the filter noun from its container', { timeout: 1000 }, () => {
+    assert.equal(hits('<div class="tag-bar"><button>Clear all tags</button></div>', 'context-noun-control').length, 1);
+    assert.deepEqual(hits('<div class="tag-bar"><button>Clear all filters</button></div>', 'context-noun-control'), []);
+    assert.deepEqual(hits('<div class="tag-bar"><button>Clear all tags</button></div>', 'multiword-control'), []);
+  });
+  it('scans many captions under one field without repeating the field search', { timeout: 1000 }, () => {
+    const html = `<form><input>${'<p>As parsed</p>'.repeat(2400)}</form>`;
+    assert.deepEqual(hits(html, 'repeated-field-caption'), []);
+  });
+  it('scans many period captions under one control', { timeout: 1000 }, () => {
+    const html = `<section><button aria-pressed="true">1Y</button>${'<p>Change against the previous 12 months</p>'.repeat(2400)}</section>`;
+    assert.equal(hits(html, 'restated-control-period').length, 2400);
+  });
+  it('scans many count lines and tables', { timeout: 1000 }, () => {
+    const section = '<section><p>3 of the 214 payouts this year</p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>';
+    assert.equal(hits(section.repeat(1800), 'restated-table-count').length, 1800);
+  });
+});
 
 describe('UI heuristics', { timeout: 1000 }, () => {
   for (const rule of rules) {
@@ -273,5 +357,9 @@ describe('UI scan bounds', { timeout: 3000 }, () => {
   });
   it('scans 200KB brace-free CSS within the budget', { timeout: 2500 }, () => {
     assert.deepEqual(scan('.unclosed-selector '.repeat(11000), 'sample.css').findings, []);
+  });
+  it('scans a deeply nested button within the budget', { timeout: 2500 }, () => {
+    const source = '<button>' + '<div>'.repeat(30000) + 'Open settings' + '</div>'.repeat(30000) + '</button>';
+    assert.equal(scan(source).findings.filter((finding) => finding.rule === 'multiword-control').length, 1);
   });
 });

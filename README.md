@@ -86,6 +86,17 @@ information. Component style mismatches need a rendered comparison; uncertain
 ones are reported as needing a design review. These are agent review instructions, not additional
 CLI rules.
 
+The UI checks also flag multi-word buttons, repeated field lines, duplicate
+status pills, extra selection markers, and count lines that repeat visible
+table rows. “Send answer” becomes “Send”, and “Clear all filters” in a filter
+bar becomes “Clear all”. “In EUR” under an amount field remains useful. The
+CLI uses narrow markup patterns. A repeated field caption must have five words
+or fewer. A count line with extra information in inline markup stays silent.
+A period caption must match an explicitly selected `nM` or `nY` control.
+A redundant “Clear all” noun must match a
+`noun-bar` or `noun-toolbar` container class. Editorial review uses rendered
+context.
+
 The editorial checks also report unnecessary status distinctions and manual
 commands on automatic features. They ask which distinctions matter and whether
 the system can act instead. Status counts alone do not decide a finding.

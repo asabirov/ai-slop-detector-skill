@@ -137,6 +137,14 @@ values are stable — reference them in allowlists and PR notes.
 | `decor-bullet-dot` | 3 | warning | Empty colored round element prefixing a label — encodes nothing. |
 | `radius-monotony` | 4 | warning | One `border-radius` on every surface — templated sameness. |
 
+| `multiword-control` | 2 | warning | A button-like control has a multi-word visible or accessible label, apart from the existing `Read records` exception. |
+| `inset-accent-marker` | 2 | warning | An inset stripe repeats an existing selection border. |
+| `repeated-field-caption` | 2 | warning | The same short caption appears under three or more distinct fields. |
+| `restated-status-badge` | 2 | warning | A badge repeats a title or a current field value. |
+| `marker-explainer` | 2 | warning | A sentence only explains an accent marker. |
+| `restated-control-period` | 2 | warning | A period caption repeats an explicitly selected `nM` or `nY` control. |
+| `restated-table-count` | 2 | warning | A simple count line repeats the number of body rows in the next table. |
+| `context-noun-control` | 2 | warning | A `Clear all` label repeats the noun in its `noun-bar` or `noun-toolbar` container class. |
 | `gradient-text` | 2 | warning | Gradient clipped into text is decorative emphasis. |
 | `ai-gradient` | 2 | warning | Pink, violet and purple gradient combinations are a common generated UI default. |
 | `glow-shadow` | 2 | warning | A colored zero-offset shadow creates a decorative halo. |
@@ -156,6 +164,13 @@ values are stable — reference them in allowlists and PR notes.
 | `button-drift` | 4 | warning | Several unrelated button sizes or radii weaken control consistency. |
 | `everything-centred` | 4 | warning | Centering most of a page weakens the alignment hierarchy. |
 | `stock-palette` | 4 | warning | Near-black with acid green, or cream with terracotta and serif type, are common generated palettes. |
+
+`restated-control-period` reads numeric period tokens and their explicit selected
+state. It compares `nM` or `nY` with a caption naming the previous or last
+number of months or years. `context-noun-control` reads `Clear all <plural>`
+labels inside a matching `noun-bar` or `noun-toolbar` class. The count rule
+accepts only a short count and scope line; it leaves extra instructions such
+as an approval deadline alone.
 
 `table-footnote` reads position, not wording. The data above it is a `<table>`, a
 tag ending in a data word (`DataTable`, `LineChart`, `BarGraph`), or a container

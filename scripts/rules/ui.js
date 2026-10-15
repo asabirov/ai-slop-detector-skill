@@ -1,5 +1,7 @@
 'use strict';
 
+const { subtreeEnds, subtreeText } = require('../lib/html');
+
 // A cached declaration pass keeps each rule from reparsing the same stylesheet.
 const cache = new WeakMap();
 const STATE = /:(?:hover|focus|active|disabled|visited|checked)\b/i;
@@ -80,7 +82,46 @@ function data(ctx) {
   });
   const inHeading = new Set();
   for (const el of elements) if (/^h[1-6]$/.test(el.tag) || inHeading.has(elements[el.parent])) inHeading.add(el);
-  const result = { rows, elements, index, inHeading };
+  const ends = subtreeEnds(elements);
+  const hidden = new Uint8Array(elements.length);
+  const fieldId = new Int32Array(elements.length).fill(-1);
+  const manyFields = new Uint8Array(elements.length);
+  const selectedPeriod = new Int32Array(elements.length);
+  const contextNoun = new Array(elements.length);
+  const bodyRows = new Uint32Array(elements.length);
+  const tableOf = new Int32Array(elements.length).fill(-1);
+  const inThead = new Uint8Array(elements.length);
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i], parent = el.parent;
+    hidden[i] = (parent >= 0 && hidden[parent]) || el.attributes['aria-hidden'] === 'true' ||
+      [...el.classes].some((c) => /^(?:sr-only|visually-hidden)$/.test(c)) ? 1 : 0;
+    fieldId[i] = /^(?:input|select|textarea)$/.test(el.tag) ? i : -1;
+    selectedPeriod[i] = selectedPeriodMonths(el);
+    contextNoun[i] = nounFromClasses(el.classes) || (parent >= 0 ? contextNoun[parent] : '');
+    tableOf[i] = el.tag === 'table' ? i : parent >= 0 ? tableOf[parent] : -1;
+    inThead[i] = el.tag === 'table' ? 0 : el.tag === 'thead' || (parent >= 0 && inThead[parent]) ? 1 : 0;
+    if (el.tag === 'tr' && tableOf[i] >= 0 && !inThead[i]) bodyRows[tableOf[i]]++;
+  }
+  const nextTable = new Int32Array(elements.length).fill(-1);
+  const latestTable = new Int32Array(elements.length).fill(-1);
+  for (let i = elements.length - 1; i >= 0; i--) {
+    const parent = elements[i].parent;
+    if (parent < 0) continue;
+    nextTable[i] = latestTable[parent];
+    if (elements[i].tag === 'table') latestTable[parent] = i;
+    if (fieldId[i] >= 0) {
+      if (fieldId[parent] < 0) fieldId[parent] = fieldId[i];
+      else if (fieldId[parent] !== fieldId[i]) manyFields[parent] = 1;
+    }
+    if (manyFields[i]) manyFields[parent] = 1;
+    if (selectedPeriod[i] < 0) selectedPeriod[parent] = -1;
+    else if (selectedPeriod[i] > 0 && selectedPeriod[parent] >= 0) {
+      if (!selectedPeriod[parent]) selectedPeriod[parent] = selectedPeriod[i];
+      else if (selectedPeriod[parent] !== selectedPeriod[i]) selectedPeriod[parent] = -1;
+    }
+  }
+  const result = { rows, elements, index, inHeading, ends, hidden, fieldId, manyFields,
+    selectedPeriod, contextNoun, bodyRows, nextTable };
   cache.set(ctx, result);
   return result;
 }
@@ -163,7 +204,139 @@ function paintedShadow(v) {
 const buttonish = (s) => /(?:^|[\s,.#>])(?:button|btn|cta)(?:$|[\s,.#:_-])/.test(s);
 const cardish = (s) => /(?:^|[\s,.#>])(?:card|panel|tile|callout|alert)(?:$|[\s,.#:_-])/.test(s);
 
+function visibleText(info, index) {
+  return subtreeText(info.elements, info.ends, index, (_el, i) => !info.hidden[i]);
+}
+function selectedPeriodMonths(el) {
+  if (!/^(?:button|option)$/.test(el.tag)) return 0;
+  const value = el.tag === 'option' ? el.attributes.value || el.text.trim() : el.text.trim();
+  const match = /^(\d+)([MY])$/i.exec(value);
+  if (!match) return 0;
+  const selected = el.tag === 'option' ? Object.hasOwn(el.attributes, 'selected') :
+    el.attributes['aria-pressed'] === 'true' || el.attributes['aria-selected'] === 'true' ||
+    el.attributes['aria-current'] === 'true' || el.attributes['data-state'] === 'active' ||
+    [...el.classes].some((c) => /^(?:active|selected|current)$/.test(c));
+  return selected ? Number(match[1]) * (match[2].toUpperCase() === 'Y' ? 12 : 1) : 0;
+}
+function nounFromClasses(classes) {
+  for (const name of classes) {
+    const match = /^([a-z][a-z0-9]*)[-_](?:bar|toolbar)$/.exec(name);
+    if (match) return match[1];
+  }
+  return '';
+}
+function singular(word) {
+  if (word.endsWith('ies')) return word.slice(0, -3) + 'y';
+  return word.endsWith('s') ? word.slice(0, -1) : word;
+}
+function redundantContextNoun(label, noun) {
+  const match = /^clear all ([\p{L}]+)$/iu.exec(label.trim());
+  return !!match && !!noun && singular(match[1].toLowerCase()) === singular(noun);
+}
+function control(el) {
+  return el.tag === 'button' || el.attributes.role === 'button' ||
+    (el.tag === 'input' && /^(?:button|submit|reset)$/.test(el.attributes.type || '')) ||
+    (el.tag === 'a' && [...el.classes].some((c) => /^(?:btn|button)(?:-|$)/.test(c)));
+}
+function normalized(text) { return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim(); }
+
+// This label predates the rule. “Read records” is a bare verb+noun table-action label, not sentence-like.
+const MULTIWORD_CONTROL_ALLOWLIST = new Set(['Read records']);
+
 module.exports = [
+  rule('multiword-control', 2, 'A multi-word action label makes a control harder to scan.', 'Use one clear verb for the action.', (ctx) => {
+    const info = data(ctx), { elements } = info;
+    return elements.flatMap((el, i) => {
+      if (!control(el) || el.inCode) return [];
+      const label = visibleText(info, i) || el.attributes['aria-label'] || (el.tag === 'input' ? el.attributes.value : '') || '';
+      if (!label || !/\p{L}/u.test(label) || normalized(label).split(/\s+/).length < 2) return [];
+      if (MULTIWORD_CONTROL_ALLOWLIST.has(label)) return [];
+      if (redundantContextNoun(label, info.contextNoun[i])) return [];
+      return [`<${el.tag}> ${label.slice(0, 80)}`];
+    });
+  }),
+  cssRule('inset-accent-marker', 2, 'An inset accent stripe repeats an existing selection border.', 'Keep one selection marker.', (p) =>
+    /\binset\s+[1-9]\d*(?:px|rem|em)\s+0\b|\binset\s+0\s+0\s+0\s+[1-9]\d*(?:px|rem|em)/.test(p['box-shadow'] || '') &&
+    /(?:solid|outline)/.test([p.border, p['border-left'], p['border-right'], p.outline].join(' ')) &&
+    chromatic([p['box-shadow'], p.border, p['border-left'], p['border-right'], p.outline].join(' '))),
+  rule('repeated-field-caption', 2, 'The same caption under each field adds no field-specific information.', 'Keep only a caption that explains its own field.', (ctx) => {
+    const info = data(ctx), { elements, fieldId, manyFields } = info;
+    const groups = new Map(), seenFields = new Set();
+    const words = new Uint8Array(elements.length);
+    for (let i = elements.length - 1; i >= 0; i--) {
+      const el = elements[i];
+      if (!info.hidden[i]) {
+        for (const [, run] of el.chunks) {
+          const text = normalized(run.replace(/\{[^{}]*\}/g, ' '));
+          if (text) words[i] = Math.min(6, words[i] + text.split(' ').length);
+        }
+      }
+      if (el.parent >= 0) words[el.parent] = Math.min(6, words[el.parent] + words[i]);
+    }
+    for (let i = elements.length - 1; i >= 0; i--) {
+      const el = elements[i];
+      if (!/^(?:small|p|span)$/.test(el.tag)) continue;
+      const field = el.parent >= 0 ? fieldId[el.parent] : -1;
+      if (field < 0 || manyFields[el.parent] || seenFields.has(field) || words[i] > 5) continue;
+      const key = normalized(visibleText(info, i));
+      if (!key || key.split(' ').length > 5) continue;
+      seenFields.add(field);
+      if (!groups.has(key)) groups.set(key, new Set());
+      groups.get(key).add(field);
+    }
+    return [...groups].filter(([, parents]) => parents.size >= 3).map(([caption, parents]) => `${caption} under ${parents.size} fields`);
+  }),
+  rule('restated-status-badge', 2, 'A status badge repeats the page title or a field state.', 'Remove the repeated badge.', (ctx) => {
+    const info = data(ctx), { elements } = info;
+    const titles = new Set(elements.flatMap((el, i) => /^h[1-6]$/.test(el.tag) ? [normalized(visibleText(info, i))] : []));
+    const fieldStates = new Set(elements.flatMap((el, i) => {
+      if (el.tag !== 'input' && el.tag !== 'select' && !(el.tag === 'option' && Object.hasOwn(el.attributes, 'selected'))) return [];
+      const value = el.attributes.value || (el.tag === 'option' ? visibleText(info, i) : '');
+      return value ? [normalized(value)] : [];
+    }));
+    return elements.flatMap((el, i) => {
+      if (![...el.classes].some((c) => /(?:^|[-_])(?:status|badge|pill)(?:$|[-_])/.test(c))) return [];
+      const label = normalized(visibleText(info, i));
+      return label && (titles.has(label) || fieldStates.has(label)) ? [`${label} badge repeats a title or field state`] : [];
+    });
+  }),
+  rule('marker-explainer', 2, 'A sentence explains a visible marker without adding information.', 'Remove the sentence and keep the marker clear.', (ctx) =>
+    data(ctx).elements.filter((el) => /^(?:p|small)$/.test(el.tag) && !el.inCode &&
+      /\b(?:accent|inset|colored|colour|color) (?:bar|stripe|line) (?:marks?|shows?|indicates?|means?)\b/i.test(el.text))
+      .map((el) => el.text.trim().slice(0, 90))),
+  rule('restated-control-period', 2, 'A caption repeats the selected period.', 'Remove the repeated caption.', (ctx) => {
+    const { elements, selectedPeriod } = data(ctx), hits = [];
+    for (let i = 0; i < elements.length; i++) {
+      if (!/^(?:p|small|span)$/.test(elements[i].tag)) continue;
+      const period = /\b(?:previous|last)\s+(\d+)\s+(months?|years?)\b/i.exec(elements[i].text);
+      if (!period) continue;
+      const months = Number(period[1]) * (period[2].toLowerCase().startsWith('year') ? 12 : 1);
+      const p = elements[i].parent;
+      if (p >= 0 && selectedPeriod[p] === months) hits.push(elements[i].text.trim().slice(0, 90));
+    }
+    return hits;
+  }),
+  rule('restated-table-count', 2, 'A count line repeats the rows directly below it.', 'Remove the count line when the rows show the count.', (ctx) => {
+    const info = data(ctx), { elements, bodyRows, nextTable } = info, hits = [];
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i];
+      if (!/^(?:p|small)$/.test(el.tag)) continue;
+      const text = visibleText(info, i);
+      const match = /^(\d+)\s+of\s+(?:the\s+)?\d[\d,]*\s+[\p{L}-]+(?:\s+(?:this|last)\s+(?:year|month|week|quarter))?\.?$/iu.exec(text);
+      if (!match) continue;
+      const table = nextTable[i];
+      if (table >= 0 && bodyRows[table] === Number(match[1])) hits.push(text.slice(0, 90));
+    }
+    return hits;
+  }),
+  rule('context-noun-control', 2, 'The control repeats the noun given by its surrounding bar.', 'Use “Clear all” when the bar names the objects.', (ctx) => {
+    const info = data(ctx), { elements } = info;
+    return elements.flatMap((el, i) => {
+      if (!control(el)) return [];
+      const label = visibleText(info, i);
+      return redundantContextNoun(label, info.contextNoun[i]) ? [label] : [];
+    });
+  }),
   cssRule('gradient-text', 2, 'Gradient clipped into text is decorative emphasis.', 'Use type size or weight for emphasis.', (p) => /gradient\(/.test(background(p)) && (p['background-clip'] === 'text' || p['-webkit-background-clip'] === 'text')),
   cssRule('ai-gradient', 2, 'Pink, violet and purple gradient combinations are a common generated UI default.', 'Choose colors from the subject or an established palette.', (p) => {
     const g = background(p);
