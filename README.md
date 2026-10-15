@@ -86,6 +86,15 @@ information. Component style mismatches need a rendered comparison; uncertain
 ones are reported as needing a design review. These are agent review instructions, not additional
 CLI rules.
 
+The UI checks also cover multi-word button labels, repeated field captions,
+duplicate status pills, extra inset selection markers, and sentences that
+explain a marker. They flag a period caption beside a selected `1Y` control and
+a count line above a table with that many rows. For example, “Send answer”
+becomes “Send”; “Clear all filters” in a filter bar becomes “Clear all”.
+“As parsed” under four fields is redundant. “In EUR” under one amount field
+adds information and remains acceptable. The CLI uses conservative markup
+patterns for these cases; the editorial check uses the rendered context.
+
 The editorial checks also report unnecessary status distinctions and manual
 commands on automatic features. They ask which distinctions matter and whether
 the system can act instead. Status counts alone do not decide a finding.

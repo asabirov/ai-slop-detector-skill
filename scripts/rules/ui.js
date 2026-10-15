@@ -163,7 +163,128 @@ function paintedShadow(v) {
 const buttonish = (s) => /(?:^|[\s,.#>])(?:button|btn|cta)(?:$|[\s,.#:_-])/.test(s);
 const cardish = (s) => /(?:^|[\s,.#>])(?:card|panel|tile|callout|alert)(?:$|[\s,.#:_-])/.test(s);
 
+function descendants(elements, index) {
+  const out = [];
+  for (let i = index; i < elements.length; i++) {
+    if (i > index) {
+      let p = elements[i].parent;
+      while (p >= 0 && p !== index) p = elements[p].parent;
+      if (p !== index) break;
+    }
+    out.push(elements[i]);
+  }
+  return out;
+}
+function visibleText(elements, index) {
+  return descendants(elements, index).filter((el) => !/\baria-hidden\s*=\s*["']true["']/i.test(el.attrs || '') &&
+    ![...el.classes].some((c) => /^(?:sr-only|visually-hidden)$/.test(c))).flatMap((el) => el.chunks).sort((a, b) => a[0] - b[0])
+    .map((chunk) => chunk[1]).join(' ').replace(/\s+/g, ' ').trim();
+}
+function attribute(el, name) {
+  return new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, 'i').exec(el.attrs || '')?.[1] || '';
+}
+function children(elements, index) { return elements.filter((el) => el.parent === index); }
+function hasAncestor(elements, index, tag, stop) {
+  for (let p = elements[index].parent; p >= 0 && p !== stop; p = elements[p].parent) {
+    if (elements[p].tag === tag) return true;
+  }
+  return false;
+}
+function control(el) {
+  return el.tag === 'button' || /\brole\s*=\s*["']button["']/i.test(el.attrs || '') ||
+    (el.tag === 'input' && /\btype\s*=\s*["'](?:button|submit|reset)["']/i.test(el.attrs || '')) ||
+    (el.tag === 'a' && [...el.classes].some((c) => /^(?:btn|button)(?:-|$)/.test(c)));
+}
+function nearbyContext(elements, index) {
+  let p = elements[index].parent;
+  while (p >= 0) {
+    const names = [...elements[p].classes].join(' ') + ' ' + elements[p].tag;
+    if (/filter/i.test(names)) return 'filter';
+    p = elements[p].parent;
+  }
+  return '';
+}
+function normalized(text) { return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim(); }
+
 module.exports = [
+  rule('multiword-control', 2, 'A multi-word action label makes a control harder to scan.', 'Use one clear verb for the action.', (ctx) => {
+    const { elements } = data(ctx);
+    return elements.flatMap((el, i) => {
+      if (!control(el) || el.inCode) return [];
+      const label = visibleText(elements, i) || attribute(el, 'aria-label') || (el.tag === 'input' ? attribute(el, 'value') : '');
+      if (!label || !/\p{L}/u.test(label) || normalized(label).split(/\s+/).length < 2) return [];
+      if (/^clear all filters$/i.test(label) && nearbyContext(elements, i) === 'filter') return [];
+      return [`<${el.tag}> ${label.slice(0, 80)}`];
+    });
+  }),
+  cssRule('inset-accent-marker', 2, 'An inset accent stripe repeats an existing selection border.', 'Keep one selection marker.', (p) =>
+    /\binset\s+[1-9]\d*(?:px|rem|em)\s+0\b|\binset\s+0\s+0\s+0\s+[1-9]\d*(?:px|rem|em)/.test(p['box-shadow'] || '') &&
+    /(?:solid|outline)/.test([p.border, p['border-left'], p['border-right'], p.outline].join(' ')) &&
+    chromatic([p['box-shadow'], p.border, p['border-left'], p['border-right'], p.outline].join(' '))),
+  rule('repeated-field-caption', 2, 'The same caption under each field adds no field-specific information.', 'Keep only a caption that explains its own field.', (ctx) => {
+    const { elements } = data(ctx), groups = new Map();
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i];
+      if (!/^(?:small|p|span)$/.test(el.tag)) continue;
+      const parent = elements[el.parent];
+      if (!parent || !descendants(elements, el.parent).some((e) => /^(?:input|select|textarea)$/.test(e.tag))) continue;
+      const key = normalized(visibleText(elements, i));
+      if (!key || key.split(' ').length > 5) continue;
+      groups.set(key, (groups.get(key) || 0) + 1);
+    }
+    return [...groups].filter(([, count]) => count >= 3).map(([caption, count]) => `${caption} under ${count} fields`);
+  }),
+  rule('restated-status-badge', 2, 'A status badge repeats the page title or a field state.', 'Remove the repeated badge.', (ctx) => {
+    const { elements } = data(ctx);
+    const titles = new Set(elements.flatMap((el, i) => /^h[1-6]$/.test(el.tag) ? [normalized(visibleText(elements, i))] : []));
+    const fieldStates = new Set(elements.flatMap((el) => {
+      if (!/^(?:input|option)$/.test(el.tag)) return [];
+      const m = /\bvalue\s*=\s*["']([^"']+)["']/i.exec(el.attrs || '');
+      return m ? [normalized(m[1])] : [];
+    }));
+    return elements.flatMap((el, i) => {
+      if (![...el.classes].some((c) => /(?:^|[-_])(?:status|badge|pill)(?:$|[-_])/.test(c))) return [];
+      const label = normalized(visibleText(elements, i));
+      return label && (titles.has(label) || fieldStates.has(label)) ? [`${label} badge repeats a title or field state`] : [];
+    });
+  }),
+  rule('marker-explainer', 2, 'A sentence explains a visible marker without adding information.', 'Remove the sentence and keep the marker clear.', (ctx) =>
+    data(ctx).elements.filter((el) => /^(?:p|small)$/.test(el.tag) && !el.inCode &&
+      /\b(?:accent|inset|colored|colour|color) (?:bar|stripe|line) (?:marks?|shows?|indicates?|means?)\b/i.test(el.text))
+      .map((el) => el.text.trim().slice(0, 90))),
+  rule('restated-control-period', 2, 'A caption repeats the selected period.', 'Remove the repeated caption.', (ctx) => {
+    const { elements } = data(ctx), hits = [];
+    for (let i = 0; i < elements.length; i++) {
+      if (!/^(?:p|small|span)$/.test(elements[i].tag) || !/previous 12 months/i.test(elements[i].text)) continue;
+      const p = elements[i].parent;
+      if (p < 0) continue;
+      const controls = descendants(elements, p).filter((el) =>
+        (el.tag === 'button' && /^(?:1Y|12M)$/i.test(el.text.trim())) ||
+        (el.tag === 'option' && /^(?:1Y|12M)$/i.test(el.text.trim()) && /\bselected\b/i.test(el.attrs || '')));
+      if (controls.length) hits.push(elements[i].text.trim().slice(0, 90));
+    }
+    return hits;
+  }),
+  rule('restated-table-count', 2, 'A count line repeats the rows directly below it.', 'Remove the count line when the rows show the count.', (ctx) => {
+    const { elements } = data(ctx), hits = [];
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i], match = /^(\d+) of (?:the )?\d[\d,]*\b/i.exec(el.text.trim());
+      if (!/^(?:p|small)$/.test(el.tag) || !match) continue;
+      const siblings = children(elements, el.parent);
+      const table = siblings.find((s) => s.tag === 'table' && elements.indexOf(s) > i);
+      if (table) {
+        const tableIndex = elements.indexOf(table);
+        const rows = descendants(elements, tableIndex).filter((e) => e.tag === 'tr' &&
+          !hasAncestor(elements, elements.indexOf(e), 'thead', tableIndex));
+        if (rows.length === Number(match[1])) hits.push(el.text.trim().slice(0, 90));
+      }
+    }
+    return hits;
+  }),
+  rule('context-noun-control', 2, 'The control repeats the noun given by its surrounding filter bar.', 'Use “Clear all” in the filter bar.', (ctx) => {
+    const { elements } = data(ctx);
+    return elements.flatMap((el, i) => control(el) && /^clear all filters$/i.test(visibleText(elements, i)) && nearbyContext(elements, i) === 'filter' ? ['Clear all filters'] : []);
+  }),
   cssRule('gradient-text', 2, 'Gradient clipped into text is decorative emphasis.', 'Use type size or weight for emphasis.', (p) => /gradient\(/.test(background(p)) && (p['background-clip'] === 'text' || p['-webkit-background-clip'] === 'text')),
   cssRule('ai-gradient', 2, 'Pink, violet and purple gradient combinations are a common generated UI default.', 'Choose colors from the subject or an established palette.', (p) => {
     const g = background(p);

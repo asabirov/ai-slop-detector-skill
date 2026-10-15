@@ -5,6 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { detect, kindForPath } = require('./detect');
+const { parse } = require('./lib/html');
+const { RULES } = require('./rules');
 
 const fixtures = path.join(__dirname, '..', 'fixtures');
 function scan(content, file = 'sample.html') {
@@ -20,6 +22,37 @@ const rules = [
   'family-ceiling', 'stock-display-face', 'mono-uppercase-label', 'accent-budget',
   'hairline-grid', 'double-edge', 'button-drift', 'everything-centred', 'stock-palette',
 ];
+
+describe('redundant UI copy', { timeout: 1000 }, () => {
+  const names = ['multiword-control', 'inset-accent-marker', 'repeated-field-caption',
+    'restated-status-badge', 'marker-explainer', 'restated-control-period',
+    'restated-table-count', 'context-noun-control'];
+  const hits = (html, name) => RULES.find((rule) => rule.id === name).test(parse(html, { ext: 'html' }));
+  for (const name of names) {
+    it(`${name} flags its positive fixture and leaves its negative fixture silent`, { timeout: 1000 }, () => {
+      assert.ok(hits(fs.readFileSync(path.join(fixtures, 'slop-ui-redundant-copy.html'), 'utf8'), name).length);
+      assert.deepEqual(hits(fs.readFileSync(path.join(fixtures, 'near-miss-ui-redundant-copy.html'), 'utf8'), name), []);
+    });
+  }
+  it('reports a sentence link once and leaves short controls silent', { timeout: 1000 }, () => {
+    assert.equal(hits('<a role="button" href="/report">Open the payout report</a>', 'multiword-control').length, 1);
+    assert.deepEqual(hits('<button>Save</button><button>Undo</button><button aria-label="Close"><svg></svg></button>', 'multiword-control'), []);
+    assert.equal(hits('<button aria-label="Open settings"><svg aria-hidden="true"></svg></button>', 'multiword-control').length, 1);
+    assert.deepEqual(hits('<button aria-label="Close"><svg aria-hidden="true"></svg></button>', 'multiword-control'), []);
+    assert.equal(hits('<input type="submit" value="Send answer">', 'multiword-control').length, 1);
+  });
+  it('flags a badge that repeats a field value', { timeout: 1000 }, () => {
+    assert.equal(hits('<section><input value="Needs review"><span class="status-badge">Needs review</span></section>', 'restated-status-badge').length, 1);
+    assert.deepEqual(hits('<section><input value="Draft"><span class="status-badge">Needs review</span></section>', 'restated-status-badge'), []);
+  });
+  it('counts table body rows without counting its header', { timeout: 1000 }, () => {
+    assert.equal(hits('<section><p>3 of the 214 payouts this year</p><table><thead><tr><th>Payout</th></tr></thead><tbody><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></tbody></table></section>', 'restated-table-count').length, 1);
+  });
+  it('reads a selected period option', { timeout: 1000 }, () => {
+    assert.equal(hits('<div><select><option selected>1Y</option></select><p>Change against the previous 12 months</p></div>', 'restated-control-period').length, 1);
+    assert.deepEqual(hits('<div><select><option>1Y</option><option selected>6M</option></select><p>Change against the previous 12 months</p></div>', 'restated-control-period'), []);
+  });
+});
 
 describe('UI heuristics', { timeout: 1000 }, () => {
   for (const rule of rules) {

@@ -155,6 +155,7 @@ function markupElements(html) {
       classes: new Set(classValue.trim().split(/\s+/).filter(Boolean)),
       id: idAttr ? idAttr[1].trim() : null,
       parent,
+      attrs,
       text: '',
       // `text` loses order: a run belongs to the innermost open element, so
       // `<p><strong>Amounts</strong> in EUR.</p>` gives the <p> " in EUR." and
