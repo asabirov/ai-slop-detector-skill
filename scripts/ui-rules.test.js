@@ -59,6 +59,18 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
     assert.equal(hits('<div><select><option selected>1Y</option></select><p>Change against the previous 12 months</p></div>', 'restated-control-period').length, 1);
     assert.deepEqual(hits('<div><select><option>1Y</option><option selected>6M</option></select><p>Change against the previous 12 months</p></div>', 'restated-control-period'), []);
   });
+  it('scans many captions under one field without repeating the field search', { timeout: 1000 }, () => {
+    const html = `<form><input>${'<p>As parsed</p>'.repeat(2400)}</form>`;
+    assert.deepEqual(hits(html, 'repeated-field-caption'), []);
+  });
+  it('scans many period captions under one control', { timeout: 1000 }, () => {
+    const html = `<section><button>1Y</button>${'<p>Change against the previous 12 months</p>'.repeat(2400)}</section>`;
+    assert.equal(hits(html, 'restated-control-period').length, 2400);
+  });
+  it('scans many count lines and tables', { timeout: 1000 }, () => {
+    const section = '<section><p>3 of the 214 payouts this year</p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>';
+    assert.equal(hits(section.repeat(1800), 'restated-table-count').length, 1800);
+  });
 });
 
 describe('UI heuristics', { timeout: 1000 }, () => {

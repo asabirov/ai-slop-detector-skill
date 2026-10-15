@@ -80,7 +80,31 @@ function data(ctx) {
   });
   const inHeading = new Set();
   for (const el of elements) if (/^h[1-6]$/.test(el.tag) || inHeading.has(elements[el.parent])) inHeading.add(el);
-  const result = { rows, elements, index, inHeading };
+  const hasField = new Uint8Array(elements.length);
+  const hasPeriod = new Uint8Array(elements.length);
+  const bodyRows = new Uint32Array(elements.length);
+  const tableOf = new Int32Array(elements.length).fill(-1);
+  const inThead = new Uint8Array(elements.length);
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i], parent = el.parent;
+    hasField[i] = /^(?:input|select|textarea)$/.test(el.tag) ? 1 : 0;
+    hasPeriod[i] = (el.tag === 'button' && /^(?:1Y|12M)$/i.test(el.text.trim())) ||
+      (el.tag === 'option' && /^(?:1Y|12M)$/i.test(el.text.trim()) && /\bselected\b/i.test(el.attrs || '')) ? 1 : 0;
+    tableOf[i] = el.tag === 'table' ? i : parent >= 0 ? tableOf[parent] : -1;
+    inThead[i] = el.tag === 'table' ? 0 : el.tag === 'thead' || (parent >= 0 && inThead[parent]) ? 1 : 0;
+    if (el.tag === 'tr' && tableOf[i] >= 0 && !inThead[i]) bodyRows[tableOf[i]]++;
+  }
+  const nextTable = new Int32Array(elements.length).fill(-1);
+  const latestTable = new Int32Array(elements.length).fill(-1);
+  for (let i = elements.length - 1; i >= 0; i--) {
+    const parent = elements[i].parent;
+    if (parent < 0) continue;
+    nextTable[i] = latestTable[parent];
+    if (elements[i].tag === 'table') latestTable[parent] = i;
+    if (hasField[i]) hasField[parent] = 1;
+    if (hasPeriod[i]) hasPeriod[parent] = 1;
+  }
+  const result = { rows, elements, index, inHeading, hasField, hasPeriod, bodyRows, nextTable };
   cache.set(ctx, result);
   return result;
 }
@@ -183,13 +207,6 @@ function visibleText(elements, index) {
 function attribute(el, name) {
   return new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, 'i').exec(el.attrs || '')?.[1] || '';
 }
-function children(elements, index) { return elements.filter((el) => el.parent === index); }
-function hasAncestor(elements, index, tag, stop) {
-  for (let p = elements[index].parent; p >= 0 && p !== stop; p = elements[p].parent) {
-    if (elements[p].tag === tag) return true;
-  }
-  return false;
-}
 function control(el) {
   return el.tag === 'button' || /\brole\s*=\s*["']button["']/i.test(el.attrs || '') ||
     (el.tag === 'input' && /\btype\s*=\s*["'](?:button|submit|reset)["']/i.test(el.attrs || '')) ||
@@ -226,17 +243,17 @@ module.exports = [
     /(?:solid|outline)/.test([p.border, p['border-left'], p['border-right'], p.outline].join(' ')) &&
     chromatic([p['box-shadow'], p.border, p['border-left'], p['border-right'], p.outline].join(' '))),
   rule('repeated-field-caption', 2, 'The same caption under each field adds no field-specific information.', 'Keep only a caption that explains its own field.', (ctx) => {
-    const { elements } = data(ctx), groups = new Map();
+    const { elements, hasField } = data(ctx), groups = new Map();
     for (let i = 0; i < elements.length; i++) {
       const el = elements[i];
       if (!/^(?:small|p|span)$/.test(el.tag)) continue;
-      const parent = elements[el.parent];
-      if (!parent || !descendants(elements, el.parent).some((e) => /^(?:input|select|textarea)$/.test(e.tag))) continue;
+      if (el.parent < 0 || !hasField[el.parent]) continue;
       const key = normalized(visibleText(elements, i));
       if (!key || key.split(' ').length > 5) continue;
-      groups.set(key, (groups.get(key) || 0) + 1);
+      if (!groups.has(key)) groups.set(key, new Set());
+      groups.get(key).add(el.parent);
     }
-    return [...groups].filter(([, count]) => count >= 3).map(([caption, count]) => `${caption} under ${count} fields`);
+    return [...groups].filter(([, parents]) => parents.size >= 3).map(([caption, parents]) => `${caption} under ${parents.size} fields`);
   }),
   rule('restated-status-badge', 2, 'A status badge repeats the page title or a field state.', 'Remove the repeated badge.', (ctx) => {
     const { elements } = data(ctx);
@@ -257,31 +274,21 @@ module.exports = [
       /\b(?:accent|inset|colored|colour|color) (?:bar|stripe|line) (?:marks?|shows?|indicates?|means?)\b/i.test(el.text))
       .map((el) => el.text.trim().slice(0, 90))),
   rule('restated-control-period', 2, 'A caption repeats the selected period.', 'Remove the repeated caption.', (ctx) => {
-    const { elements } = data(ctx), hits = [];
+    const { elements, hasPeriod } = data(ctx), hits = [];
     for (let i = 0; i < elements.length; i++) {
       if (!/^(?:p|small|span)$/.test(elements[i].tag) || !/previous 12 months/i.test(elements[i].text)) continue;
       const p = elements[i].parent;
-      if (p < 0) continue;
-      const controls = descendants(elements, p).filter((el) =>
-        (el.tag === 'button' && /^(?:1Y|12M)$/i.test(el.text.trim())) ||
-        (el.tag === 'option' && /^(?:1Y|12M)$/i.test(el.text.trim()) && /\bselected\b/i.test(el.attrs || '')));
-      if (controls.length) hits.push(elements[i].text.trim().slice(0, 90));
+      if (p >= 0 && hasPeriod[p]) hits.push(elements[i].text.trim().slice(0, 90));
     }
     return hits;
   }),
   rule('restated-table-count', 2, 'A count line repeats the rows directly below it.', 'Remove the count line when the rows show the count.', (ctx) => {
-    const { elements } = data(ctx), hits = [];
+    const { elements, bodyRows, nextTable } = data(ctx), hits = [];
     for (let i = 0; i < elements.length; i++) {
       const el = elements[i], match = /^(\d+) of (?:the )?\d[\d,]*\b/i.exec(el.text.trim());
       if (!/^(?:p|small)$/.test(el.tag) || !match) continue;
-      const siblings = children(elements, el.parent);
-      const table = siblings.find((s) => s.tag === 'table' && elements.indexOf(s) > i);
-      if (table) {
-        const tableIndex = elements.indexOf(table);
-        const rows = descendants(elements, tableIndex).filter((e) => e.tag === 'tr' &&
-          !hasAncestor(elements, elements.indexOf(e), 'thead', tableIndex));
-        if (rows.length === Number(match[1])) hits.push(el.text.trim().slice(0, 90));
-      }
+      const table = nextTable[i];
+      if (table >= 0 && bodyRows[table] === Number(match[1])) hits.push(el.text.trim().slice(0, 90));
     }
     return hits;
   }),
