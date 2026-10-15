@@ -68,6 +68,11 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
     const html = '<section><p>3 of the 214 payouts this year need approval by Friday.</p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>';
     assert.deepEqual(hits(html, 'restated-table-count'), []);
   });
+  it('keeps a count line with an inline approval deadline', { timeout: 1000 }, () => {
+    const html = '<section><p>3 of the 214 payouts this year<strong> need approval by Friday.</strong></p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>';
+    assert.deepEqual(hits(html, 'restated-table-count'), []);
+    assert.equal(hits(html.replace(' this year<strong> need approval by Friday.</strong>', ' this <strong>year</strong>'), 'restated-table-count').length, 1);
+  });
   it('uses only the current option as field state', { timeout: 1000 }, () => {
     const select = '<select><option selected value="Draft">Draft</option><option value="Approved">Approved</option></select>';
     assert.deepEqual(hits(select + '<span class="badge">Approved</span>', 'restated-status-badge'), []);
@@ -75,6 +80,10 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
   });
   it('counts one field through deeply nested caption spans', { timeout: 1000 }, () => {
     const html = '<div>' + '<span>'.repeat(1600) + '<input>As parsed' + '</span>'.repeat(1600) + '</div>';
+    assert.deepEqual(hits(html, 'repeated-field-caption'), []);
+  });
+  it('rejects a long caption through nested spans within the budget', { timeout: 1000 }, () => {
+    const html = '<div>' + '<span>'.repeat(3200) + '<input>This caption contains more than five words' + '</span>'.repeat(3200) + '</div>';
     assert.deepEqual(hits(html, 'repeated-field-caption'), []);
   });
   it('uses the filter noun from its container', { timeout: 1000 }, () => {

@@ -262,11 +262,22 @@ module.exports = [
   rule('repeated-field-caption', 2, 'The same caption under each field adds no field-specific information.', 'Keep only a caption that explains its own field.', (ctx) => {
     const info = data(ctx), { elements, fieldId, manyFields } = info;
     const groups = new Map(), seenFields = new Set();
+    const words = new Uint8Array(elements.length);
+    for (let i = elements.length - 1; i >= 0; i--) {
+      const el = elements[i];
+      if (!info.hidden[i]) {
+        for (const [, run] of el.chunks) {
+          const text = normalized(run.replace(/\{[^{}]*\}/g, ' '));
+          if (text) words[i] = Math.min(6, words[i] + text.split(' ').length);
+        }
+      }
+      if (el.parent >= 0) words[el.parent] = Math.min(6, words[el.parent] + words[i]);
+    }
     for (let i = elements.length - 1; i >= 0; i--) {
       const el = elements[i];
       if (!/^(?:small|p|span)$/.test(el.tag)) continue;
       const field = el.parent >= 0 ? fieldId[el.parent] : -1;
-      if (field < 0 || manyFields[el.parent] || seenFields.has(field)) continue;
+      if (field < 0 || manyFields[el.parent] || seenFields.has(field) || words[i] > 5) continue;
       const key = normalized(visibleText(info, i));
       if (!key || key.split(' ').length > 5) continue;
       seenFields.add(field);
@@ -306,12 +317,15 @@ module.exports = [
     return hits;
   }),
   rule('restated-table-count', 2, 'A count line repeats the rows directly below it.', 'Remove the count line when the rows show the count.', (ctx) => {
-    const { elements, bodyRows, nextTable } = data(ctx), hits = [];
+    const info = data(ctx), { elements, bodyRows, nextTable } = info, hits = [];
     for (let i = 0; i < elements.length; i++) {
-      const el = elements[i], match = /^(\d+)\s+of\s+(?:the\s+)?\d[\d,]*\s+[\p{L}-]+(?:\s+(?:this|last)\s+(?:year|month|week|quarter))?\.?$/iu.exec(el.text.trim());
-      if (!/^(?:p|small)$/.test(el.tag) || !match) continue;
+      const el = elements[i];
+      if (!/^(?:p|small)$/.test(el.tag)) continue;
+      const text = visibleText(info, i);
+      const match = /^(\d+)\s+of\s+(?:the\s+)?\d[\d,]*\s+[\p{L}-]+(?:\s+(?:this|last)\s+(?:year|month|week|quarter))?\.?$/iu.exec(text);
+      if (!match) continue;
       const table = nextTable[i];
-      if (table >= 0 && bodyRows[table] === Number(match[1])) hits.push(el.text.trim().slice(0, 90));
+      if (table >= 0 && bodyRows[table] === Number(match[1])) hits.push(text.slice(0, 90));
     }
     return hits;
   }),
