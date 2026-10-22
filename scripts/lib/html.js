@@ -34,7 +34,7 @@ function stripBetween(html, tag) {
 // Tags out, one space in. The space is the whole point: replacing a tag with the
 // empty string lets `<<a>b>` close back up into `<b>`, which is
 // `js/incomplete-multi-character-sanitization` and was raised three times against
-// `scripts/rules/visual.js` (apliteni/claude-apliteni-plugin#79). A space between
+// `scripts/rules/visual.js`. A space between
 // the halves cannot be reconstructed into a tag by anything that is left.
 //
 // Eight places did this by hand, five with a space and three with the empty
@@ -131,9 +131,9 @@ function visibleTextRuns(html, { markup = true } = {}) {
 
 // Prose a reader meets that is not between tags: tooltips, labels, alt text,
 // the meta description. Stripping tags with `<[^>]+>` deletes these along with
-// the tag, so every text rule was blind to them — on lessly.com/pricing that
+// the tag, so every text rule was blind to them — on one pricing page that
 // was 274 of the page's 934 words, the whole compare table's prose, sitting
-// inside `data-tip` (lessly-landing#387).
+// inside `data-tip`.
 //
 // Only attributes whose value is written for a person. `href`, `class`, `src`,
 // `id` and friends are addresses and identifiers; reading them as prose would
@@ -197,10 +197,10 @@ function attrTextRuns(html, tokens = rawHtmlTokens(html)) {
 
 // Which classes, ids and tags the markup actually carries. A stylesheet is
 // shared by every page that links it, so a rule naming a selector no page
-// element matches is not that page's defect. lessly.com's home page failed the
+// element matches is not that page's defect. one home page failed the
 // level-1 gate on `.font-mono` (markdown code blocks) and `.fig-mono` (numerals
 // inside diagrams): neither appears in its markup, both live in the one
-// stylesheet (lessly-hub/lessly-landing#390).
+// stylesheet.
 function markupTokens(html) {
   const body = stripBetween(stripBetween(html, 'style'), 'script');
   const classes = new Set();
@@ -423,9 +423,9 @@ function selectorApplies(selector, tokens) {
 // a DOM: an element, then whitespace or a comment, then an <h1>-<h6>.
 //
 // `eyebrow-kicker` used to read declaration blocks alone, so it reported a CSS
-// signature for any uppercase rule in the sheet. That cleared lessly.com, which
-// carries five kickers, and flagged status.lessly.com, whose only uppercase rule
-// styles the status badge sitting *beside* each <h3> (apliteni#73). A kicker is
+// signature for any uppercase rule in the sheet. That cleared a site with
+// five kickers, and flagged a status page whose only uppercase rule
+// styles the status badge sitting *beside* each <h3>. A kicker is
 // defined by where it sits, so the rule has to look at the page.
 const LABEL_TAGS = 'p|span|div|small|strong|em|b|a|figcaption';
 
@@ -470,8 +470,8 @@ function labelsAboveHeadings(html) {
 
 // A table by tag, and a chart by tag or by a class that says so. The tag is
 // matched as a word ending because a screen ships a component, not a <table>:
-// finance2 renders <DataTable/> and the draft of this rule that could only see
-// `table` missed the one line #40 was filed about.
+// a finance app renders <DataTable/> and a draft of this rule that could only see
+// `table` missed the line it was written for.
 //
 // `table` is deliberately absent from the class test. `.table-wrap` and
 // `.table-note` would both match it, and the note is the thing being judged.
@@ -916,7 +916,7 @@ function blocksUnderData(elements, isMarked) {
 
 // The data a heading names, read forwards: the next sibling, or a plain wrapper
 // whose first child is one — `<div class="ui-table-scroll"><table>…</table></div>`
-// is how a table ships inside a scroll region, and finance2's own `TableRegion`
+// is how a table ships inside a scroll region, and one app's `TableRegion`
 // renders exactly that. First child, the mirror of `dataAbove`'s last child, and
 // for the same reason: a page body whose first block is a row of controls and
 // whose fourth is a table is not this heading's table.
@@ -941,7 +941,7 @@ const LIST_TAGS = new Set(['ul', 'ol', 'dl', 'li', 'dt', 'dd']);
 // as this heading's own — `<div class="col-md-4"><h2/><p class="lead"/></div>
 // <div class="col-md-8"><table/></div>` is a two-column page, not an annotated
 // table, and an HTML email puts each in its own `<td>`. Every real shape that
-// needs the climb names itself: finance2 ships `fin-section__head` and
+// needs the climb names itself: one app ships `fin-section__head` and
 // `fin-tasks__head`, and the kit card and the design-evidence page need no climb
 // at all, because their table is already the heading's own sibling.
 const HEAD_ROW_CLASS = /(?:^|[-_])(?:head|header|heading|hd|title)(?:$|[-_\d])/i;
@@ -1139,7 +1139,7 @@ function stylesheetLinks(html) {
 // ships. A bundled site keeps its CSS in a linked file, and reading only
 // <style> blocks scored 59 bytes of a page that ships 100,339 — seven of the
 // visual rules read ctx.css, so on any bundled page they were measuring
-// reachability rather than quality (lessly-hub/lessly#732).
+// reachability rather than quality.
 //
 // Local files only. A network fetch inside a merge gate is a different
 // decision, and one that belongs to whoever runs the gate rather than to this
@@ -1172,21 +1172,11 @@ function linkedCss(html, { filePath, root } = {}) {
   return { css: found.map((f) => f.css).join('\n'), found, unresolved };
 }
 
-// (selector, block) pairs from CSS rules.
-//
-// Split on the braces rather than matched with `/([^{}]+)\{([^{}]*)\}/g`. That
-// regex is `js/polynomial-redos`: `[^{}]+` has to give up one character at a
-// time at every start position, so a stylesheet carrying a long run with no
-// brace in it costs O(n²). Measured on this machine, brace-free input: 20KB took
-// 6,940ms, 39KB took 26,303ms, and 156KB had not finished in two minutes. CodeQL
-// raised it against `scripts/lib/html.js:50` at plugin 4.0.0, and
-// lessly-hub/compliance.lessly.tech deleted this file out of its copy rather
-// than ship the alert (apliteni/claude-apliteni-plugin#79).
-//
-// The scan below reads each character once. It reproduces what the regex
-// matched, nesting included: inside `@media x { a { b } }` the rule is ` a ` and
-// not `@media x { a `, because `[^{}]+` could not cross the inner brace either.
-// `cssRules.test.js` pins that against the regex over every stylesheet here.
+// (selector, block) pairs from CSS rules, found by splitting on the braces. The
+// obvious regex, `/([^{}]+)\{([^{}]*)\}/g`, is `js/polynomial-redos`: 20KB with
+// no brace in it took 6.9s and 156KB did not finish. This scan reads each
+// character once and matches the regex, nesting included: inside
+// `@media x { a { b } }` the rule is ` a `. `cssRules.test.js` pins that.
 function cssRules(css) {
   const out = [];
   const chunks = css.split('}');
@@ -1219,7 +1209,7 @@ const EMOJI = /^(?:[☀-➿]|[←-⇿]|\ud83c[\udc00-\udfff]|\ud83d[\udc00-\udff
 // `<link>` and `<div>` inside code spans, and on the raw text that was enough
 // to classify a markdown document as a web page. Every markdown-only step then
 // went unrun, the code-span exemption with them, and four schemes already
-// sitting in backticks scored level-1 errors (apliteni#78).
+// sitting in backticks scored level-1 errors.
 function looksLikeHtml(source) {
   return /<(?:html|body|head|div|p|section|header|footer|h[1-6]|style|script|span|ul|ol|li|a)\b/i.test(
     withoutMarkdownCode(source)
@@ -1233,7 +1223,7 @@ function looksLikeHtml(source) {
 // backtick shifted the pairing for the rest of the file and every span past it
 // was handed to the rules as prose. The fenced form had the same defect: an odd
 // ``` anywhere paired with the next real fence and silently ate the prose in
-// between, which is the quiet half of the same bug (apliteni#78).
+// between, which is the quiet half of the same bug.
 
 // Offsets of the blank lines in a text, so a candidate span can be told it has
 // run past the end of its paragraph without re-slicing the source each time.

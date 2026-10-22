@@ -1498,3 +1498,17 @@ describe('table-footnote and emoji-icon boundaries', { timeout: 1000 }, () => {
     has('<div><span>✔</span> Done</div>', 'emoji-icon');
   });
 });
+
+describe('mono-noncode type labels', { timeout: 1000 }, () => {
+  const css = '<style>.ref{font-family:SFMono-Regular,Menlo,monospace}</style>';
+  it('treats an angle-bracket type label and a type or code class as code', { timeout: 1000 }, () => {
+    lacks(`${css}<a class="ref">&lt;Object&gt;</a>`, 'mono-noncode');
+    lacks(`${css}<a class="ref">&lt;string[]&gt;</a>`, 'mono-noncode');
+    lacks(`${css}<span class="ref type">Object</span>`, 'mono-noncode');
+    lacks(`${css}<span class="ref code-ref">x</span>`, 'mono-noncode');
+  });
+  it('still flags monospace on a metadata line', { timeout: 1000 }, () => {
+    has(`${css}<p class="ref">Updated 3 days ago by the team</p>`, 'mono-noncode');
+    has(`${css}<span class="ref typewriter">Hello there</span>`, 'mono-noncode');
+  });
+});

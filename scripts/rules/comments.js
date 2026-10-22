@@ -6,7 +6,7 @@
 // The pack measures shape, not vocabulary; two vocabulary rules were dropped in
 // calibration. Length is `medium` and chaptering is the ban — a shape is either
 // there or it is not, while a length threshold lands mid-population wherever you
-// put it. why: apliteni/claude-apliteni-plugin#59, and docs/ai-slop-detector.md.
+// put it. Detail: docs/ai-slop-detector.md.
 //
 // Each rule: { id, level, severity, why, fix, test(ctx) -> string[] hits }
 // ctx here is the SOURCE context (scripts/lib/source.js), not the HTML one.

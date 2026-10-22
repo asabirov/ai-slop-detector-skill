@@ -37,7 +37,7 @@ const fakeUri = {
   id: 'fake-uri',
   level: 1,
   severity: 'error',
-  why: 'Fake protocol URI (e.g. lessly://c4/goal) — decorative tech-cosplay pretending to be a real address. It links to nothing.',
+  why: 'Fake protocol URI (e.g. acme://goal) — decorative tech-cosplay pretending to be a real address. It links to nothing.',
   fix:
     'Use plain words, or a real https:// link. A real scheme being quoted as a technical value (neo4j://, postgres://, s3://) belongs in a code span or a fenced block, where this rule does not read it.',
   // Reads ctx.codeless, not ctx.runs: the tell is a URI used as ornament in
@@ -59,7 +59,13 @@ const fakeUri = {
 // fallback and not the rule: a guess is only better than going quiet.
 const SPELLED_FOR_CODE = /\b(code|pre|kbd|samp|tt)\b/i;
 
-const monoAllowed = (el) => el.inCode || (el.inTable && el.numericData && el.hasDigit);
+// A type label (`<Object>`, `<string[]>`) is code, and so is a class that says
+// it names a type or code.
+const TYPE_CLASS = /(?:^|[-_])(?:type|code)(?:$|[-_])/i;
+const isTypeLabel = (el) => /^<[^<>\s][^<>]*>$/.test((el.text || '').trim()) ||
+  [...(el.classes || [])].some((c) => TYPE_CLASS.test(c));
+
+const monoAllowed = (el) => el.inCode || isTypeLabel(el) || (el.inTable && el.numericData && el.hasDigit);
 
 const monoNoncode = {
   id: 'mono-noncode',
@@ -70,8 +76,7 @@ const monoNoncode = {
   // Judged by what the selector lands on, not how it is spelled. The old
   // spelling check exempted anything with `code`/`pre`/`kbd`/`samp`/`tt` in its
   // text, so `.font-mono` — which lands on nothing but <code> spans — failed on
-  // three shipped pages while `.al-pre` on a <div> passed
-  // (lessly-hub/lessly-landing).
+  // three shipped pages while `.al-pre` on a <div> passed.
   test(ctx) {
     const hits = [];
     // The lookbehind is the left edge of a CSS ident. Without it the *name*
@@ -94,8 +99,8 @@ const monoNoncode = {
         const sel = part.trim();
         if (!sel) continue;
         // A shared stylesheet carries rules for pages this is not. Judging one
-        // page on another's code blocks is how lessly.com's home page failed on
-        // `.font-mono` it never applies (lessly-hub/lessly-landing#390). Asked
+        // page on another's code blocks is how a home page failed on
+        // `.font-mono` it never applies. Asked
         // per selector, so one absent class cannot excuse its neighbours.
         if (!selectorApplies(sel, ctx.markup)) continue;
 
@@ -174,9 +179,9 @@ const tableFootnote = {
     'An explanatory line under a table or a chart — what the numbers are counted in, what they exclude, where they came from, when they were taken. Nobody reading the table reads under it, so the fact is unread and load-bearing at once. A local design rule asking for the line does not make anyone read it.',
   fix:
     'Cut the line. If the fact changes what a number means, put it where the number is: the column header, the unit on the value, or the label of the control that chose it. Policy belongs on the page that sets the policy, linked from the heading.',
-  // Position is the definition, so position is the test — finance2 shipped a
-  // basis line under every money table and passed four review rounds at strict
-  // (#40), because nothing here was looking at where a line sat. What the
+  // Position is the definition, so position is the test — a finance app shipped a
+  // basis line under every money table and passed four review rounds at strict,
+  // because nothing here was looking at where a line sat. What the
   // candidate holds then separates a footnote from the next thing on the page: a
   // heading or a table of its own means it is a section, not an annotation.
   test(ctx) {
@@ -207,15 +212,15 @@ const tableFootnote = {
 
 // Two tiers, because one marker set cannot carry both halves of this. A class or
 // tag that names an annotation — basis, note, footnote, disclaimer — says the line
-// is about the data, so any wording is enough: `<Basis>charge month</Basis>` is the
-// line #52 was filed on and `<Basis>non-cash</Basis>` is one word. `<small>` is deliberately not here: it is how a kit sets
+// is about the data, so any wording is enough: `<Basis>charge month</Basis>` is a
+// real subtitle and `<Basis>non-cash</Basis>` is one word. `<small>` is deliberately not here: it is how a kit sets
 // a unit (`<small>EUR</small>`, `<small>ms, p95</small>`), and the README allows a
 // unit beside a heading.
 const ANNOTATION_TAG = /(?:^|-)(?:basis|notes?|footnotes?|disclaimer)$/i;
 const ANNOTATION_CLASS = /(?:^|[-_])(?:basis|notes?|footnotes?|disclaimer|fineprint)(?:$|[-_\d])/i;
 
 // The other tier is everything a design calls a line it has merely set below the
-// heading: a subtitle, a lede, a `<small>`. finance2 ships `fin-small` and
+// heading: a subtitle, a lede, a `<small>`. One app ships `fin-small` and
 // `ui-app__sub`; a kit ships `card-description`.
 //
 // `caption` and `meta` are deliberately out. A caption above the figure it names is
@@ -303,8 +308,7 @@ const externalLinkArrow = {
   fix: 'Drop the glyph. Plain directional →←↑↓ (flows, deltas) are fine.',
   // Reads ctx.codeless for the same reason fake-uri does: inside a code span the
   // glyph is the value under discussion, not ornament on a link. Reading ctx.runs
-  // failed this skill's own reference on the row that documents this rule
-  // (apliteni#78).
+  // failed this skill's own reference on the row that documents this rule.
   test(ctx) {
     const hits = [];
     const re = new RegExp(DECOR_ARROWS.source, 'g');
@@ -382,10 +386,10 @@ const eyebrowKicker = {
   fix: 'Drop the kicker; let the heading lead. Use sentence case for labels.',
   // Position is the definition, so position is the test: the element renders
   // uppercase AND the next thing after it is a heading. Nothing here reads
-  // tracking as a gate. .02em looked like the line between status.lessly.com's
-  // badges and lessly.com's kickers, but the phrase in this rule's own `why`
+  // tracking as a gate. .02em looked like the line between one site's
+  // status badges and another's kickers, but the phrase in this rule's own `why`
   // ships at .04em on a real hero — any threshold between them hides the shape
-  // the rule is named after (apliteni#73).
+  // the rule is named after.
   //
   // Matching elements also does what `selectorApplies` does for mono-noncode,
   // and more strictly: a class no element carries reaches no element here.
@@ -579,9 +583,8 @@ const radiusMonotony = {
 
 // A page that links CSS the linter could not open is a page whose CSS rules did
 // not run. Seven visual rules read ctx.css, so on a bundled page that silence
-// prints as a clean pass — lessly.com scored pass at every level, including
-// paranoid, while shipping 8 mono-noncode errors in a stylesheet nobody opened
-// (lessly-hub/lessly#732). Medium: the linter is certain it could not see the
+// prints as a clean pass — one site scored pass at every level, including
+// paranoid, while shipping 8 mono-noncode errors in a stylesheet nobody opened. Medium: the linter is certain it could not see the
 // file, and being unable to look is not the page's defect to fail on.
 const cssUnreadable = {
   id: 'css-unreadable',

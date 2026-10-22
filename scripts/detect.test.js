@@ -64,9 +64,9 @@ test('flags a reply that repeats the preceding message in Russian and English', 
   }
 });
 
-// ── attribute prose is prose (lessly-landing#387) ──────────────────────
+// ── attribute prose is prose ──────────────────────
 // Stripping tags with `<[^>]+>` took the tooltip out with the tag. On
-// lessly.com/pricing that hid the whole compare table — 26 values, 324 words,
+// one pricing page that hid the whole compare table — 26 values, 324 words,
 // a third of the page's prose — and the gate reported a clean page.
 test('reads prose out of human-readable attributes, and only those', () => {
   const runs = attrTextRuns(
@@ -950,8 +950,8 @@ test('a rule fires on prose that exists only in an attribute', () => {
   assert.ok(rules.includes('meta-label-opener'), `expected meta-label-opener, got: ${rules.join(', ')}`);
 });
 
-// ── a page is judged on the CSS it applies (lessly-hub/lessly-landing#390) ──
-// One stylesheet serves every page that links it. lessly.com's home page failed
+// ── a page is judged on the CSS it applies ──
+// One stylesheet serves every page that links it. One home page failed
 // the level-1 gate on `.font-mono`, which styles code blocks in blog posts, and
 // on `.fig-mono`, which sets numerals inside diagrams. Neither class appears in
 // its markup. Nobody could have fixed that from the home page.
@@ -971,7 +971,7 @@ test('mono on a class the page does use still fails', () => {
   assert.ok(rules.includes('mono-noncode'), `expected mono-noncode, got: ${rules.join(', ')}`);
 });
 
-// ── mono is judged by what the selector lands on (lessly-landing#405) ──
+// ── mono is judged by what the selector lands on ──
 // The rule used to read the selector's spelling: any selector with `code`,
 // `pre`, `kbd`, `samp` or `tt` in its text was exempt, every other one failed.
 // So `.font-mono`, which lands on nothing but <code> spans, failed on three
@@ -980,7 +980,7 @@ test('mono on a class the page does use still fails', () => {
 test('a mono class that lands only on <code> is clean', () => {
   const page =
     '<html><body><style>.font-mono { font-family: Fira Mono, monospace }</style>' +
-    '<p>Set <code class="font-mono">lessly_consent</code> to opt out.</p></body></html>';
+    '<p>Set <code class="font-mono">acme_consent</code> to opt out.</p></body></html>';
   const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
   assert.ok(!rules.includes('mono-noncode'), `expected silence, got: ${rules.join(', ')}`);
 });
@@ -996,7 +996,7 @@ test('the same mono class on a <span> still fails', () => {
 test('mono on an element nested inside <code> is clean — font-family inherits', () => {
   const page =
     '<html><body><style>.token { font-family: SF Mono, monospace }</style>' +
-    '<code><input class="token" value="lessly_consent"></code></body></html>';
+    '<code><input class="token" value="acme_consent"></code></body></html>';
   const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
   assert.ok(!rules.includes('mono-noncode'), `expected silence, got: ${rules.join(', ')}`);
 });
@@ -1127,11 +1127,11 @@ test('selectorApplies is conservative — unknown means applied', () => {
   assert.strictEqual(selectorApplies('.anything', null), true);
 });
 
-// ── a kicker is where it sits, not what the sheet declares (apliteni#73) ──
+// ── a kicker is where it sits, not what the sheet declares ──
 // The rule read declaration blocks alone, so it reported a CSS signature for any
 // uppercase rule in the sheet. Both pages below are the ones it got wrong.
 
-// status.lessly.com. The page's one uppercase rule styles a status badge that
+// A status page. Its one uppercase rule styles a status badge that
 // sits beside its <h3>, never above it. An audit followed the finding to the
 // point of writing the fix, which deletes the status from the status page.
 const STATUS_PAGE =
@@ -1143,7 +1143,7 @@ const STATUS_PAGE =
   '<div class="component-head"><h3>Dashboard</h3><span class="pill">Operational</span></div>' +
   '</body></html>';
 
-// lessly.com. Five kickers sharing one class, each directly above its <h2>,
+// A marketing page. Five kickers sharing one class, each directly above its <h2>,
 // plus Tailwind's `.uppercase` utility on a button that sits above nothing.
 const KICKER_PAGE =
   '<html><head><style>' +
@@ -1194,7 +1194,7 @@ test('a finding quotes the page, never a CSS signature', () => {
 });
 
 // The phrase in this rule's own `why` ships at .04em on a real hero, and
-// status.lessly.com's badge tracks .02em. Any threshold between them hides the
+// a status page's badge tracks .02em. Any threshold between them hides the
 // shape the rule is named after, so tracking is evidence and never a gate.
 test('a kicker tracked as tight as a badge is still a kicker', () => {
   const page =
@@ -1563,7 +1563,7 @@ test('a real URI scheme quoted as code is not a fake URI', () => {
 });
 
 test('a decorative URI in prose is still a fake URI', () => {
-  const doc = 'See lessly://c4/goal for the goal model.';
+  const doc = 'See acme://goal for the goal model.';
   const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
   assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['fake-uri']);
 });
@@ -1668,7 +1668,7 @@ test('a code span does not reach across a blank line to swallow prose', () => {
   const doc = [
     'A stray backtick ` here.',
     '',
-    'See lessly://c4/goal for the goal model.',
+    'See acme://goal for the goal model.',
     '',
     'Another stray ` there.',
   ].join('\n');
@@ -1683,7 +1683,7 @@ test('a double-backtick span holds a backtick, and closes only on its own length
 });
 
 test('an unclosed fence hides the block that follows it, not the prose before', () => {
-  const doc = ['See lessly://c4/goal first.', '', '```js', 'const u = "app://x";'].join('\n');
+  const doc = ['See acme://goal first.', '', '```js', 'const u = "app://x";'].join('\n');
   const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
   assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['fake-uri']);
 });
@@ -1770,7 +1770,7 @@ test('a document of unpaired backticks does not blow up the code-span scan', () 
   assert.ok(ms < 5000, `3.1MB of unpaired backticks took ${ms}ms — the scan is not linear`);
 });
 
-// ── apliteni#79 · what CodeQL found, and what it cost somebody ───────────
+// ── what CodeQL found, and what it cost somebody ───────────
 //
 // Four alerts on main, all high: three `js/incomplete-multi-character-sanitization`
 // in rules/visual.js and one `js/polynomial-redos` in lib/html.js. The fifth the
