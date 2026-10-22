@@ -11,8 +11,7 @@ using that CLI, not to every editorial pass.
 Catches AI **slop** — the decorative machine-tells that read as AI-generated even when the
 content is right — in HTML, markdown, and plain text. It is a deterministic linter: same
 input, same output, every finding explainable with a concrete fix. It is the adversarial
-counterpart to `voice` (which judges text register) and `design` (the constructive source
-of truth). Build with those; run this as the last gate.
+counterpart to writing and design guidance. Build from that guidance; run this as the last gate.
 
 **It is not an "is-this-AI?" classifier.** That problem is probabilistic, unexplainable,
 and false-positive-prone, and must never drive a decision about a person. This tool claims
@@ -50,24 +49,20 @@ then `pass`.
 ## Run it
 
 Straight from the source repository, which is how a repository's CI runs it. There is no
-npm package; `npx` installs from GitHub, so the runner needs network. Pin a tag — unpinned
-tracks `main`, and a rule that tightens fails a build that passed yesterday. `v2.0.0` was
-current when this page was generated; the newest is on the [releases page](https://github.com/asabirov/ai-slop-detector-skill/releases).
+npm package, so `npx` installs from GitHub and the runner needs network. Pin a release tag.
+An unpinned run tracks `main`, and a rule that tightens fails a build that passed yesterday.
+The README names a recent tag, and the newest is on the
+[releases page](https://github.com/asabirov/ai-slop-detector-skill/releases).
 
 ```bash
 REPO=github:asabirov/ai-slop-detector-skill
-npx -y "$REPO#v2.0.0" <file>
-npx -y "$REPO#v2.0.0" src scripts --level 1
-npx -y "$REPO#v2.0.0" 'src/**/*.js' --json
+npx -y "$REPO#<tag>" <file>
+npx -y "$REPO#<tag>" src scripts --level 1
+npx -y "$REPO#<tag>" 'src/**/*.js' --json
 ```
 
-For a Claude Code session, clone this repository into the personal skills directory:
-
-```bash
-git clone https://github.com/asabirov/ai-slop-detector-skill.git \
-  ~/.claude/skills/ai-slop-detector
-node ~/.claude/skills/ai-slop-detector/bin/slop-detector.js <file>
-```
+To use the skill in an agent, install it with `npx skills add` as the README shows. The CLI
+is then at `~/.agents/skills/ai-slop-detector/bin/slop-detector.js`.
 
 Arguments are files, directories (walked) or globs. Each file is routed by its extension —
 `.html`/`.md`/`.txt` to the visual and text packs, source files to the comments pack.
@@ -205,6 +200,28 @@ Color utilities at shades 300–700 use representative palette hues. Other shade
 values are left unresolved so pale backgrounds do not count as saturated accents.
 The scanner does not implement cascade, layout, or contrast calculations.
 
+### How `nested-cards` decides
+
+`nested-cards` counts a `card`, `panel`, or `tile` class only when an applied
+declaration gives the element a border, background, or box shadow. A rounded
+element with one of those styles also counts, even without a card-like class.
+The rule expands the side values in `border-width`, `border-style`, and
+`border-color` across CSS whitespace outside color functions. An omitted
+`border-width` uses the initial medium width when a visible style is set.
+The rule checks border styles outside color functions, so a missing color
+channel does not disable a solid border. It ignores transparent color tokens,
+nonpainting background shorthands with numeric positions, sizes, and empty
+layers. This includes `50% 50% transparent`, `center / 100% 100% transparent`,
+and `none, none transparent`. It recognizes unsigned decimal zero alpha in
+RGB, HSL, HWB, Lab, LCH, OKLab, OKLCH, and `color()` values. Signed zero,
+exponent forms, and missing alpha channels remain outside this check.
+It checks shadow lengths outside balanced
+color functions and ignores shadows with zero geometry. Complex color
+expressions remain painted when their final alpha is unknown.
+Class names alone do not establish a painted card.
+This static check cannot resolve inherited styles, complex selectors, later
+cascade resets, or dynamic classes. Review those cases in the rendered page.
+
 ### Built HTML and linked CSS
 
 Relative stylesheet links resolve against the HTML file. Root-relative links
@@ -231,11 +248,12 @@ values are stable — reference them in allowlists and PR notes.
 
 | id | Level | Severity | Tell |
 |----|-------|----------|------|
-| `fake-uri` | 1 | error | Fake protocol URI (`lessly://c4/goal`) — links to nothing. Skips code. |
+| `fake-uri` | 1 | error | Fake protocol URI (`acme://goal`) — links to nothing. Skips code. |
 | `mono-noncode` | 1 | error | Monospace font on prose or a label — fake-terminal decoration. |
 | `external-link-arrow` | 1 | error | Diagonal `↗` open-in-new-tab arrow on a link — decorative cosplay. Skips code. |
 | `table-footnote` | 1 | error | An explanatory line under a table or a chart — basis, source, exclusion or an “as of” date. |
 | `table-aside` | 1 | error | A lede, subtitle or basis line set beside the heading that names a table or a chart. |
+| `css-unreadable` | 2 | medium | A linked stylesheet could not be read, so its CSS rules did not run. |
 | `middot-chain` | 2 | warning | `a · b · c` metadata chain — templated polish. |
 | `decor-numbering` | 2 | warning | `01 — label` eyebrow where the number indexes nothing. |
 | `eyebrow-kicker` | 2 | warning | Uppercase wide-tracked micro-label pre-announcing a heading. |
@@ -347,7 +365,7 @@ unclassed `<svg>` is therefore missed here, as is a note that sits outside the c
 holding its table. The editorial check in `SKILL.md` still covers a list and a
 chart, because a reader can tell a data list from a menu and this parser cannot.
 
-`table-aside` is the same test read forwards (#52). The candidate is a line between
+`table-aside` is the same test read forwards. The candidate is a line between
 an `h2`–`h6` and the data that heading names: the heading's following siblings, or,
 when the heading and the line share a head row whose class says so (`head`,
 `header`, `heading`, `hd`, `title`), that row's next sibling. The data is found on
@@ -370,13 +388,12 @@ figure belongs there and `meta` is a byline; a count line by shape; a list; a li
 or a button; a candidate carrying its own heading or data; and the table in the
 next grid column or table cell, which is what the head-row class test keeps out.
 
-A page lede under the page title is out of reach: finance2 renders it under an
-`<h1>`, and a row of controls sits between it and the first table. `SKILL.md`
-covers it editorially. Two of #40's lines are reached only in a rendered page,
-because `Tasks.tsx` renders its group subtitles through a JSX expression.
+A page lede under the page title is out of reach when a row of controls sits between the
+`<h1>` and the first table. `SKILL.md` covers it editorially. A group subtitle that a JSX
+expression renders is reached only in a rendered page.
 
 New UI checks are warnings, `table-footnote` and `table-aside` excepted: they are
-the merge gate because two reviewers ran `--level strict` over the screens in #40
+the merge gate because two reviewers ran `--level strict` over real screens
 and got a pass.
 Aggregate checks use conservative thresholds: more
 than three primary font families, at least three distinct accents, three
@@ -415,9 +432,9 @@ so review the conversation when the lines are not in the file.
 Prose means prose wherever a reader meets it. The text pack reads the visible text **and**
 the human-readable attributes — `title`, `alt`, `placeholder`, `aria-label`, `data-tip` — plus
 the meta description. It used to read only the first: stripping tags with `<[^>]+>` deletes an
-attribute along with the tag it sits in. On `lessly.com/pricing` that hid 26 values and 324 of
+attribute along with the tag it sits in. On one pricing page that hid 26 values and 324 of
 the page's 934 words — the entire compare table — and the gate called the page clean at
-paranoid while its owner called it slop (lessly-landing#387). Addresses and identifiers
+paranoid while its owner called it slop. Addresses and identifiers
 (`href`, `src`, `class`, `id`) are still not prose, and a one-word value is a control name.
 
 Vocabulary is **density-gated** — flagged only when several inflated terms cluster in one
@@ -449,8 +466,8 @@ into chapters.
 
 **Length is `medium`, and chaptering is the only ban.** Chaptering is a shape: a comment
 either has an interior divider or it does not, so a gate can be certain about it. Length is
-a population, and the pack has no honest place to cut it. Measured across twelve Apliteni
-repositories (issue #59), 1,511 comment blocks carry 12 or more prose lines, and the mass
+a population, and the pack has no honest place to cut it. Measured across twelve
+repositories, 1,511 comment blocks carry 12 or more prose lines, and the mass
 of them sits at 12–17 — so a ban anywhere in that range draws a line through the middle of
 one population rather than at its edge, and calls two sides of a distribution by two
 different names. `comment-essay` covers all of it at one severity instead: certain about
@@ -483,8 +500,7 @@ leave a pointer. Preserve the information in either case.
 Every markdown file this repo ships is scored at level 1 by the test suite, and passes. A
 catalogue explains a rule by quoting what it catches, so put the example in a code span or
 a fenced block: `fake-uri` and `external-link-arrow` do not read there. That is the whole
-exemption, and it is per span, so a stray backtick earlier in the file no longer shifts it
-(apliteni#78).
+exemption, and it is per span, so a stray backtick earlier in the file does not shift it.
 
 Above level 1 these documents still warn — `negative-parallelism` and `world-opener` fire
 on the sentences that name those patterns, in prose where quoting them would read as
@@ -497,8 +513,8 @@ A false positive that nags is itself slop. Warnings are defaults to follow-or-ju
 gates. When a warning fires on a genuinely deliberate choice, record the reason in the PR
 (never in the artifact) and move on. If a rule is simply wrong, fix the rule — see below.
 
-Native UI fonts are valid choices. The brand-specific `system-font` rule was
-removed; all remaining IDs and exit codes are unchanged. `mono-noncode` permits
+Native UI fonts are valid choices. The `system-font` rule was
+removed, so no rule flags a native font stack. All other IDs and exit codes are unchanged. `mono-noncode` permits
 numeric content in table cells, including descendant spans.
 
 ## Extending it
@@ -549,14 +565,13 @@ issue only when the rule itself should change for everyone.
 
 ## Where it fits
 
-The visual and text packs were built for the launch-copy audit gate
-([lessly-hub/lessly#732](https://github.com/lessly-hub/lessly/issues/732)): the pass every
-customer-facing surface clears before public-launch go/no-go. Grounded in a 2025–2026
+The visual and text packs were built for a launch-copy audit gate: the pass every
+customer-facing surface clears before a public launch. They are grounded in a 2025–2026
 survey of AI-slop detection (Wikipedia "Signs of AI writing", the *Measuring AI Slop*
 taxonomy, slop-gate, Vale).
 
 The comments pack was added when the same agents that write the copy turned out to be
-writing design documents into source files — 33% of one repository's lines were comments,
+writing design documents into source files — 33% of the lines in one repository were comments,
 and its longest single comment block ran to 117 lines.
 
 The rules live in `asabirov/ai-slop-detector-skill`. A CI job uses a pinned git
