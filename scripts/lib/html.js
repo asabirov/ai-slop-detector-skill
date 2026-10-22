@@ -287,8 +287,11 @@ const VOID_TAGS = new Set([
 // after the first match, so an optgroup ends its last option and then itself.
 const P_PHRASING = new Set(['a', 'abbr', 'b', 'code', 'em', 'i', 'kbd', 'label', 'mark', 'small',
   'span', 'strong', 'sub', 'sup', 'u']);
+const P_CLOSERS = ['address', 'article', 'aside', 'blockquote', 'details', 'div', 'dl', 'fieldset', 'figcaption',
+  'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hr', 'main', 'menu', 'nav', 'ol',
+  'p', 'pre', 'section', 'table', 'ul'];
 const IMPLIED_END = {
-  p: { closes: ['p'], within: P_PHRASING },
+  ...Object.fromEntries(P_CLOSERS.map((tag) => [tag, { closes: ['p'], within: P_PHRASING }])),
   li: { closes: ['li'], stop: ['ul', 'ol', 'menu'] },
   dt: { closes: ['dt', 'dd'], stop: ['dl'] },
   dd: { closes: ['dt', 'dd'], stop: ['dl'] },

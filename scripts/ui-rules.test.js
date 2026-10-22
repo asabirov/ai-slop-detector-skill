@@ -1533,6 +1533,20 @@ describe('implied end tags', { timeout: 1000 }, () => {
     sibling('<select><option>a<optgroup><option>b</optgroup></select>', 'optgroup', ['select']);
     sibling('<select><optgroup><option>a<optgroup><option>b</select>', 'optgroup', ['select', 'select']);
   });
+  it('closes an open p at a block start tag', { timeout: 1000 }, () => {
+    const sibling = (html, tag) => assert.deepEqual(
+      parentTags(html).filter(([name]) => name === tag).map(([, up]) => up), ['x-wrap'], html);
+    for (const tag of ['address', 'article', 'aside', 'blockquote', 'details', 'div', 'dl', 'fieldset', 'figcaption',
+      'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hr', 'main', 'menu', 'nav', 'ol',
+      'pre', 'section', 'table', 'ul']) sibling(`<x-wrap><p>a<${tag}>b</${tag}></x-wrap>`, tag);
+    sibling('<x-wrap><p>a <b>b<div>c</div></x-wrap>', 'div');
+    assert.deepEqual(parentTags('<div><p><span>a</span></p></div>').filter(([name]) => name === 'span'), [['span', 'p']]);
+  });
+  it('sees the table after an unclosed p', { timeout: 1000 }, () => {
+    const html = '<section><p>3 of the 214 payouts this year<table><thead><tr><th>Payout</th></tr></thead><tbody><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></tbody></table></section>';
+    const rule = RULES.find((r) => r.id === 'restated-table-count');
+    assert.equal(rule.test(parse(html, { ext: 'html' })).length, 1);
+  });
   it('keeps a list inside a list item nested', { timeout: 1000 }, () => {
     const found = parentTags('<ul><li>a<ul><li>b<li>c</ul><li>d</ul>').filter(([tag]) => tag === 'li');
     assert.deepEqual(found, [['li', 'ul'], ['li', 'ul'], ['li', 'ul'], ['li', 'ul']]);
