@@ -240,8 +240,9 @@ function control(el) {
 }
 function normalized(text) { return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim(); }
 
-// This label predates the rule. “Read records” is a bare verb+noun table-action label, not sentence-like.
-const MULTIWORD_CONTROL_ALLOWLIST = new Set(['Read records']);
+// A verb with no object ("Clear all") names the action completely; adding the
+// object back ("Clear all filters") is what the rule still flags.
+const VERB_ALL_ONLY = /^\p{L}+ all$/u;
 
 module.exports = [
   rule('multiword-control', 2, 'A multi-word action label makes a control harder to scan.', 'Use one clear verb for the action.', (ctx) => {
@@ -250,7 +251,7 @@ module.exports = [
       if (!control(el) || el.inCode) return [];
       const label = visibleText(info, i) || el.attributes['aria-label'] || (el.tag === 'input' ? el.attributes.value : '') || '';
       if (!label || !/\p{L}/u.test(label) || normalized(label).split(/\s+/).length < 2) return [];
-      if (MULTIWORD_CONTROL_ALLOWLIST.has(label)) return [];
+      if (VERB_ALL_ONLY.test(normalized(label))) return [];
       if (redundantContextNoun(label, info.contextNoun[i])) return [];
       return [`<${el.tag}> ${label.slice(0, 80)}`];
     });

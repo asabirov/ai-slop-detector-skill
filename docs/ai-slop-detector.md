@@ -136,8 +136,7 @@ values are stable — reference them in allowlists and PR notes.
 | `heading-period` | 3 | warning | Short display heading ending in a lone period (`Ship it.`). |
 | `decor-bullet-dot` | 3 | warning | Empty colored round element prefixing a label — encodes nothing. |
 | `radius-monotony` | 4 | warning | One `border-radius` on every surface — templated sameness. |
-
-| `multiword-control` | 2 | warning | A button-like control has a multi-word visible or accessible label, apart from the existing `Read records` exception. |
+| `multiword-control` | 2 | warning | A button-like control has a multi-word visible or accessible label, except a verb followed only by `all`. |
 | `inset-accent-marker` | 2 | warning | An inset stripe repeats an existing selection border. |
 | `repeated-field-caption` | 2 | warning | The same short caption appears under three or more distinct fields. |
 | `restated-status-badge` | 2 | warning | A badge repeats a title or a current field value. |

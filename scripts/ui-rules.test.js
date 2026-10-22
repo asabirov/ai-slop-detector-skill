@@ -41,9 +41,10 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
     assert.deepEqual(hits('<button aria-label="Close"><svg aria-hidden="true"></svg></button>', 'multiword-control'), []);
     assert.equal(hits('<input type="submit" value="Send answer">', 'multiword-control').length, 1);
   });
-  it('keeps the pre-existing Read records label silent without widening the exception', { timeout: 1000 }, () => {
-    assert.deepEqual(hits('<button>Read records</button>', 'multiword-control'), []);
-    for (const label of ['Read record', 'Read records now', 'Send answer',
+  it('silences a verb followed only by "all" but keeps every other multi-word label flagged', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<button>Clear all</button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<div class="filter-bar"><button>Clear all</button></div>', 'multiword-control'), []);
+    for (const label of ['Read records', 'Clear all filters', 'Send answer',
       'Open the newer question', 'Close without answering', 'Bring back now']) {
       assert.equal(hits(`<button>${label}</button>`, 'multiword-control').length, 1, label);
     }
