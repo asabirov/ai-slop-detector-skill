@@ -246,7 +246,14 @@ values are stable — reference them in allowlists and PR notes.
 | `heading-period` | 3 | warning | Short display heading ending in a lone period (`Ship it.`). |
 | `decor-bullet-dot` | 3 | warning | Empty colored round element prefixing a label — encodes nothing. |
 | `radius-monotony` | 4 | warning | One `border-radius` on every surface — templated sameness. |
-
+| `multiword-control` | 2 | warning | A button-like control has a multi-word visible label, except a verb followed only by `all`. An icon-only control's accessible name (`aria-label` or screen-reader-only text) is never read. |
+| `inset-accent-marker` | 2 | warning | A 2px-or-more inset stripe on one side repeats another selection marker — a chromatic border or outline anywhere in the element's cascade, or a chromatic background on a selector that itself names a selection state (`.active`, `.selected`, `.current`, `[aria-selected]`, `[aria-current]`, `:checked`). |
+| `repeated-field-caption` | 2 | warning | The same short caption, after its field, appears under three or more distinct fields. Never a radio or checkbox's own label. |
+| `restated-status-badge` | 2 | warning | A badge repeats the page title (compared page-wide) or a same-section heading or field value. |
+| `marker-explainer` | 2 | warning | A sentence only explains an accent marker. Silent inside a figure, a chart-class container, a legend, or a plain container that also holds a `<canvas>`. |
+| `restated-control-period` | 2 | warning | A period caption repeats the one `nM`, `nY` or `nD` control selected in its nearest enclosing container. |
+| `restated-table-count` | 2 | warning | A simple count line (an optional leading "Showing") repeats the number of body rows — excluding header and footer rows — in the next table. |
+| `context-noun-control` | 2 | warning | A `Clear all` label repeats the noun in its `noun-bar` or `noun-toolbar` container class. |
 | `gradient-text` | 2 | warning | Gradient clipped into text is decorative emphasis. |
 | `ai-gradient` | 2 | warning | Pink, violet and purple gradient combinations are a common generated UI default. |
 | `glow-shadow` | 2 | warning | A colored zero-offset shadow creates a decorative halo. |
@@ -266,6 +273,20 @@ values are stable — reference them in allowlists and PR notes.
 | `button-drift` | 4 | warning | Several unrelated button sizes or radii weaken control consistency. |
 | `everything-centred` | 4 | warning | Centering most of a page weakens the alignment hierarchy. |
 | `stock-palette` | 4 | warning | Near-black with acid green, or cream with terracotta and serif type, are common generated palettes. |
+
+`restated-control-period` reads numeric period tokens and their explicit selected
+state. It compares `nM`, `nY` or `nD` with a caption naming the previous, last,
+past, prior or trailing number of months, years or days. `context-noun-control`
+reads `Clear all <plural>` labels inside a matching `noun-bar` or `noun-toolbar`
+class.
+`repeated-field-caption` only matches a caption of five words or fewer. The
+count rule accepts only a short count and scope line; it leaves extra
+instructions such as an approval deadline alone.
+
+`multiword-control` and `context-noun-control` read a `<button>`, anything
+with `role="button"`, a submit/button/reset `<input>`, or an `<a>` carrying a
+`btn`/`button` class — not a plain `<a href>`. A link styled only by the
+surrounding page (no button role or class) is left to the editorial rule.
 
 `table-footnote` reads position, not wording. The data above it is a `<table>`, a
 tag ending in a data word (`DataTable`, `LineChart`, `BarGraph`), or a container

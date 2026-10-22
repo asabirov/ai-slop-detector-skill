@@ -1,11 +1,13 @@
 'use strict';
 
-const { describe, it } = require('./lib/budget');
+const { describe, it, before } = require('./lib/budget');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { performance } = require('node:perf_hooks');
 const { detect, kindForPath } = require('./detect');
+const { parse } = require('./lib/html');
+const { RULES } = require('./rules');
 
 const fixtures = path.join(__dirname, '..', 'fixtures');
 function scan(content, file = 'sample.html') {
@@ -22,6 +24,382 @@ const rules = [
   'family-ceiling', 'stock-display-face', 'mono-uppercase-label', 'accent-budget',
   'hairline-grid', 'double-edge', 'button-drift', 'everything-centred', 'stock-palette',
 ];
+
+describe('redundant UI copy', { timeout: 1000 }, () => {
+  const names = ['multiword-control', 'inset-accent-marker', 'repeated-field-caption',
+    'restated-status-badge', 'marker-explainer', 'restated-control-period',
+    'restated-table-count', 'context-noun-control'];
+  const hits = (html, name) => RULES.find((rule) => rule.id === name).test(parse(html, { ext: 'html' }));
+  for (const name of names) {
+    it(`${name} flags its positive fixture and leaves its negative fixture silent`, { timeout: 1000 }, () => {
+      assert.ok(hits(fs.readFileSync(path.join(fixtures, 'slop-ui-redundant-copy.html'), 'utf8'), name).length);
+      assert.deepEqual(hits(fs.readFileSync(path.join(fixtures, 'near-miss-ui-redundant-copy.html'), 'utf8'), name), []);
+    });
+  }
+  it('reports a sentence link once and leaves short controls silent', { timeout: 1000 }, () => {
+    assert.equal(hits('<a role="button" href="/report">Open the payout report</a>', 'multiword-control').length, 1);
+    assert.deepEqual(hits('<button>Save</button><button>Undo</button><button aria-label="Close"><svg></svg></button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<button aria-label="Open settings"><svg aria-hidden="true"></svg></button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<button aria-label="Close"><svg aria-hidden="true"></svg></button>', 'multiword-control'), []);
+    assert.equal(hits('<input type="submit" value="Send answer">', 'multiword-control').length, 1);
+  });
+  // #63 names "an icon with an accessible name" as the expected (silent) shape,
+  // so the rule reads only the visible label, never a fallback accessible
+  // name: an aria-label and the same name given as sr-only text must agree.
+  it('skips a control with no visible text, whether its accessible name is aria-label or sr-only text', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<button aria-label="Close dialog"><svg></svg></button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<button><span class="sr-only">Close dialog</span></button>', 'multiword-control'), []);
+  });
+  it('reads the input type case-insensitively, through the one decoded attribute dict', { timeout: 1000 }, () => {
+    assert.equal(hits('<input type="Submit" value="Send answer">', 'multiword-control').length, 1);
+  });
+  it('splits a class attribute on a decoded entity space, through the same decoded attribute dict', { timeout: 1000 }, () => {
+    assert.equal(hits('<a class="btn&nbsp;primary">Save record</a>', 'multiword-control').length, 1);
+  });
+  it('silences a verb followed only by "all" but keeps every other multi-word label flagged', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<button>Clear all</button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<div class="filter-bar"><button>Clear all</button></div>', 'multiword-control'), []);
+    for (const label of ['Read records', 'Clear all filters', 'Send answer',
+      'Open the newer question', 'Close without answering', 'Bring back now']) {
+      assert.equal(hits(`<button>${label}</button>`, 'multiword-control').length, 1, label);
+    }
+  });
+  it('flags a badge that repeats a field value', { timeout: 1000 }, () => {
+    assert.equal(hits('<section><input value="Needs review"><span class="status-badge">Needs review</span></section>', 'restated-status-badge').length, 1);
+    assert.deepEqual(hits('<section><input value="Draft"><span class="status-badge">Needs review</span></section>', 'restated-status-badge'), []);
+  });
+  it('counts table body rows without counting its header', { timeout: 1000 }, () => {
+    assert.equal(hits('<section><p>3 of the 214 payouts this year</p><table><thead><tr><th>Payout</th></tr></thead><tbody><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></tbody></table></section>', 'restated-table-count').length, 1);
+  });
+  it('reads a selected period option', { timeout: 1000 }, () => {
+    assert.equal(hits('<div><select><option selected>1Y</option></select><p>Change against the previous 12 months</p></div>', 'restated-control-period').length, 1);
+    assert.deepEqual(hits('<div><select><option>1Y</option><option selected>6M</option></select><p>Change against the previous 12 months</p></div>', 'restated-control-period'), []);
+  });
+  it('uses the selected period and ignores other period controls', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<div><button aria-pressed="false">1Y</button><button aria-pressed="true">6M</button><p>Change against the previous 12 months</p></div>', 'restated-control-period'), []);
+    assert.equal(hits('<div><button aria-pressed="true">6M</button><p>Change against the previous 6 months</p></div>', 'restated-control-period').length, 1);
+    assert.equal(hits('<div><button aria-pressed="true">1Y</button><p>Compared with the last 12 months</p></div>', 'restated-control-period').length, 1);
+  });
+  it('accepts a day-count control and "past", "prior" or "trailing" beside "previous"/"last"', { timeout: 1000 }, () => {
+    assert.equal(hits('<div><button aria-pressed="true">30D</button><p>Change against the previous 30 days</p></div>', 'restated-control-period').length, 1);
+    assert.equal(hits('<div><button aria-pressed="true">1Y</button><p>Change against the past 12 months</p></div>', 'restated-control-period').length, 1);
+    assert.equal(hits('<div><button aria-pressed="true">7D</button><p>Change against the prior 7 days</p></div>', 'restated-control-period').length, 1);
+    assert.equal(hits('<div><button aria-pressed="true">90D</button><p>Change against the trailing 90 days</p></div>', 'restated-control-period').length, 1);
+    // A day count and a month count of the same number never match each other.
+    assert.deepEqual(hits('<div><button aria-pressed="true">30D</button><p>Change against the previous 30 months</p></div>', 'restated-control-period'), []);
+  });
+  it('keeps a count line that adds an approval deadline', { timeout: 1000 }, () => {
+    const html = '<section><p>3 of the 214 payouts this year need approval by Friday.</p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>';
+    assert.deepEqual(hits(html, 'restated-table-count'), []);
+  });
+  it('keeps a count line with an inline approval deadline', { timeout: 1000 }, () => {
+    const html = '<section><p>3 of the 214 payouts this year<strong> need approval by Friday.</strong></p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>';
+    assert.deepEqual(hits(html, 'restated-table-count'), []);
+    assert.equal(hits(html.replace(' this year<strong> need approval by Friday.</strong>', ' this <strong>year</strong>'), 'restated-table-count').length, 1);
+  });
+  it('uses only the current option as field state', { timeout: 1000 }, () => {
+    const select = '<select><option selected value="Draft">Draft</option><option value="Approved">Approved</option></select>';
+    assert.deepEqual(hits(select + '<span class="badge">Approved</span>', 'restated-status-badge'), []);
+    assert.equal(hits(select + '<span class="badge">Draft</span>', 'restated-status-badge').length, 1);
+  });
+  it('ignores an unchecked radio or checkbox value as a field state', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<input type="radio" value="Approved"><span class="badge">Approved</span>', 'restated-status-badge'), []);
+    assert.deepEqual(hits('<input type="checkbox" value="Approved"><span class="badge">Approved</span>', 'restated-status-badge'), []);
+    assert.equal(hits('<input type="radio" value="Approved" checked><span class="badge">Approved</span>', 'restated-status-badge').length, 1);
+  });
+  it('ignores a hidden input value as a field state', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<input type="hidden" value="Draft"><span class="badge">Draft</span>', 'restated-status-badge'), []);
+  });
+  it('limits the explainer sentence to a selection marker, not any colored line', { timeout: 1000 }, () => {
+    assert.equal(hits('<p>An accent bar marks the selected option.</p>', 'marker-explainer').length, 1);
+    assert.deepEqual(hits('<p>The dashed color line shows the target.</p>', 'marker-explainer'), []);
+    assert.deepEqual(hits('<p>The red line shows the legal limit.</p>', 'marker-explainer'), []);
+  });
+  it('accepts a colour word naming the marker, not only "accent" or "inset"', { timeout: 1000 }, () => {
+    assert.equal(hits('<p>A blue bar marks the fields that changed.</p>', 'marker-explainer').length, 1);
+    assert.equal(hits('<p>Fields with an accent bar were changed by the parser.</p>', 'marker-explainer').length, 1);
+    assert.deepEqual(hits('<p>The dashed color line shows the target.</p>', 'marker-explainer'), []);
+  });
+  it('counts one field through deeply nested caption spans', { timeout: 1000 }, () => {
+    const html = '<div>' + '<span>'.repeat(1600) + '<input>As parsed' + '</span>'.repeat(1600) + '</div>';
+    assert.deepEqual(hits(html, 'repeated-field-caption'), []);
+  });
+  it('rejects a long caption through nested spans within the budget', { timeout: 1000 }, () => {
+    const html = '<div>' + '<span>'.repeat(3200) + '<input>This caption contains more than five words' + '</span>'.repeat(3200) + '</div>';
+    assert.deepEqual(hits(html, 'repeated-field-caption'), []);
+  });
+  it('uses the filter noun from its container', { timeout: 1000 }, () => {
+    assert.equal(hits('<div class="tag-bar"><button>Clear all tags</button></div>', 'context-noun-control').length, 1);
+    assert.deepEqual(hits('<div class="tag-bar"><button>Clear all filters</button></div>', 'context-noun-control'), []);
+    assert.deepEqual(hits('<div class="tag-bar"><button>Clear all tags</button></div>', 'multiword-control'), []);
+  });
+  it('scans many captions under one field without repeating the field search', { timeout: 1000 }, () => {
+    const html = `<form><input>${'<p>As parsed</p>'.repeat(2400)}</form>`;
+    assert.deepEqual(hits(html, 'repeated-field-caption'), []);
+  });
+  it('scans many period captions under one control', { timeout: 1000 }, () => {
+    const html = `<section><button aria-pressed="true">1Y</button>${'<p>Change against the previous 12 months</p>'.repeat(2400)}</section>`;
+    assert.equal(hits(html, 'restated-control-period').length, 2400);
+  });
+  it('ignores hidden text, including display:none and case-insensitive aria-hidden', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<button>Close<span hidden> dialog</span></button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<button>Close<span style="display:none"> dialog</span></button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<button>Close<span aria-hidden="TRUE"> dialog</span></button>', 'multiword-control'), []);
+  });
+  it('counts only words with a letter and leaves kbd text out of a control label', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<button>Inbox <span class="count">12</span></button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<button>Save <kbd>⌘S</kbd></button>', 'multiword-control'), []);
+  });
+  it('skips a live validation message as a repeated field caption', { timeout: 1000 }, () => {
+    const alerts = '<form>' + '<label>Amount <input><span class="error" role="alert">This field is required</span></label>'.repeat(3) + '</form>';
+    assert.deepEqual(hits(alerts, 'repeated-field-caption'), []);
+    const smalls = '<form>' + '<label>Amount <input><small role="alert">Required</small></label>'.repeat(3) + '</form>';
+    assert.deepEqual(hits(smalls, 'repeated-field-caption'), []);
+  });
+  it('scopes a badge to its own section', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<nav><span class="cart-badge">1</span></nav><main><input type="number" value="1"></main>', 'restated-status-badge'), []);
+    assert.deepEqual(hits('<nav><a class="pill active">Settings</a></nav><main><h1>Settings</h1></main>', 'restated-status-badge'), []);
+    assert.deepEqual(hits('<section><select><option selected>Paid</option></select><table><tbody><tr><td><span class="badge">Paid</span></td></tr></tbody></table></section>', 'restated-status-badge'), []);
+    assert.equal(hits('<section><input value="Needs review"><span class="status-badge">Needs review</span></section>', 'restated-status-badge').length, 1);
+  });
+  it('requires a letter in the badge label', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<section><input type="number" value="1"><span class="cart-badge">1</span></section>', 'restated-status-badge'), []);
+  });
+  it('compares a page title across the header/main/footer landmarks, stopping the walk at tr', { timeout: 1000 }, () => {
+    assert.equal(hits('<header><h1>Needs review</h1></header><main><span class="status-badge">Needs review</span><form><p>x</p></form></main>', 'restated-status-badge').length, 1);
+    // A nav pill and a table-row badge must stay silent even though a landmark title now reaches further.
+    assert.deepEqual(hits('<nav><a class="pill active">Settings</a></nav><main><h1>Settings</h1></main>', 'restated-status-badge'), []);
+    assert.deepEqual(hits('<section><select><option selected>Paid</option></select><table><tbody><tr><td><span class="badge">Paid</span></td></tr></tbody></table></section>', 'restated-status-badge'), []);
+    // A field state keeps the narrower, same-section comparison, even across header/main.
+    assert.deepEqual(hits('<header><input value="Draft"></header><main><span class="status-badge">Draft</span></main>', 'restated-status-badge'), []);
+  });
+  it('warns on a badge nested one section/article/form deeper than main, not only a direct child', { timeout: 1000 }, () => {
+    for (const wrapper of ['section', 'article', 'form']) {
+      assert.equal(hits(`<header><h1>Needs review</h1></header><main><${wrapper}><span class="status-badge">Needs review</span></${wrapper}></main>`, 'restated-status-badge').length, 1, wrapper);
+    }
+    // The nav pill, the table-row badge and the cross-landmark field state stay silent.
+    assert.deepEqual(hits('<nav><a class="pill active">Settings</a></nav><main><h1>Settings</h1></main>', 'restated-status-badge'), []);
+    assert.deepEqual(hits('<section><h2>Paid</h2><table><tbody><tr><td><span class="badge">Paid</span></td></tr></tbody></table></section>', 'restated-status-badge'), []);
+    assert.deepEqual(hits('<header><input value="Draft"></header><main><section><span class="status-badge">Draft</span></section></main>', 'restated-status-badge'), []);
+  });
+  it('requires the border or outline itself, not only the stripe, to carry an accent color', { timeout: 1000 }, () => {
+    const nav = (style) => `<style>.nav-item.active { ${style} }</style><div class="nav-item active">Dashboard</div>`;
+    assert.deepEqual(hits(nav('border: 1px solid #e5e7eb; box-shadow: inset 3px 0 0 #2563eb'), 'inset-accent-marker'), []);
+    assert.equal(hits(nav('border: 1px solid #2563eb; box-shadow: inset 3px 0 0 #2563eb'), 'inset-accent-marker').length, 1);
+  });
+  it('accepts a background or background-color highlight as the second marker', { timeout: 1000 }, () => {
+    const row = (style) => `<style>.row.active { ${style} }</style><div class="row active">Option A</div>`;
+    assert.equal(hits(row('background: #eff6ff; box-shadow: inset 3px 0 0 #2563eb'), 'inset-accent-marker').length, 1);
+    assert.equal(hits(row('background-color: #eff6ff; box-shadow: inset 3px 0 0 #2563eb'), 'inset-accent-marker').length, 1);
+    assert.deepEqual(hits(row('box-shadow: inset 3px 0 0 #2563eb'), 'inset-accent-marker'), []);
+  });
+  it('matches a plural selection-marker sentence and reads a nested subtree', { timeout: 1000 }, () => {
+    assert.equal(hits('<p>The accent bars mark fields that changed.</p>', 'marker-explainer').length, 1);
+    assert.equal(hits('<p>An <strong>accent bar</strong> marks the selected option.</p>', 'marker-explainer').length, 1);
+  });
+  it('stays silent on a chart legend, inside a figure or a chart-class container, but still warns outside one', { timeout: 1000 }, () => {
+    const legend = 'Blue bars show revenue and grey bars show cost.';
+    assert.equal(hits(`<p>${legend}</p>`, 'marker-explainer').length, 1);
+    assert.deepEqual(hits(`<figure><p>${legend}</p></figure>`, 'marker-explainer'), []);
+    assert.deepEqual(hits(`<div class="chart"><p>${legend}</p></div>`, 'marker-explainer'), []);
+    assert.deepEqual(hits('<div class="chart"><p>Green bars show months above target.</p></div>', 'marker-explainer'), []);
+  });
+  it('finds the first table inside a wrapper sibling, or beside its own heading row', { timeout: 1000 }, () => {
+    assert.equal(hits('<section><p>3 of the 214 payouts this year</p><div class="wrap"><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></div></section>', 'restated-table-count').length, 1);
+    assert.equal(hits('<section><header><h2>Totals</h2><p>3 of the 214 payouts this year</p></header><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>', 'restated-table-count').length, 1);
+  });
+  describe('restated-table-count stress', { timeout: 3000 }, () => {
+    let ctx;
+    before(() => {
+      const section = '<section><p>3 of the 214 payouts this year</p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>';
+      ctx = parse(section.repeat(1800), { ext: 'html' });
+    });
+    it('times only the rule call, with the page already parsed', { timeout: 300 }, () => {
+      const rule = RULES.find((r) => r.id === 'restated-table-count');
+      assert.equal(rule.test(ctx).length, 1800);
+    });
+  });
+  it('reads a heading past a large, ordinary non-text subtree, with no subtree-size cap to miss it', { timeout: 1000 }, () => {
+    const svg = '<svg>' + '<path d="M0 0"/>'.repeat(45) + '</svg>';
+    const html = `<section><h1>Report${svg}</h1><span class="status-badge">Report</span></section>`;
+    assert.equal(hits(html, 'restated-status-badge').length, 1);
+  });
+  describe('nested-depth performance', { timeout: 10000 }, () => {
+    it('reads a deeply nested role=button control without quadratic cost', { timeout: 2000 }, () => {
+      const html = '<div role="button">'.repeat(6000) + 'Save' + '</div>'.repeat(6000);
+      assert.deepEqual(hits(html, 'multiword-control'), []);
+    });
+    it('reads a deeply nested btn anchor without quadratic cost', { timeout: 2000 }, () => {
+      const html = '<a class="btn">'.repeat(6000) + 'Save' + '</a>'.repeat(6000);
+      assert.deepEqual(hits(html, 'multiword-control'), []);
+    });
+    it('reads deeply nested headings without quadratic cost', { timeout: 2000 }, () => {
+      const html = '<h2>'.repeat(6000) + 'Title' + '</h2>'.repeat(6000);
+      assert.deepEqual(hits(html, 'restated-status-badge'), []);
+    });
+    it('reads deeply nested selected options without quadratic cost', { timeout: 2000 }, () => {
+      const html = '<select>' + '<option selected>'.repeat(6000) + 'Approved' + '</option>'.repeat(6000) + '</select>';
+      assert.deepEqual(hits(html, 'restated-status-badge'), []);
+    });
+    it('reads a caption candidate at each nesting depth without quadratic cost', { timeout: 3000 }, () => {
+      const depth = 40000;
+      const html = '<p>'.repeat(depth) + 'text' + '</p>'.repeat(depth);
+      assert.deepEqual(hits(html, 'repeated-field-caption'), []);
+    });
+  });
+});
+
+// Probes from the staff-engineer and CTO reviews of PR #97 at head
+// d9c35926bc39e51df82c8809205cc8294f34ea1b (and the CTO's follow-up review of
+// the same head), reproduced directly from each review's own examples.
+describe('fresh review fixes (PR #97, head d9c3592 and its CTO follow-up)', { timeout: 1000 }, () => {
+  const hits = (html, name) => RULES.find((rule) => rule.id === name).test(parse(html, { ext: 'html' }));
+
+  // staff-engineer Finding 1 / CTO probe C4: a radio or checkbox's own label
+  // never counts, and a caption before the field is the field's own label.
+  it('never counts a radio or checkbox label, or a label before the field, as a repeated caption', { timeout: 1000 }, () => {
+    const yesNo = '<label><input type="radio" name="q1"><span>Yes</span></label>' +
+      '<label><input type="radio" name="q2"><span>Yes</span></label>' +
+      '<label><input type="radio" name="q3"><span>Yes</span></label>';
+    assert.deepEqual(hits(yesNo, 'repeated-field-caption'), []);
+    const qty = '<label><span>Quantity</span><input></label>'.repeat(3);
+    assert.deepEqual(hits(qty, 'repeated-field-caption'), []);
+    // The ordinary trailing caption, after the field, still fires.
+    assert.equal(hits('<label>Amount <input><small>As parsed</small></label>'.repeat(3), 'repeated-field-caption').length, 1);
+  });
+
+  // staff-engineer Finding 2: anchor the match to the whole caption.
+  it('does not read a buried period phrase, or let an unrelated ancestor scope reach it', { timeout: 1000 }, () => {
+    const html = '<div><button aria-pressed="true">1Y</button>' +
+      '<p>Revenue grew 20% against the previous 12 months.</p></div>';
+    assert.deepEqual(hits(html, 'restated-control-period'), []);
+    const chart = '<main><div class="chart"><button aria-pressed="true">1Y</button></div>' +
+      '<p>Customers who joined in the last 12 months get a discount.</p></main>';
+    assert.deepEqual(hits(chart, 'restated-control-period'), []);
+  });
+
+  // staff-engineer Finding 3: drop the all-around ring, require a 2px+
+  // stripe, and require a state-naming selector for a background highlight.
+  it('does not treat an inset ring or a sub-2px edge glow as a second selection marker', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<style>.badge-green{background:#f0fdf4;box-shadow:inset 0 0 0 1px #16a34a33}</style><div class="badge-green">Live</div>', 'inset-accent-marker'), []);
+    assert.deepEqual(hits('<style>.btn-primary{background:#2563eb;box-shadow:inset 0 0 0 1px #1d4ed8}</style><div class="btn-primary">Save</div>', 'inset-accent-marker'), []);
+    assert.deepEqual(hits('<style>.btn-edge{background:#2563eb;box-shadow:inset 1px 0 0 rgba(255,255,255,.2)}</style><div class="btn-edge">Save</div>', 'inset-accent-marker'), []);
+  });
+  it('requires a selector naming a state before a background highlight counts as the second marker', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<style>.row-plain{background:#eff6ff;box-shadow:inset 3px 0 0 #2563eb}</style><div class="row-plain">Option A</div>', 'inset-accent-marker'), []);
+    assert.equal(hits('<style>.row.active{background:#eff6ff;box-shadow:inset 3px 0 0 #2563eb}</style><div class="row active">Option A</div>', 'inset-accent-marker').length, 1);
+  });
+
+  // staff-engineer Finding 11: the message no longer assumes a border.
+  it('names the repeated marker without assuming a border', { timeout: 1000 }, () => {
+    const rule = RULES.find((r) => r.id === 'inset-accent-marker');
+    assert.ok(!/\bborder\b/i.test(rule.why) && !/\bborder\b/i.test(rule.fix), `${rule.why} | ${rule.fix}`);
+  });
+
+  // staff-engineer Finding 4: an internal hyphen or apostrophe is one word.
+  it('counts a hyphenated or contracted word as one word', { timeout: 1000 }, () => {
+    for (const label of ['Re-run', 'Check-in', 'Opt-out', "Don't"]) {
+      assert.deepEqual(hits(`<button>${label}</button>`, 'multiword-control'), [], label);
+    }
+    assert.equal(hits('<button>Re-run now</button>', 'multiword-control').length, 1);
+  });
+
+  // staff-engineer Finding 6 / CTO Finding 1: a heading never compares with
+  // itself, a help card's own heading is not the page title, and an h2-h6
+  // outside <header> keeps the narrower, same-section scope of a field
+  // state rather than comparing against every heading on the page.
+  it('does not compare a status-styled heading, or a heading-only badge, with itself', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<h1 class="status-title">Approved</h1>', 'restated-status-badge'), []);
+    assert.deepEqual(hits('<h2><span class="pill">Beta</span></h2>', 'restated-status-badge'), []);
+  });
+  it('stops the heading-title walk at aside, so a help card heading is not the page title', { timeout: 1000 }, () => {
+    const html = '<aside><h3>Draft</h3><p>Ask support if this is wrong.</p></aside><main><span class="status-badge">Draft</span></main>';
+    assert.deepEqual(hits(html, 'restated-status-badge'), []);
+  });
+  it('keeps an h2-h6 outside <header> scoped to its own section, not every heading on the page', { timeout: 1000 }, () => {
+    const farSections = '<section><h2>Overdue</h2></section>' +
+      '<section><h2>Recent</h2><ul><li>Invoice 12 <span class="badge">Overdue</span></li></ul></section>';
+    assert.deepEqual(hits(farSections, 'restated-status-badge'), []);
+    const cards = '<article class="card"><h3>Paid</h3></article><article class="card"><span class="status-pill">Paid</span></article>';
+    assert.deepEqual(hits(cards, 'restated-status-badge'), []);
+    // An h1, or any heading inside <header>, still compares page-wide.
+    assert.equal(hits('<header><h1>Needs review</h1></header><main><span class="status-badge">Needs review</span></main>', 'restated-status-badge').length, 1);
+  });
+
+  // staff-engineer Finding 7: a legend container and a <canvas>-drawn chart
+  // in a plain sibling container both silence the explainer, and the bare
+  // present tense "change" no longer counts as explaining the marker.
+  it('stays silent in a card beside a canvas chart or inside a legend container', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<div class="card"><canvas></canvas><p>Blue bars show revenue and grey bars show cost.</p></div>', 'marker-explainer'), []);
+    assert.deepEqual(hits('<div class="legend"><p>Blue bars show revenue and grey bars show cost.</p></div>', 'marker-explainer'), []);
+  });
+  it('does not read an unrelated use of "change" as explaining the marker', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<p>Click the blue bar to change the date.</p>', 'marker-explainer'), []);
+    assert.equal(hits('<p>Fields with an accent bar were changed by the parser.</p>', 'marker-explainer').length, 1);
+  });
+
+  // staff-engineer Finding 8: an all-<th> header row with no <thead> is not
+  // a body row.
+  it('does not count an all-th header row with no thead as a body row', { timeout: 1000 }, () => {
+    const html = '<section><p>3 of the 214 payouts this year</p><table><tr><th>Payout</th></tr>' +
+      '<tr><td>A</td></tr><tr><td>B</td></tr></table></section>';
+    assert.deepEqual(hits(html, 'restated-table-count'), []);
+  });
+
+  // staff-engineer Finding 9 / CTO Finding 7: a duplicated attribute keeps
+  // its first value, like the browser, not its last.
+  it('keeps the first copy of a duplicated attribute, like the browser', { timeout: 1000 }, () => {
+    const ctx = parse('<div class="a" class="b" id="x" id="y" style="color:red" style="display:none"></div>', { ext: 'html' });
+    const el = ctx.elements[0];
+    assert.ok(el.classes.has('a') && !el.classes.has('b'));
+    assert.equal(el.id, 'x');
+    assert.equal(el.hidden, false);
+    assert.equal(hits('<a class="btn" class="plain">Save record</a>', 'multiword-control').length, 1, 'kept "btn", so this is still a control');
+  });
+
+  // staff-engineer Finding 10: the removed subtree-read primitive is gone.
+  it('does not export the removed subtreeText helper', { timeout: 1000 }, () => {
+    assert.equal(require('./lib/html').subtreeText, undefined);
+  });
+
+  // CTO Finding 2 / staff-engineer Finding 5: an icon-only control's
+  // accessible name, however it is given, is never counted — #63 names an
+  // icon with an accessible name as the expected (silent) shape.
+  it('skips an icon-only control with a multi-word accessible name, aria-label or sr-only', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<button aria-label="Close dialog"><svg></svg></button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<button aria-label="Delete row"><svg></svg></button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<button><span class="sr-only">Close dialog</span></button>', 'multiword-control'), []);
+  });
+
+  // CTO Finding 3: a cascade that spreads the border style, the border
+  // color and the stripe across more than one selector still matches, and a
+  // top/bottom stripe (not only a left/right one) counts.
+  it('merges a cascade that spreads the border and the stripe across more than one selector', { timeout: 1000 }, () => {
+    assert.equal(hits('<style>.row{border:1px solid #2563eb}.row.active{box-shadow:inset 4px 0 0 #2563eb}</style><div class="row active">Option A</div>', 'inset-accent-marker').length, 1);
+    assert.equal(hits('<style>.row{border:1px solid #9ca3af}.row.active{border-color:#2563eb;box-shadow:inset 4px 0 0 #2563eb}</style><div class="row active">Option A</div>', 'inset-accent-marker').length, 1);
+  });
+  it('reads a top or bottom inset stripe, not only a left or right one', { timeout: 1000 }, () => {
+    assert.equal(hits('<style>.row{border:1px solid #2563eb;box-shadow:inset 0 3px 0 0 #2563eb}</style><div class="row">Option A</div>', 'inset-accent-marker').length, 1);
+  });
+
+  // CTO Finding 4: a caption in any sibling wrapper of the control group
+  // reads the group's one selected period, not only a direct child.
+  it('reads the selected period from the nearest enclosing container, not only the direct parent', { timeout: 1000 }, () => {
+    const html = '<section><div class="seg"><button aria-pressed="true">1Y</button></div>' +
+      '<div class="chart"></div><footer><small>Change against the previous 12 months</small></footer></section>';
+    assert.equal(hits(html, 'restated-control-period').length, 1);
+  });
+
+  // CTO Finding 5: a <tfoot> totals row is not a body row, and a leading
+  // "Showing" is still the same count line.
+  it('excludes a tfoot totals row, and accepts a leading "Showing"', { timeout: 1000 }, () => {
+    const withFooter = '<section><p>3 of the 214 payouts this year</p><table><tbody><tr><td>A</td></tr>' +
+      '<tr><td>B</td></tr><tr><td>C</td></tr></tbody><tfoot><tr><td>Total</td></tr></tfoot></table></section>';
+    assert.equal(hits(withFooter, 'restated-table-count').length, 1);
+    const showing = '<section><p>Showing 3 of 214 payouts</p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>';
+    assert.equal(hits(showing, 'restated-table-count').length, 1);
+  });
+});
 
 describe('UI heuristics', { timeout: 1000 }, () => {
   for (const rule of rules) {
@@ -1089,5 +1467,17 @@ describe('UI scan bounds', { timeout: 3000 }, () => {
   });
   it('scans 200KB brace-free CSS within the budget', { timeout: 2500 }, () => {
     assert.deepEqual(scan('.unclosed-selector '.repeat(11000), 'sample.css').findings, []);
+  });
+  it('scans a deeply nested button within the budget', { timeout: 2500 }, () => {
+    const source = '<button>' + '<div>'.repeat(18000) + 'Open settings' + '</div>'.repeat(18000) + '</button>';
+    assert.equal(scan(source).findings.filter((finding) => finding.rule === 'multiword-control').length, 1);
+  });
+  it('scans deeply nested status badges within the budget', { timeout: 1500 }, () => {
+    const source = '<main>' + '<div class="status-badge">'.repeat(6000) + 'Active' + '</div>'.repeat(6000) + '</main>';
+    assert.deepEqual(scan(source).findings.filter((finding) => finding.rule === 'restated-status-badge'), []);
+  });
+  it('scans deeply nested count paragraphs within the budget', { timeout: 1500 }, () => {
+    const source = '<main>' + '<p>'.repeat(6000) + '25 of 214 results' + '</p>'.repeat(6000) + '</main>';
+    assert.deepEqual(scan(source).findings.filter((finding) => finding.rule === 'restated-table-count'), []);
   });
 });

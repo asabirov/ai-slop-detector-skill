@@ -1,0 +1,16 @@
+<!doctype html><html><body>
+<button>Save</button><button>Undo</button><button aria-label="Close"><svg></svg></button>
+<div class="filter-bar"><button>Clear</button></div>
+<section><h1>Review invoice</h1><span class="status-badge">Pending bank data</span></section>
+<section><label>Amount <input><small>In EUR</small></label><label>Date <input><small>UTC date</small></label><label>Name <input><small>Legal name</small></label></section>
+<p>The red line shows the legal limit.</p>
+<p>The dashed color line shows the target.</p>
+<div class="period"><button>1Y</button><p>Data last updated yesterday.</p></div>
+<div><button aria-pressed="false">1Y</button><button aria-pressed="true">6M</button><p>Change against the previous 12 months</p></div>
+<section><h2>Needs a decision</h2><p>214 payouts this year include 3 pending approvals.</p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>
+<section><p>3 of the 214 payouts this year need approval by Friday.</p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>
+<select><option selected value="Draft">Draft</option><option value="Approved">Approved</option></select><span class="badge">Approved</span>
+<style>.selected {box-shadow: inset 4px 0 #2563eb}</style><div class="selected">Selected</div>
+<form><label>Amount <input><span class="error" role="alert">This field is required</span></label><label>Date <input><span class="error" role="alert">This field is required</span></label><label>Name <input><span class="error" role="alert">This field is required</span></label></form>
+<form><label>Amount <input><small role="alert">Required</small></label><label>Date <input><small role="alert">Required</small></label><label>Name <input><small role="alert">Required</small></label></form>
+</body></html>

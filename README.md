@@ -86,6 +86,12 @@ information. Component style mismatches need a rendered comparison; uncertain
 ones are reported as needing a design review. These are agent review instructions, not additional
 CLI rules.
 
+The UI checks also flag multi-word buttons, repeated field lines, duplicate
+status pills, extra selection markers, and count lines that repeat visible
+table rows, such as “Send answer” becoming “Send”. See the
+[rule catalogue](docs/ai-slop-detector.md#rule-catalogue) for each rule's exact
+match. Editorial review uses rendered context.
+
 The editorial checks also report unnecessary status distinctions and manual
 commands on automatic features. They ask which distinctions matter and whether
 the system can act instead. Status counts alone do not decide a finding.

@@ -226,9 +226,9 @@ const CODE_TAGS = new Set(['code', 'pre', 'kbd', 'samp', 'tt']);
 // A line a control writes when the reader uses it. `role="status"`, `role="alert"`
 // and `aria-live` all say the same thing: this text appears because of something
 // the reader just did, so the reader is looking at it.
-function hasLiveRegion(attrs) {
-  const role = (attrs.get('role') || '').toLowerCase();
-  const live = (attrs.get('aria-live') || '').toLowerCase();
+function hasLiveRegion(attributes) {
+  const role = (attributes.role || '').toLowerCase();
+  const live = (attributes['aria-live'] || '').toLowerCase();
   return role === 'status' || role === 'alert' || live === 'polite' || live === 'assertive';
 }
 
@@ -278,17 +278,21 @@ function markupElements(html) {
       continue;
     }
     const attrs = tagAttributes(token.text);
-    const attribute = (name) => attrs.find(([key]) => key === name)?.[1] || '';
-    const attributes = new Map(attrs.map(([key, value]) => [key, value ?? '']));
-    const classValue = attribute('class') || attribute('classname');
+    // The one decoded dict: `classes`, `id`, `live`, `hidden`, `inputType`
+    // and `inputValue` below all derive from it, so a rule reading
+    // `el.attributes` or these fields sees the same decoded value, decoded once.
+    const attributes = Object.create(null);
+    for (const [key, value] of attrs) if (!(key in attributes)) attributes[key] = decodeEntities(value ?? '');
+    const classValue = attributes.class || attributes.classname || '';
     const parent = stack.length ? stack[stack.length - 1] : -1;
     const el = {
       tag,
       start: token.index,
       end: token.end,
       classes: new Set(classValue.trim().split(/\s+/).filter(Boolean)),
-      id: attribute('id').trim() || null,
+      id: (attributes.id || '').trim() || null,
       parent,
+      attributes,
       text: '',
       // `text` loses order: a run belongs to the innermost open element, so
       // `<p><strong>Amounts</strong> in EUR.</p>` gives the <p> " in EUR." and
@@ -296,12 +300,12 @@ function markupElements(html) {
       // backwards. `chunks` keeps each run's position in the document so a
       // subtree can be read in the order a person reads it.
       chunks: [],
-      style: decodeEntities(attribute('style')),
+      style: attributes.style || '',
       live: hasLiveRegion(attributes),
-      hidden: attributes.has('hidden') || (attributes.get('aria-hidden') || '').toLowerCase() === 'true' ||
-        /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\b/i.test(attributes.get('style') || ''),
-      inputType: (attributes.get('type') || '').toLowerCase(),
-      inputValue: decodeEntities(attributes.get('value') || ''),
+      hidden: Object.hasOwn(attributes, 'hidden') || (attributes['aria-hidden'] || '').toLowerCase() === 'true' ||
+        /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\b/i.test(attributes.style || ''),
+      inputType: (attributes.type || '').toLowerCase(),
+      inputValue: attributes.value || '',
       inTable: tag === 'td' || tag === 'th' || (parent >= 0 && out[parent].inTable),
       inCode: CODE_TAGS.has(tag) || (parent >= 0 && out[parent].inCode),
     };
@@ -1028,6 +1032,22 @@ function orderedText(chunks) {
     .replace(/\{[^{}]*\}/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+// A control's own label, read without re-reading a nested control's text:
+// the walk stops at the first nested element `isBoundary` names, instead of
+// descending into its subtree. That keeps a label read linear even when
+// controls are nested inside each other (`<div role="button">` wrapping the
+// next one, 6,000 deep), while still reading the complete label of a single
+// control however many plain wrapper elements sit around its text.
+function boundaryText(elements, ends, hidden, index, isBoundary, excludeCode = false) {
+  const chunks = [];
+  for (let k = index; k < ends[index];) {
+    if (k !== index && isBoundary(elements[k])) { k = ends[k]; continue; }
+    if (!hidden[k] && !(excludeCode && elements[k].inCode)) chunks.push(...elements[k].chunks);
+    k++;
+  }
+  return orderedText(chunks);
 }
 
 // Inline tags do not insert a space between letters of one visible word.
@@ -2377,6 +2397,9 @@ module.exports = {
   selectorTargets,
   blocksUnderData,
   blocksBesideHeading,
+  subtreeEnds,
+  boundaryText,
+  CHART_CLASS,
   CODE_TAGS,
   cssBlocks,
   stylesheetLinks,
