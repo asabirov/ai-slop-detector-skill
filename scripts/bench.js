@@ -75,7 +75,7 @@ function main(argv) {
 
   const stored = fs.existsSync(BASELINE) ? JSON.parse(fs.readFileSync(BASELINE, 'utf8')) : {};
   if (argv.includes('--update')) {
-    stored[options.fixture] = { parse: Math.round(figures.parse), detect: Math.round(figures.detect), ...where };
+    stored[options.fixture] = { parse: Math.round(figures.parse), detect: Math.round(figures.detect), node: where.node, cores: where.cores, load: where.load };
     fs.writeFileSync(BASELINE, JSON.stringify(stored, null, 2) + '\n');
     console.log(`stored in ${path.relative(ROOT, BASELINE)}`);
     return 0;

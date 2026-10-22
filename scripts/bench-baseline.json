@@ -2,7 +2,6 @@
   "slop.html": {
     "parse": 543,
     "detect": 881,
-    "host": "8962695-cg91685.twc1.net",
     "node": "v24.20.0",
     "cores": 8,
     "load": 8.9
