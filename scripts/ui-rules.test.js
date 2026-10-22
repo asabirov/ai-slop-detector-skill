@@ -39,9 +39,16 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
   it('reports a sentence link once and leaves short controls silent', { timeout: 1000 }, () => {
     assert.equal(hits('<a role="button" href="/report">Open the payout report</a>', 'multiword-control').length, 1);
     assert.deepEqual(hits('<button>Save</button><button>Undo</button><button aria-label="Close"><svg></svg></button>', 'multiword-control'), []);
-    assert.equal(hits('<button aria-label="Open settings"><svg aria-hidden="true"></svg></button>', 'multiword-control').length, 1);
+    assert.deepEqual(hits('<button aria-label="Open settings"><svg aria-hidden="true"></svg></button>', 'multiword-control'), []);
     assert.deepEqual(hits('<button aria-label="Close"><svg aria-hidden="true"></svg></button>', 'multiword-control'), []);
     assert.equal(hits('<input type="submit" value="Send answer">', 'multiword-control').length, 1);
+  });
+  // #63 names "an icon with an accessible name" as the expected (silent) shape,
+  // so the rule reads only the visible label, never a fallback accessible
+  // name: an aria-label and the same name given as sr-only text must agree.
+  it('skips a control with no visible text, whether its accessible name is aria-label or sr-only text', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<button aria-label="Close dialog"><svg></svg></button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<button><span class="sr-only">Close dialog</span></button>', 'multiword-control'), []);
   });
   it('reads the input type case-insensitively, through the one decoded attribute dict', { timeout: 1000 }, () => {
     assert.equal(hits('<input type="Submit" value="Send answer">', 'multiword-control').length, 1);
@@ -239,6 +246,158 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
       const html = '<p>'.repeat(depth) + 'text' + '</p>'.repeat(depth);
       assert.deepEqual(hits(html, 'repeated-field-caption'), []);
     });
+  });
+});
+
+// Probes from the staff-engineer and CTO reviews of PR #97 at head
+// d9c35926bc39e51df82c8809205cc8294f34ea1b (and the CTO's follow-up review of
+// the same head), reproduced directly from each review's own examples.
+describe('fresh review fixes (PR #97, head d9c3592 and its CTO follow-up)', { timeout: 1000 }, () => {
+  const hits = (html, name) => RULES.find((rule) => rule.id === name).test(parse(html, { ext: 'html' }));
+
+  // staff-engineer Finding 1 / CTO probe C4: a radio or checkbox's own label
+  // never counts, and a caption before the field is the field's own label.
+  it('never counts a radio or checkbox label, or a label before the field, as a repeated caption', { timeout: 1000 }, () => {
+    const yesNo = '<label><input type="radio" name="q1"><span>Yes</span></label>' +
+      '<label><input type="radio" name="q2"><span>Yes</span></label>' +
+      '<label><input type="radio" name="q3"><span>Yes</span></label>';
+    assert.deepEqual(hits(yesNo, 'repeated-field-caption'), []);
+    const qty = '<label><span>Quantity</span><input></label>'.repeat(3);
+    assert.deepEqual(hits(qty, 'repeated-field-caption'), []);
+    // The ordinary trailing caption, after the field, still fires.
+    assert.equal(hits('<label>Amount <input><small>As parsed</small></label>'.repeat(3), 'repeated-field-caption').length, 1);
+  });
+
+  // staff-engineer Finding 2: anchor the match to the whole caption.
+  it('does not read a buried period phrase, or let an unrelated ancestor scope reach it', { timeout: 1000 }, () => {
+    const html = '<div><button aria-pressed="true">1Y</button>' +
+      '<p>Revenue grew 20% against the previous 12 months.</p></div>';
+    assert.deepEqual(hits(html, 'restated-control-period'), []);
+    const chart = '<main><div class="chart"><button aria-pressed="true">1Y</button></div>' +
+      '<p>Customers who joined in the last 12 months get a discount.</p></main>';
+    assert.deepEqual(hits(chart, 'restated-control-period'), []);
+  });
+
+  // staff-engineer Finding 3: drop the all-around ring, require a 2px+
+  // stripe, and require a state-naming selector for a background highlight.
+  it('does not treat an inset ring or a sub-2px edge glow as a second selection marker', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<style>.badge-green{background:#f0fdf4;box-shadow:inset 0 0 0 1px #16a34a33}</style><div class="badge-green">Live</div>', 'inset-accent-marker'), []);
+    assert.deepEqual(hits('<style>.btn-primary{background:#2563eb;box-shadow:inset 0 0 0 1px #1d4ed8}</style><div class="btn-primary">Save</div>', 'inset-accent-marker'), []);
+    assert.deepEqual(hits('<style>.btn-edge{background:#2563eb;box-shadow:inset 1px 0 0 rgba(255,255,255,.2)}</style><div class="btn-edge">Save</div>', 'inset-accent-marker'), []);
+  });
+  it('requires a selector naming a state before a background highlight counts as the second marker', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<style>.row-plain{background:#eff6ff;box-shadow:inset 3px 0 0 #2563eb}</style><div class="row-plain">Option A</div>', 'inset-accent-marker'), []);
+    assert.equal(hits('<style>.row.active{background:#eff6ff;box-shadow:inset 3px 0 0 #2563eb}</style><div class="row active">Option A</div>', 'inset-accent-marker').length, 1);
+  });
+
+  // staff-engineer Finding 11: the message no longer assumes a border.
+  it('names the repeated marker without assuming a border', { timeout: 1000 }, () => {
+    const rule = RULES.find((r) => r.id === 'inset-accent-marker');
+    assert.ok(!/\bborder\b/i.test(rule.why) && !/\bborder\b/i.test(rule.fix), `${rule.why} | ${rule.fix}`);
+  });
+
+  // staff-engineer Finding 4: an internal hyphen or apostrophe is one word.
+  it('counts a hyphenated or contracted word as one word', { timeout: 1000 }, () => {
+    for (const label of ['Re-run', 'Check-in', 'Opt-out', "Don't"]) {
+      assert.deepEqual(hits(`<button>${label}</button>`, 'multiword-control'), [], label);
+    }
+    assert.equal(hits('<button>Re-run now</button>', 'multiword-control').length, 1);
+  });
+
+  // staff-engineer Finding 6 / CTO Finding 1: a heading never compares with
+  // itself, a help card's own heading is not the page title, and an h2-h6
+  // outside <header> keeps the narrower, same-section scope of a field
+  // state rather than comparing against every heading on the page.
+  it('does not compare a status-styled heading, or a heading-only badge, with itself', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<h1 class="status-title">Approved</h1>', 'restated-status-badge'), []);
+    assert.deepEqual(hits('<h2><span class="pill">Beta</span></h2>', 'restated-status-badge'), []);
+  });
+  it('stops the heading-title walk at aside, so a help card heading is not the page title', { timeout: 1000 }, () => {
+    const html = '<aside><h3>Draft</h3><p>Ask support if this is wrong.</p></aside><main><span class="status-badge">Draft</span></main>';
+    assert.deepEqual(hits(html, 'restated-status-badge'), []);
+  });
+  it('keeps an h2-h6 outside <header> scoped to its own section, not every heading on the page', { timeout: 1000 }, () => {
+    const farSections = '<section><h2>Overdue</h2></section>' +
+      '<section><h2>Recent</h2><ul><li>Invoice 12 <span class="badge">Overdue</span></li></ul></section>';
+    assert.deepEqual(hits(farSections, 'restated-status-badge'), []);
+    const cards = '<article class="card"><h3>Paid</h3></article><article class="card"><span class="status-pill">Paid</span></article>';
+    assert.deepEqual(hits(cards, 'restated-status-badge'), []);
+    // An h1, or any heading inside <header>, still compares page-wide.
+    assert.equal(hits('<header><h1>Needs review</h1></header><main><span class="status-badge">Needs review</span></main>', 'restated-status-badge').length, 1);
+  });
+
+  // staff-engineer Finding 7: a legend container and a <canvas>-drawn chart
+  // in a plain sibling container both silence the explainer, and the bare
+  // present tense "change" no longer counts as explaining the marker.
+  it('stays silent in a card beside a canvas chart or inside a legend container', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<div class="card"><canvas></canvas><p>Blue bars show revenue and grey bars show cost.</p></div>', 'marker-explainer'), []);
+    assert.deepEqual(hits('<div class="legend"><p>Blue bars show revenue and grey bars show cost.</p></div>', 'marker-explainer'), []);
+  });
+  it('does not read an unrelated use of "change" as explaining the marker', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<p>Click the blue bar to change the date.</p>', 'marker-explainer'), []);
+    assert.equal(hits('<p>Fields with an accent bar were changed by the parser.</p>', 'marker-explainer').length, 1);
+  });
+
+  // staff-engineer Finding 8: an all-<th> header row with no <thead> is not
+  // a body row.
+  it('does not count an all-th header row with no thead as a body row', { timeout: 1000 }, () => {
+    const html = '<section><p>3 of the 214 payouts this year</p><table><tr><th>Payout</th></tr>' +
+      '<tr><td>A</td></tr><tr><td>B</td></tr></table></section>';
+    assert.deepEqual(hits(html, 'restated-table-count'), []);
+  });
+
+  // staff-engineer Finding 9 / CTO Finding 7: a duplicated attribute keeps
+  // its first value, like the browser, not its last.
+  it('keeps the first copy of a duplicated attribute, like the browser', { timeout: 1000 }, () => {
+    const ctx = parse('<div class="a" class="b" id="x" id="y" style="color:red" style="display:none"></div>', { ext: 'html' });
+    const el = ctx.elements[0];
+    assert.ok(el.classes.has('a') && !el.classes.has('b'));
+    assert.equal(el.id, 'x');
+    assert.equal(el.hidden, false);
+    assert.equal(hits('<a class="btn" class="plain">Save record</a>', 'multiword-control').length, 1, 'kept "btn", so this is still a control');
+  });
+
+  // staff-engineer Finding 10: the removed subtree-read primitive is gone.
+  it('does not export the removed subtreeText helper', { timeout: 1000 }, () => {
+    assert.equal(require('./lib/html').subtreeText, undefined);
+  });
+
+  // CTO Finding 2 / staff-engineer Finding 5: an icon-only control's
+  // accessible name, however it is given, is never counted — #63 names an
+  // icon with an accessible name as the expected (silent) shape.
+  it('skips an icon-only control with a multi-word accessible name, aria-label or sr-only', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<button aria-label="Close dialog"><svg></svg></button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<button aria-label="Delete row"><svg></svg></button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<button><span class="sr-only">Close dialog</span></button>', 'multiword-control'), []);
+  });
+
+  // CTO Finding 3: a cascade that spreads the border style, the border
+  // color and the stripe across more than one selector still matches, and a
+  // top/bottom stripe (not only a left/right one) counts.
+  it('merges a cascade that spreads the border and the stripe across more than one selector', { timeout: 1000 }, () => {
+    assert.equal(hits('<style>.row{border:1px solid #2563eb}.row.active{box-shadow:inset 4px 0 0 #2563eb}</style><div class="row active">Option A</div>', 'inset-accent-marker').length, 1);
+    assert.equal(hits('<style>.row{border:1px solid #9ca3af}.row.active{border-color:#2563eb;box-shadow:inset 4px 0 0 #2563eb}</style><div class="row active">Option A</div>', 'inset-accent-marker').length, 1);
+  });
+  it('reads a top or bottom inset stripe, not only a left or right one', { timeout: 1000 }, () => {
+    assert.equal(hits('<style>.row{border:1px solid #2563eb;box-shadow:inset 0 3px 0 0 #2563eb}</style><div class="row">Option A</div>', 'inset-accent-marker').length, 1);
+  });
+
+  // CTO Finding 4: a caption in any sibling wrapper of the control group
+  // reads the group's one selected period, not only a direct child.
+  it('reads the selected period from the nearest enclosing container, not only the direct parent', { timeout: 1000 }, () => {
+    const html = '<section><div class="seg"><button aria-pressed="true">1Y</button></div>' +
+      '<div class="chart"></div><footer><small>Change against the previous 12 months</small></footer></section>';
+    assert.equal(hits(html, 'restated-control-period').length, 1);
+  });
+
+  // CTO Finding 5: a <tfoot> totals row is not a body row, and a leading
+  // "Showing" is still the same count line.
+  it('excludes a tfoot totals row, and accepts a leading "Showing"', { timeout: 1000 }, () => {
+    const withFooter = '<section><p>3 of the 214 payouts this year</p><table><tbody><tr><td>A</td></tr>' +
+      '<tr><td>B</td></tr><tr><td>C</td></tr></tbody><tfoot><tr><td>Total</td></tr></tfoot></table></section>';
+    assert.equal(hits(withFooter, 'restated-table-count').length, 1);
+    const showing = '<section><p>Showing 3 of 214 payouts</p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>';
+    assert.equal(hits(showing, 'restated-table-count').length, 1);
   });
 });
 
