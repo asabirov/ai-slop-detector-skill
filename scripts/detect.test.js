@@ -1670,6 +1670,25 @@ test('a hero background and a gradient title that share a class stay two finding
   assert.ok(found.every((f) => !f.alsoFlaggedBy));
 });
 
+test('one gradient string in a hero background and a clipped title keeps both results', { timeout: 1000 }, () => {
+  const g = 'linear-gradient(90deg,#7c3aed,#2563eb)';
+  const html = `<style>.hero{background:${g}}.hero .title{background:${g};-webkit-background-clip:text}</style><section class="hero"><h1 class="title">x</h1></section>`;
+  const found = detect(html, { level: 2, kind: 'artifact', ext: 'html' }).findings;
+  assert.deepStrictEqual(found.map((f) => f.rule).sort(), ['gradient-text', 'purple-blue-hero']);
+  assert.match(found.find((f) => f.rule === 'gradient-text').span, /hero \.title/);
+  assert.deepStrictEqual(found.find((f) => f.rule === 'gradient-text').alsoFlaggedBy, ['purple-blue-hero']);
+  assert.equal(found.filter((f) => f.rule === 'purple-blue-hero').length, 1);
+});
+
+test('a hero section and a footer brand text with one gradient keep both results', { timeout: 1000 }, () => {
+  const g = 'linear-gradient(90deg,#7c3aed,#2563eb)';
+  const html = `<style>.hero{background:${g}}.brand-text{background:${g};-webkit-background-clip:text}</style><section class="hero">x</section><footer><span class="brand-text">Acme</span></footer>`;
+  const found = detect(html, { level: 2, kind: 'artifact', ext: 'html' }).findings;
+  assert.deepStrictEqual(found.map((f) => f.rule).sort(), ['gradient-text', 'purple-blue-hero']);
+  assert.match(found.find((f) => f.rule === 'gradient-text').span, /brand-text/);
+  assert.equal(found.filter((f) => f.rule === 'purple-blue-hero').length, 1);
+});
+
 test('rules that flag different elements are not folded', { timeout: 1000 }, () => {
   const html = '<style>.a{background:linear-gradient(90deg,#7c3aed,#3b82f6)}.b{background:linear-gradient(90deg,red,orange);-webkit-background-clip:text}</style><p class="a">x</p><p class="b">y</p>';
   const rules = detect(html, { level: 2, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);

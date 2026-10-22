@@ -437,20 +437,21 @@ const purpleBlueHero = {
   why: 'The default purple→blue gradient hero — the single most common AI-generated look.',
   fix: 'Use brand gradient tokens.',
   test(ctx) {
+    const gradients = (text) => (text.match(/linear-gradient\([^)]*\)/gi) || [])
+      .map((g) => g.toLowerCase())
+      .filter((g) => {
+        const purple = /#[89ab][0-9a-f]{2}[cf][0-9a-f]|purple|violet|indigo|#7c3aed|#6d28d9|#9333ea|#a855f7|#8b5cf6|#6366f1/.test(g);
+        const blue = /blue|#[0-6][0-9a-f]{2}[ef][0-9a-f]|#2563eb|#3b82f6/.test(g);
+        return purple && blue;
+      });
     const hits = [];
-    const re = /linear-gradient\([^)]*\)/gi;
-    let m;
-    while ((m = re.exec(ctx.css)) !== null) {
-      const g = m[0].toLowerCase();
-      const purple = /#[89ab][0-9a-f]{2}[cf][0-9a-f]|purple|violet|indigo|#7c3aed|#6d28d9|#9333ea|#a855f7|#8b5cf6|#6366f1/.test(g);
-      const blue = /blue|#[0-6][0-9a-f]{2}[ef][0-9a-f]|#2563eb|#3b82f6/.test(g);
-      if (!(purple && blue)) continue;
-      const keys = [];
-      for (const [selector, body] of ctx.cssRules || []) {
-        if (body.toLowerCase().includes(g)) keys.push(...selector.toLowerCase().split(',').map((part) => part.trim()));
-      }
-      hits.push({ span: g.slice(0, 50), keys });
+    for (const [selector, body] of ctx.cssRules || []) {
+      const keys = selector.toLowerCase().split(',').map((part) => part.trim());
+      for (const g of gradients(body)) hits.push({ span: g.slice(0, 50), keys });
     }
+    // A gradient in no closed rule still counts, and keys on nothing.
+    const all = gradients(ctx.css);
+    for (let i = hits.length; i < all.length; i++) hits.push({ span: all[i].slice(0, 50), keys: [] });
     return hits;
   },
 };
