@@ -1,11 +1,33 @@
 'use strict';
 
 // Dependency-free HTML/CSS parsing helpers for the slop detector.
-// Deliberately regex-based, not a real DOM: the checks are heuristic tells,
-// and staying dependency-free keeps the linter runnable anywhere Node is.
+// This is not a DOM. The checks are heuristic tells, and the linter runs
+// without a browser or package installation.
 
+// A quoted closing spelling is attribute data. Only complete tag tokens can
+// end a hidden range, and an unfinished hidden element runs to the file end.
 function stripBetween(html, tag) {
-  return html.replace(new RegExp(`<${tag}\\b[\\s\\S]*?</${tag}>`, 'gi'), ' ');
+  const ranges = [];
+  let depth = 0;
+  let start = 0;
+  for (const token of rawHtmlTokens(html)) {
+    if (token.type !== 'tag' || token.name !== tag) continue;
+    if (token.closing) {
+      if (depth && --depth === 0) ranges.push({ start, end: token.end });
+    } else if (!token.selfClosing) {
+      if (!depth) start = token.index;
+      depth++;
+    }
+  }
+  if (depth) ranges.push({ start, end: html.length });
+  const pieces = [];
+  let copied = 0;
+  for (const range of ranges) {
+    pieces.push(html.slice(copied, range.start), ' ');
+    copied = range.end;
+  }
+  pieces.push(html.slice(copied));
+  return pieces.join('');
 }
 
 // Visible text as it roughly renders, one run per element-ish boundary.
@@ -18,19 +40,92 @@ function stripBetween(html, tag) {
 // Eight places did this by hand, five with a space and three with the empty
 // string, which is exactly the split CodeQL flagged. One function now.
 function stripTags(html) {
-  return html.replace(/<[^>]+>/g, ' ');
+  const pieces = [];
+  let copied = 0;
+  for (const token of rawHtmlTokens(html)) {
+    pieces.push(html.slice(copied, token.index), ' ');
+    copied = token.end;
+  }
+  pieces.push(html.slice(copied));
+  return pieces.join('');
 }
 
-function visibleTextRuns(html) {
+// Every stream a rule reads as text decodes its character entities, because a
+// name is a spelling and the reader is shown a glyph. The table is the standard's
+// own, in `./entities`.
+const { NAMED } = require('./entities');
+
+// Case matters: `&Aacute;` and `&aacute;` are different letters, so the name is
+// looked up exactly as written. The hex digits of a numeric reference do not,
+// and neither does its `x`.
+const ENTITY = /&(?:#[xX]([0-9a-fA-F]+)|#(\d+)|([A-Za-z][A-Za-z0-9]*));/g;
+
+// Past the last code point Unicode has, `String.fromCodePoint` throws; inside the
+// surrogate range it returns half a character, which breaks the next thing that
+// reads the string. Neither is a character a reader sees, so both stay written.
+const decodable = (code) => code >= 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff);
+
+// HTML replaces these numeric C1 references with the glyphs a browser shows.
+// Zero means the control has no replacement in the HTML numeric-reference table.
+const C1_REPLACEMENTS = [
+  0x20ac, 0, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021,
+  0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0, 0x017d, 0,
+  0, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014,
+  0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0, 0x017e, 0x0178,
+];
+
+// Called only on text whose tags, or whose markdown syntax, are already gone, and
+// it runs last, so nothing reads what it produced. That order is the point twice
+// over: a `&lt;` decoded while tags are still being matched would hand the next
+// pass a `<` it could close into a tag, and a `&#35;` decoded before the markdown
+// syntax is stripped would be read as a heading marker.
+//
+// `blankUnknown` is the whole-page prose stream's old behaviour, folded in rather
+// than run as a second pass over the result. As a second pass it ate the name a
+// numeric ampersand had just produced: `&#38;middot;` is the text `&middot;` on
+// the page, and the stream reported nothing at all.
+function decodeEntities(text, { blankUnknown = false, markdownEscapes = false } = {}) {
+  return text.replace(ENTITY, (whole, hex, dec, name, offset) => {
+    if (markdownEscapes) {
+      let slashes = 0;
+      while (text[offset - slashes - 1] === '\\') slashes++;
+      if (slashes % 2) return whole;
+      // CommonMark limits decimal references to seven digits and hex to six.
+      if ((hex !== undefined && hex.length > 6) || (dec !== undefined && dec.length > 7)) return whole;
+    }
+    if (name !== undefined) {
+      const glyph = NAMED[name];
+      if (glyph !== undefined) return glyph;
+      return blankUnknown ? ' ' : whole;
+    }
+    const code = hex !== undefined ? parseInt(hex, 16) : Number(dec);
+    if (!decodable(code)) return whole;
+    return String.fromCodePoint(C1_REPLACEMENTS[code - 0x80] || code);
+  });
+}
+
+// Keep inline markup inside a text run. Split definition labels and values, and
+// split at a line break. The earlier broad split hid chains containing SVG icons
+// and labels. This is a text approximation, not a DOM or CSS layout calculation.
+const BLOCK_ELEMENT = /^<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a|dl|dt|dd|br)(?=[\s/>])/i;
+const NON_MARKUP_BOUNDARY = /^<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a)(?=[\s/>])/i;
+
+function visibleTextRuns(html, { markup = true } = {}) {
   const body = stripBetween(stripBetween(html, 'style'), 'script');
-  const runs = body.split(
-    /<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a)\b[^>]*>/i
-  );
+  const boundary = markup ? BLOCK_ELEMENT : NON_MARKUP_BOUNDARY;
   const out = [];
-  for (const r of runs) {
-    const t = stripTags(r).replace(/\s+/g, ' ').trim();
+  let copied = 0;
+  const addRun = (end) => {
+    const t = decodeEntities(stripTags(body.slice(copied, end)), { markdownEscapes: !markup })
+      .replace(/\s+/g, ' ').trim();
     if (t) out.push(t);
+  };
+  for (const token of rawHtmlTokens(body)) {
+    if (token.type !== 'tag' || !boundary.test(token.text)) continue;
+    addRun(token.index);
+    copied = token.end;
   }
+  addRun(body.length);
   return out;
 }
 
@@ -43,35 +138,58 @@ function visibleTextRuns(html) {
 // Only attributes whose value is written for a person. `href`, `class`, `src`,
 // `id` and friends are addresses and identifiers; reading them as prose would
 // hand every rule a stream of slugs.
-const PROSE_ATTRS = /\b(?:title|alt|placeholder|aria-label|aria-description|aria-placeholder|aria-roledescription|data-tip|data-tooltip|data-title)\s*=\s*"([^"]*)"/gi;
+const PROSE_ATTRS = new Set(['title', 'alt', 'placeholder', 'aria-label',
+  'aria-description', 'aria-placeholder', 'aria-roledescription',
+  'data-tip', 'data-tooltip', 'data-title']);
 
-// <meta name="description"> is the one `content=` worth reading — the rest
-// carry viewport strings, verification tokens and URLs.
-const META_DESCRIPTION =
-  /<meta\b[^>]*\bname\s*=\s*"(?:description|og:description|twitter:description)"[^>]*\bcontent\s*=\s*"([^"]*)"/gi;
-
-function decodeEntities(text) {
-  return text
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
-    .replace(/&(amp|lt|gt|quot|apos|nbsp);/gi, (_, n) => {
-      const map = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
-      return map[n.toLowerCase()];
-    });
+function tagAttributes(tag) {
+  const attrs = [];
+  let offset = 1;
+  if (tag[offset] === '/') return attrs;
+  while (offset < tag.length && !/[\s/>]/.test(tag[offset])) offset++;
+  while (offset < tag.length) {
+    while (/[\s/]/.test(tag[offset] || '')) offset++;
+    if (!tag[offset] || tag[offset] === '>') break;
+    const start = offset;
+    while (offset < tag.length && !/[\s=/>]/.test(tag[offset])) offset++;
+    if (offset === start) { offset++; continue; }
+    const name = tag.slice(start, offset).toLowerCase();
+    while (/\s/.test(tag[offset] || '')) offset++;
+    if (tag[offset] !== '=') { attrs.push([name, null]); continue; }
+    offset++;
+    while (/\s/.test(tag[offset] || '')) offset++;
+    let value = '';
+    const quote = tag[offset] === '"' || tag[offset] === "'" ? tag[offset++] : null;
+    if (quote) {
+      const end = tag.indexOf(quote, offset);
+      value = tag.slice(offset, end === -1 ? tag.length : end);
+      offset = end === -1 ? tag.length : end + 1;
+    } else {
+      const startValue = offset;
+      while (offset < tag.length && !/[\s>]/.test(tag[offset])) offset++;
+      value = tag.slice(startValue, offset);
+    }
+    attrs.push([name, value]);
+  }
+  return attrs;
 }
 
 // One run per human-readable attribute value, longest first is not needed —
 // order follows the document, same as visibleTextRuns.
-function attrTextRuns(html) {
+function attrTextRuns(html, tokens = rawHtmlTokens(html)) {
   const out = [];
-  const body = stripBetween(stripBetween(html, 'style'), 'script');
-  for (const re of [PROSE_ATTRS, META_DESCRIPTION]) {
-    const rx = new RegExp(re.source, re.flags);
-    let m;
-    while ((m = rx.exec(body)) !== null) {
-      const t = decodeEntities(m[1]).replace(/\s+/g, ' ').trim();
+  for (const token of tokens) {
+    if (token.type !== 'tag' || /^<\/(?:script|style|code|pre)\b/i.test(token.text)) continue;
+    const tag = /^<([a-z][a-z0-9-]*)/i.exec(token.text)?.[1].toLowerCase();
+    if (!tag || ['script', 'style', 'code', 'pre'].includes(tag)) continue;
+    const attrs = tagAttributes(token.text);
+    const metaName = tag === 'meta' ? attrs.find(([name]) => name === 'name')?.[1] : null;
+    for (const [name, value] of attrs) {
+      if (!PROSE_ATTRS.has(name) && !(tag === 'meta' && name === 'content' &&
+        ['description', 'og:description', 'twitter:description'].includes(metaName))) continue;
+      const text = decodeEntities(value || '').replace(/\s+/g, ' ').trim();
       // A one-word label ("Close", "Menu") is a control name, not prose.
-      if (t && /\s/.test(t)) out.push(t);
+      if (text && /\s/.test(text)) out.push(text);
     }
   }
   return out;
@@ -88,15 +206,16 @@ function markupTokens(html) {
   const classes = new Set();
   const ids = new Set();
   const tags = new Set();
-  let m;
-  const classRe = /\bclass\s*=\s*"([^"]*)"/gi;
-  while ((m = classRe.exec(body)) !== null) {
-    for (const c of m[1].split(/\s+/)) if (c) classes.add(c);
+  for (const token of rawHtmlTokens(body)) {
+    if (token.type !== 'tag' || token.closing) continue;
+    tags.add(token.name);
+    for (const [name, value] of tagAttributes(token.text)) {
+      if (name === 'class' || name === 'classname') {
+        for (const c of (value || '').split(/\s+/)) if (c) classes.add(c);
+      }
+      if (name === 'id' && value?.trim()) ids.add(value.trim());
+    }
   }
-  const idRe = /\bid\s*=\s*"([^"]*)"/gi;
-  while ((m = idRe.exec(body)) !== null) if (m[1].trim()) ids.add(m[1].trim());
-  const tagRe = /<([a-z][a-z0-9-]*)\b/gi;
-  while ((m = tagRe.exec(body)) !== null) tags.add(m[1].toLowerCase());
   return { classes, ids, tags };
 }
 
@@ -104,13 +223,22 @@ function markupTokens(html) {
 // they contain, is typography doing its job rather than costume.
 const CODE_TAGS = new Set(['code', 'pre', 'kbd', 'samp', 'tt']);
 
+// A line a control writes when the reader uses it. `role="status"`, `role="alert"`
+// and `aria-live` all say the same thing: this text appears because of something
+// the reader just did, so the reader is looking at it.
+function hasLiveRegion(attrs) {
+  const role = (attrs.get('role') || '').toLowerCase();
+  const live = (attrs.get('aria-live') || '').toLowerCase();
+  return role === 'status' || role === 'alert' || live === 'polite' || live === 'assertive';
+}
+
 const VOID_TAGS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
   'link', 'meta', 'param', 'source', 'track', 'wbr',
 ]);
 
-// Every element the page carries, each with the tag chain above it. Still a
-// regex, not a DOM — but a stack of open tags is enough to answer the one
+// Every element the page carries, each with the tag chain above it. This is
+// not a DOM, but a stack of tokenized tags is enough to answer the one
 // question the mono rule needs: what does this selector land on, and does that
 // element sit inside a <code>. `inCode` is true for the code elements
 // themselves and for everything nested in one, because font-family inherits:
@@ -120,41 +248,50 @@ const VOID_TAGS = new Set([
 // calling something code, which is the quiet direction; a page whose <code>
 // never closes has a bigger problem than this rule.
 function markupElements(html) {
-  const body = stripBetween(stripBetween(html, 'style'), 'script').replace(/<!--[\s\S]*?-->/g, ' ');
+  const body = stripBetween(stripBetween(html, 'style'), 'script');
   const out = [];
   const stack = []; // open elements, innermost last
-  const re = /<(\/?)([a-z][a-z0-9-]*)((?:"[^"]*"|'[^']*'|[^>'"])*)>/gi;
-  let m;
+  const openDepths = new Map();
   let previousEnd = 0;
-  while ((m = re.exec(body)) !== null) {
+  const appendRun = (end) => {
     if (stack.length) {
-      const run = body.slice(previousEnd, m.index);
+      const run = body.slice(previousEnd, end);
       out[stack[stack.length - 1]].text += run;
       out[stack[stack.length - 1]].chunks.push([previousEnd, run]);
     }
-    previousEnd = re.lastIndex;
-    const [, closing, rawTag, attrs] = m;
-    const tag = rawTag.toLowerCase();
-    if (closing) {
-      // Pop to the matching open tag; ignore a stray close.
-      for (let i = stack.length - 1; i >= 0; i--) {
-        if (out[stack[i]].tag === tag) {
-          stack.length = i;
-          break;
+  };
+  for (const token of rawHtmlTokens(body)) {
+    appendRun(token.index);
+    previousEnd = token.end;
+    if (token.type !== 'tag') continue;
+    const tag = token.name;
+    if (token.closing) {
+      const depth = openDepths.get(tag)?.at(-1);
+      if (depth !== undefined) {
+        while (stack.length > depth) {
+          const closed = stack.pop();
+          out[closed].end = token.end;
+          const opened = out[closed].tag;
+          openDepths.get(opened).pop();
         }
       }
       continue;
     }
+    const attrs = tagAttributes(token.text);
+    const attribute = (name) => attrs.find(([key]) => key === name)?.[1] || '';
+    // Raw, undecoded: only read for the simple lowercase-keyword comparisons
+    // below (role, hidden, type). `attributes` is the decoded dict a rule reads.
+    const attrMap = new Map(attrs.map(([key, value]) => [key, value ?? '']));
     const attributes = Object.create(null);
-    for (const attr of attrs.matchAll(/(?:^|\s)([a-z][\w:-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/gi)) {
-      attributes[attr[1].toLowerCase()] = decodeEntities(attr[2] ?? attr[3] ?? attr[4] ?? '');
-    }
-    const classValue = attributes.class ?? attributes.classname ?? '';
+    for (const [key, value] of attrs) attributes[key] = decodeEntities(value ?? '');
+    const classValue = attribute('class') || attribute('classname');
     const parent = stack.length ? stack[stack.length - 1] : -1;
     const el = {
       tag,
+      start: token.index,
+      end: token.end,
       classes: new Set(classValue.trim().split(/\s+/).filter(Boolean)),
-      id: attributes.id?.trim() || null,
+      id: attribute('id').trim() || null,
       parent,
       attributes,
       text: '',
@@ -165,17 +302,23 @@ function markupElements(html) {
       // subtree can be read in the order a person reads it.
       chunks: [],
       style: attributes.style || '',
+      live: hasLiveRegion(attrMap),
+      hidden: attrMap.has('hidden') || (attrMap.get('aria-hidden') || '').toLowerCase() === 'true' ||
+        /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\b/i.test(attrMap.get('style') || ''),
+      inputType: (attrMap.get('type') || '').toLowerCase(),
+      inputValue: decodeEntities(attrMap.get('value') || ''),
       inTable: tag === 'td' || tag === 'th' || (parent >= 0 && out[parent].inTable),
       inCode: CODE_TAGS.has(tag) || (parent >= 0 && out[parent].inCode),
     };
     out.push(el);
-    if (!VOID_TAGS.has(tag) && !/\/\s*$/.test(attrs)) stack.push(out.length - 1);
+    if (!VOID_TAGS.has(tag) && !token.selfClosing) {
+      if (!openDepths.has(tag)) openDepths.set(tag, []);
+      openDepths.get(tag).push(stack.length);
+      stack.push(out.length - 1);
+    }
   }
-  if (stack.length) {
-    const run = body.slice(previousEnd);
-    out[stack[stack.length - 1]].text += run;
-    out[stack[stack.length - 1]].chunks.push([previousEnd, run]);
-  }
+  appendRun(body.length);
+  for (const i of stack) out[i].end = body.length;
   for (const el of out) {
     el.text = decodeEntities(el.text);
     for (const chunk of el.chunks) chunk[1] = decodeEntities(chunk[1]);
@@ -341,6 +484,348 @@ const CHART_CLASS = /(?:^|[-_])(?:chart|graph|plot|sparkline)s?(?:$|[-_\d])/i;
 // is four words of prose and a note beside an Export button is still a note.
 const MUTE_TAGS = new Set(['button', 'input', 'select', 'textarea', 'a']);
 
+// The controls a reader operates. A link is not one of them: a link beside a
+// line does not make the line the link's own feedback.
+const CONTROL_TAGS = new Set(['button', 'input']);
+// A control's own feedback describes that control's action. A nearby Export
+// button does not turn a sentence about saving into Export feedback.
+const ACTION_FEEDBACK = /^(saving|changing|moving|selecting|choosing|submitting|sending|filtering|searching)\b/i;
+const ACTION_ROOT = {
+  saving: 'save', changing: 'change', moving: 'move', selecting: 'select',
+  choosing: 'choose', submitting: 'submit', sending: 'send',
+  filtering: 'filter', searching: 'search',
+};
+
+function isControlFeedback(text, controls) {
+  const verb = ACTION_FEEDBACK.exec(text.trim())?.[1].toLowerCase();
+  const action = ACTION_ROOT[verb];
+  return Boolean(action && controls.some((label) => {
+    const first = label.trim().split(/\s+/)[0].toLowerCase();
+    return first === action || (action === 'save' && first === 'move');
+  }));
+}
+
+function isControlResultFeedback(text, controls) {
+  const result = /^(?:the\s+)?([a-z]+)\s+(.+)$/i.exec(text.trim());
+  if (!result || !controls.some((label) =>
+    label.trim().split(/\s+/)[0].toLowerCase() === result[1].toLowerCase())) return false;
+  const predicate = result[2];
+  if (/^(?:(?:has|is|was)\s+)?(?:(?:now|successfully|been)\s+){0,2}(?:complete|completed|finished|succeeded)\b(?:\s+(?:successfully|without errors|at (?:[a-z]+|\d{1,2}(?::\d{2})?)))?(?=\s+(?:for|with)\b|[.!?]|$)/i.test(predicate)) {
+    return true;
+  }
+  const qualified = /^(for|of)\s+(.+?)\s+(?:(?:has|is|was)\s+)?(?:(?:now|successfully|been)\s+){0,2}(?:complete|completed|finished|succeeded)[.!?]?$/i.exec(predicate);
+  if (!qualified) return false;
+  // A result object can contain nouns such as "reports" and "counts".
+  // A finite verb with its own object instead describes the exported data.
+  const object = qualified[2].replace(/“[^”]*”|"[^"]*"|'[^']*'/g, 'quoted');
+  const words = object.match(/[a-z]+|\d+/gi) || [];
+  const clauseStart = new Set(['which', 'whether', 'when']);
+  const auxiliary = new Set(['is', 'are', 'was', 'were', 'has', 'have', 'had', 'can', 'will']);
+  const nonVerbs = new Set(['this', 'these', 'those', 'its', 'his', 'us', 'as']);
+  const objectBoundary = new Set([
+    'of', 'for', 'from', 'in', 'on', 'at', 'to', 'by', 'with', 'without', 'as',
+    'about', 'across', 'against', 'among', 'around', 'between', 'over', 'under',
+    'within', 'via', 'per', 'near', 'along', 'before', 'after', 'until',
+    'through', 'throughout', 'not', 'yet', 'already', 'marked',
+  ]);
+  for (let i = 1; i < words.length; i++) {
+    const word = words[i].toLowerCase();
+    if (clauseStart.has(word) || (auxiliary.has(word) && words[i] === word)) return false;
+    const scope = words.slice(0, i).join(' ');
+    // A date or view can precede a data verb. A result noun has a different prefix.
+    const scopeSubject = qualified[1].toLowerCase() === 'for' &&
+      (/^[A-Z][a-z]+(?: \d{4})?(?: (?:and|to|through) [A-Z][a-z]+(?: \d{4})?)*$/.test(scope) ||
+        /^Q [1-4](?: \d{4})?$/.test(scope) ||
+        /^(?:today|yesterday|tomorrow|(?:this|that|current) (?:view|table))$/i.test(scope));
+    if (i === words.length - 1) continue;
+    const next = words[i + 1].toLowerCase();
+    if (scopeSubject && word.endsWith('ed') && !objectBoundary.has(next)) return false;
+    if (nonVerbs.has(word) || !word.endsWith('s') || word.endsWith('ss')) continue;
+    if (scopeSubject && ['on', 'about'].includes(next) &&
+      words[i + 2] && (words[i + 3] || /s$/i.test(words[i + 2]))) return false;
+    if (objectBoundary.has(next)) continue;
+    if (next.endsWith('ed') &&
+      (!words[i + 2] || objectBoundary.has(words[i + 2].toLowerCase()))) continue;
+    if (next.endsWith('ing')) {
+      const objectHead = words[i + 2]?.toLowerCase();
+      if (scopeSubject && objectHead && (objectHead.endsWith('s') || objectHead === 'data')) return false;
+      continue;
+    }
+    return false;
+  }
+  return !/\b(?:not|only|already|yet|marked)\s*$/i.test(object);
+}
+
+function isVisible(elements, i) {
+  for (let p = i; p >= 0; p = elements[p].parent) {
+    if (elements[p].hidden) return false;
+  }
+  return true;
+}
+
+function isOperableControl(elements, i) {
+  const el = elements[i];
+  return CONTROL_TAGS.has(el.tag) && isVisible(elements, i) &&
+    !(el.tag === 'input' && el.inputType === 'hidden');
+}
+
+function controlLabel(elements, ends, i) {
+  const el = elements[i];
+  if (el.tag === 'input') {
+    return el.inputType === 'submit' || el.inputType === 'button' ? el.inputValue : '';
+  }
+  const visible = elements.slice(i, ends[i]).filter((child) => {
+    if (child.hidden || child.tag === 'svg') return false;
+    for (let p = child.parent; p >= i; p = elements[p].parent) {
+      if (elements[p].hidden || elements[p].tag === 'svg') return false;
+    }
+    return true;
+  });
+  const chunks = visible.flatMap((child) => child !== el && !INLINE_TAGS.has(child.tag) ?
+    // The closing space precedes direct text at the same source offset.
+    [[child.start, ' '], ...child.chunks, [child.end - 0.5, ' ']] : child.chunks);
+  return joinedText(chunks);
+}
+
+const INLINE_TAGS = new Set([
+  'a', 'abbr', 'b', 'bdi', 'bdo', 'cite', 'code', 'data', 'del', 'dfn', 'em',
+  'i', 'ins', 'kbd', 'label', 'mark', 'meter', 'output', 'q', 'rb', 'rp', 'rt',
+  'rtc', 'ruby', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time',
+  'u', 'var', 'wbr',
+]);
+
+function hasLiveAncestor(elements, from, stop) {
+  for (let p = elements[from].parent; p >= 0; p = elements[p].parent) {
+    if (elements[p].live) return true;
+    if (p === stop) break;
+  }
+  return false;
+}
+
+// Give each fragment the complete visible sentence. Keep its live owner on
+// the fragment so an inline live element cannot reset sentence boundaries.
+function sentenceEvents(events) {
+  const out = [];
+  const offsets = [0];
+  const raw = events.map((event) => {
+    offsets.push(offsets.at(-1) + event.chunk[1].length);
+    return event.chunk[1];
+  }).join('');
+  const starts = [0];
+  for (const match of raw.matchAll(/[.!?]["')”’]?\s+(?=(?:["'“‘(\[]\s*){1,3}[\p{L}\p{N}]|(?:["'“‘(\[]\s*){0,3}[\p{Lu}\p{N}])/gu)) {
+    const prior = raw.slice(Math.max(0, match.index - 12), match.index + 1);
+    if (/(?:^|[\s(])(?:e\.g|i\.e|etc|Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|vs)\.$/i.test(prior)) continue;
+    starts.push(match.index + match[0].length);
+  }
+  const ends = [...starts.slice(1), raw.length];
+  const texts = starts.map((start, index) => raw.slice(start, ends[index])
+    .replace(/\{[^{}]*\}/g, ' ').replace(/\s+/g, ' ').trim());
+  let sentence = 0;
+  for (let k = 0; k < events.length; k++) {
+    const event = events[k];
+    let cursor = offsets[k];
+    while (cursor < offsets[k + 1]) {
+      while (sentence < starts.length - 1 && starts[sentence + 1] <= cursor) sentence++;
+      const end = Math.min(offsets[k + 1], ends[sentence]);
+      out.push({ ...event, pos: event.pos + cursor - offsets[k],
+        chunk: [event.chunk[0] + cursor - offsets[k], raw.slice(cursor, end)],
+        sentenceId: sentence, sentenceText: texts[sentence] });
+      cursor = end;
+    }
+  }
+  return out;
+}
+
+// Keep one identity for each visible line. Each text run also keeps its marker
+// and live scope, so neighboring prose cannot change a marked note.
+function noteLines(elements, ends, kept, controls, isMarked = () => false) {
+  const notes = new Map(); // element index -> line identity -> scoped line
+  const liveSentences = new Map();
+  const visibleLines = [];
+  const eligible = new Set(kept);
+  let nextId = 0;
+  const attach = (owner, record, key = record.id) => {
+    if (!notes.has(owner)) notes.set(owner, new Map());
+    notes.get(owner).set(key, record);
+  };
+  for (const i of kept) {
+    const parent = elements[i].parent;
+    if (INLINE_TAGS.has(elements[i].tag) && eligible.has(parent)) continue;
+    let inLiveRegion = false;
+    for (let p = i; p >= 0; p = elements[p].parent) {
+      if (elements[p].live) {
+        inLiveRegion = true;
+        break;
+      }
+    }
+    const events = [];
+    for (let k = i; k < ends[i]; k++) {
+      if (!eligible.has(k)) continue;
+      let p = k;
+      while (p !== i && (INLINE_TAGS.has(elements[p].tag) || elements[p].tag === 'br')) {
+        p = elements[p].parent;
+      }
+      if (p !== i) {
+        events.push({ pos: elements[p].start, break: true });
+        events.push({ pos: elements[p].end - 0.5, break: true });
+        k = ends[p] - 1;
+        continue;
+      }
+      if (elements[k].tag === 'br') events.push({ pos: elements[k].start, break: true });
+      for (const chunk of elements[k].chunks) events.push({ pos: chunk[0], chunk, owner: k });
+    }
+    events.sort((a, b) => a.pos - b.pos);
+    let line = [];
+    const finish = () => {
+      const content = joinedText(line.map((event) => event.chunk));
+      if (/\p{L}/u.test(content)) {
+        const id = nextId++;
+        visibleLines.push({ id, events: line, inLiveRegion });
+        const scopes = new Map();
+        for (const event of line) {
+          for (let p = event.owner; p >= 0; p = elements[p].parent) {
+            if (!scopes.has(p)) scopes.set(p, []);
+            scopes.get(p).push(event.chunk);
+            if (p === i || (elements[p].live && !hasLiveAncestor(elements, p, i))) break;
+          }
+        }
+        for (const [owner, chunks] of scopes) {
+          const scopedText = joinedText(chunks);
+          // Feedback only empties its own scope. A live inline child must not
+          // empty ordinary text beside it on the same visible line.
+          const feedback = isControlFeedback(scopedText, controls) ||
+            (inLiveRegion && (ACTION_FEEDBACK.test(scopedText) ||
+              isControlResultFeedback(scopedText, controls)));
+          attach(owner, { id, order: line[0].pos, text: feedback ? '' : scopedText, sourceOwner: owner });
+        }
+      }
+      line = [];
+    };
+    for (const event of events) {
+      if (event.break) finish();
+      else line.push(event);
+    }
+    finish();
+  }
+  // A marked run can cross inline siblings and neutral wrappers. Plain words
+  // break it. Whitespace stays in it. Live text starts another scope.
+  for (const { id, events, inLiveRegion } of visibleLines) {
+    const scopedEvents = events.map((event) => {
+      const markers = [];
+      let liveScope = null;
+      const liveOwners = [];
+      for (let p = event.owner; p >= 0; p = elements[p].parent) {
+        if (isMarked(elements[p])) markers.push(p);
+        if (elements[p].live) {
+          if (liveScope === null) liveScope = p;
+          liveOwners.push(p);
+        }
+        if (p === kept[0]) break;
+      }
+      return { ...event, markers, liveScope, liveOwners };
+    });
+    const fragments = sentenceEvents(scopedEvents);
+    const liveText = new Map();
+    for (const event of fragments) {
+      if (!/\S/u.test(event.chunk[1])) continue;
+      if (event.liveScope !== null) {
+        const key = `${event.sentenceId}:${event.liveScope}`;
+        liveText.set(key, (liveText.get(key) || '') + event.chunk[1]);
+      }
+      for (const owner of event.liveOwners) {
+        if (!liveSentences.has(owner)) liveSentences.set(owner, new Set());
+        liveSentences.get(owner).add(`${id}:${event.sentenceId}`);
+      }
+    }
+    let group = [];
+    let gap = [];
+    let groupIndex = 0;
+    const feedbackBySentence = new Map();
+    const finishGroup = () => {
+      if (!group.length) return;
+      const text = joinedText(group.map((event) => event.chunk));
+      const sentence = group[0].sentenceText;
+      let feedback = feedbackBySentence.get(group[0].sentenceId);
+      if (feedback === undefined) {
+        feedback = isControlFeedback(sentence, controls) ||
+          ((group.some((event) => event.liveScope !== null) || inLiveRegion) &&
+            (ACTION_FEEDBACK.test(sentence) || isControlResultFeedback(sentence, controls)));
+        feedbackBySentence.set(group[0].sentenceId, feedback);
+      }
+      const key = `group:${id}:${groupIndex++}`;
+      const owners = new Set(group.flatMap((event) => event.markers));
+      const oneLiveScope = group[0].liveScope !== null &&
+        group.filter((event) => /\S/u.test(event.chunk[1]))
+          .every((event) => event.liveScope === group[0].liveScope);
+      for (const owner of owners) {
+        notes.get(owner)?.delete(id);
+        attach(owner, { id, order: group[0].pos, text: feedback ? '' : text,
+          sourceOwner: oneLiveScope ? group[0].liveScope : owner }, key);
+      }
+      group = [];
+      gap = [];
+    };
+    for (const event of fragments) {
+      if (group.length) {
+        const previous = group.at(-1);
+        // Keep partial live spans in one visible sentence. A complete live line remains separate.
+        const separateLiveLine = event.liveScope !== previous.liveScope &&
+          !event.liveOwners.some((owner) => previous.liveOwners.includes(owner)) &&
+          [event, previous].some((part) => part.liveScope !== null &&
+            /[.!?]["')”’]?\s*$/.test(liveText.get(`${part.sentenceId}:${part.liveScope}`) || ''));
+        if (event.sentenceId !== group[0].sentenceId || separateLiveLine) finishGroup();
+      }
+      if (!/\S/u.test(event.chunk[1])) {
+        if (group.length) gap.push(event);
+        continue;
+      }
+      if (!event.markers.length) {
+        finishGroup();
+        continue;
+      }
+      if (group.length) group.push(...gap);
+      gap = [];
+      group.push(event);
+    }
+    finishGroup();
+  }
+  const lineIds = new Map([...notes].map(([i, records]) =>
+    [i, new Set([...records.values()].map((record) => record.id))]));
+  for (let n = kept.length - 1; n >= 0; n--) {
+    const i = kept[n];
+    const parent = elements[i].parent;
+    if (notes.has(i) && eligible.has(parent)) {
+      if (!notes.has(parent)) notes.set(parent, new Map());
+      if (!lineIds.has(parent)) lineIds.set(parent, new Set());
+      const parentIds = lineIds.get(parent);
+      const copied = [];
+      for (const [key, record] of notes.get(i)) {
+        if (!parentIds.has(record.id) && !notes.get(parent).has(key)) {
+          notes.get(parent).set(key, record);
+          copied.push(record.id);
+        }
+      }
+      for (const id of copied) parentIds.add(id);
+    }
+  }
+  // A single-line live region is feedback. A live wrapper with several lines
+  // cannot exempt every line; matched action feedback already has empty text.
+  return new Map([...notes].map(([i, lines]) => [i,
+    [...lines.values()].sort((a, b) => a.order - b.order)
+      .map((record) => {
+        let live = false;
+        for (let p = record.sourceOwner; p >= 0; p = elements[p].parent) {
+          if (elements[p].live && liveSentences.get(p)?.size === 1) {
+            live = true;
+          } else if (elements[p].live) {
+            live = false;
+            break;
+          }
+        }
+        return { text: record.text, live };
+      })]));
+}
+
 // A wrapper that is a section of the page is not the data: what follows it
 // starts something new rather than annotating it.
 const SECTION_TAGS = new Set(['section', 'nav', 'article', 'aside', 'main', 'header', 'footer', 'form']);
@@ -367,9 +852,10 @@ function dataAbove(elements, lastChildOf, from) {
 // renders and what its subtree holds. A JSX expression is not prose: `{rows.map(
 // (r) => …)}` reaches this as text, and a brace run comes out before the words
 // are counted.
-function blocksUnderData(elements) {
+function blocksUnderData(elements, isMarked) {
   const out = [];
   if (!elements) return out;
+  const ends = subtreeEnds(elements);
   // One map answers both questions asked of it. Read before the write it is the
   // previous sibling of the element in hand; read for an element whose subtree
   // is already behind us it is that element's last child.
@@ -386,10 +872,13 @@ function blocksUnderData(elements) {
     // The candidate and everything prose-bearing under it. A note is often
     // wrapped: `<table/><div><p class="text-muted">…</p></div>` sets the note on
     // the <p>, and reading only the <div> saw no marker at all.
-    const inside = [el];
+    const inside = [i];
+    const basisChunks = el.chunks.slice();
     const muted = new Set();
+    const basisMuted = new Set();
     let heading = false;
     let data = false;
+    const controls = [];
     for (let k = i + 1; k < elements.length; k++) {
       let parent = elements[k].parent;
       while (parent > i) parent = elements[parent].parent;
@@ -397,11 +886,14 @@ function blocksUnderData(elements) {
       const child = elements[k];
       if (/^h[1-6]$/.test(child.tag)) heading = true;
       if (isDataBlock(child)) data = true;
+      if (isOperableControl(elements, k)) controls.push(controlLabel(elements, ends, k));
+      if (MUTE_TAGS.has(child.tag) || basisMuted.has(child.parent)) basisMuted.add(k);
+      else basisChunks.push(...child.chunks);
       if (MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
         muted.add(k);
         continue;
       }
-      inside.push(child);
+      inside.push(k);
       chunks.push(...child.chunks);
     }
     const text = chunks
@@ -413,7 +905,12 @@ function blocksUnderData(elements) {
       .replace(/\{[^{}]*\}/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    out.push({ el, above, text, heading, data, inside, parent: elements[el.parent] || null });
+    const notes = noteLines(elements, ends, inside, controls, isMarked);
+    out.push({ el, above, text, basisText: orderedText(basisChunks), heading, data,
+      inside: inside.flatMap((k) => (notes.get(k) || []).map((note) => ({
+        ...elements[k], live: note.live, noteText: note.text,
+      }))),
+      parent: elements[el.parent] || null });
   }
   return out;
 }
@@ -468,7 +965,7 @@ function subtreeEnds(elements) {
 // head row — `<div class="head"><h2>…</h2><span class="basis">…</span></div>`
 // followed by the table — so the walk leaves a named head row when it runs out of
 // siblings, and nothing else.
-function blocksBesideHeading(elements) {
+function blocksBesideHeading(elements, isMarked) {
   const out = [];
   if (!elements) return out;
   const childrenOf = new Map();
@@ -512,7 +1009,7 @@ function blocksBesideHeading(elements) {
     }
     if (!data || !tail.length || tail.length > ASIDE_MAX) continue;
     const heading = { tag: elements[h].tag, text: subtreeText(elements, ends, h) };
-    for (const j of tail) out.push(asideCandidate(elements, ends, j, heading, data));
+    for (const j of tail) out.push(asideCandidate(elements, ends, j, heading, data, isMarked));
   }
   return out;
 }
@@ -538,59 +1035,87 @@ function orderedText(chunks) {
     .trim();
 }
 
+// Inline tags do not insert a space between letters of one visible word.
+function joinedText(chunks) {
+  return chunks
+    .sort((a, b) => a[0] - b[0])
+    .map((chunk) => chunk[1])
+    .join('')
+    .replace(/\{[^{}]*\}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // A line about the data is a line. Past this many elements it is a block of
 // content, and reading each of its lines separately is quadratic in the subtree:
 // a candidate wrapping 15,000 nested divs took 79 seconds before this bound.
 const ASIDE_MAX_NODES = 40;
 
 // One candidate: the element and everything prose-bearing under it, each with its
-// own text, because the line carrying the marker is the line to measure and to
+// note text, because the line carrying the marker is the line to measure and to
 // report. `<span class="total">12,400 <small>EUR</small></span>` is a total with
 // its unit, and reading the pair as one two-word note fired on `EUR`. Words a
 // reader operates rather than reads come out, and so does a brace run.
-function asideCandidate(elements, ends, i, heading, data) {
+function asideCandidate(elements, ends, i, heading, data, isMarked) {
   const kept = [];
   const muted = new Set();
+  const basisMuted = new Set();
   let nested = LIST_TAGS.has(elements[i].tag) || ends[i] - i > ASIDE_MAX_NODES;
+  const controls = [];
+  const basisChunks = [];
   const stop = Math.min(ends[i], i + ASIDE_MAX_NODES + 1);
   for (let k = i; k < stop; k++) {
     const child = elements[k];
     if (k > i) {
       if (/^h[1-6]$/.test(child.tag) || isDataBlock(child) || LIST_TAGS.has(child.tag)) nested = true;
+      if (isOperableControl(elements, k)) controls.push(controlLabel(elements, ends, k));
+      if (MUTE_TAGS.has(child.tag) || basisMuted.has(child.parent)) basisMuted.add(k);
+      else basisChunks.push(...child.chunks);
       if (MUTE_TAGS.has(child.tag) || muted.has(child.parent)) {
         muted.add(k);
         continue;
       }
     }
+    if (k === i) basisChunks.push(...child.chunks);
     kept.push(k);
   }
-  const inside = kept.map((k) => ({
+  const notes = noteLines(elements, ends, kept, controls, isMarked);
+  const inside = kept.flatMap((k) => (notes.get(k) || []).map((note) => ({
     tag: elements[k].tag,
     classes: elements[k].classes,
+    live: note.live,
+    noteText: note.text,
     text: orderedText(kept.filter((j) => j >= k && j < ends[k]).flatMap((j) => elements[j].chunks)),
-  }));
-  return { heading, data, nested, inside, text: inside[0].text };
+  })));
+  return { heading, data, nested, inside, text: inside[0]?.text || '',
+    basisText: orderedText(basisChunks) };
 }
 
 // Concatenated contents of every <style> block.
 function cssBlocks(html) {
   const blocks = [];
-  const re = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
-  let m;
-  while ((m = re.exec(html)) !== null) blocks.push(m[1]);
+  let start = null;
+  for (const token of rawHtmlTokens(html)) {
+    if (token.type !== 'tag' || token.name !== 'style') continue;
+    if (!token.closing && !token.selfClosing) {
+      start = token.end;
+    } else if (start !== null && token.closing) {
+      blocks.push(html.slice(start, token.index));
+      start = null;
+    }
+  }
   return blocks.join('\n');
 }
 
 // Every <link rel="stylesheet"> href, in document order.
 function stylesheetLinks(html) {
   const out = [];
-  const re = /<link\b[^>]*>/gi;
-  let m;
-  while ((m = re.exec(html)) !== null) {
-    const tag = m[0];
-    if (!/\brel\s*=\s*["']?stylesheet\b/i.test(tag)) continue;
-    const href = /\bhref\s*=\s*["']([^"']+)["']/i.exec(tag);
-    if (href) out.push(href[1]);
+  for (const token of rawHtmlTokens(html)) {
+    if (token.type !== 'tag' || token.closing || token.name !== 'link') continue;
+    const attrs = tagAttributes(token.text);
+    const rel = attrs.find(([name]) => name === 'rel')?.[1] || '';
+    const href = attrs.find(([name]) => name === 'href')?.[1];
+    if (rel.toLowerCase().split(/\s+/).includes('stylesheet') && href) out.push(href);
   }
   return out;
 }
@@ -727,17 +1252,26 @@ function blankLineBetween(offsets, from, to) {
 function stripFences(text, replacement) {
   const out = [];
   let fence = null;
+  const lists = [];
   for (const line of text.split('\n')) {
+    const container = markdownContainer(line, !fence, fence?.quoteDepth ?? Infinity, lists);
+    const blank = /^\s*$/.test(container.body);
+    updateListStack(lists, container, blank);
+    const body = markdownBlockBody(container, lists.at(-1));
+    if (fence && (container.quoteDepth < fence.quoteDepth ||
+      (fence.listOwner && lists[fence.listDepth - 1] !== fence.listOwner))) fence = null;
     if (fence) {
-      if (fence.test(line)) fence = null;
+      if (fence.closing.test(body)) fence = null;
       continue;
     }
-    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(body);
     // A backtick fence's info string cannot itself contain a backtick, so an
     // inline ```span``` sitting on its own line stays prose.
     if (open && !(open[1][0] === '`' && open[2].includes('`'))) {
       const char = open[1][0] === '`' ? '\\`' : '~';
-      fence = new RegExp(`^ {0,3}${char}{${open[1].length},}\\s*$`);
+      fence = { closing: new RegExp(`^ {0,3}${char}{${open[1].length},}\\s*$`),
+        quoteDepth: container.quoteDepth, listDepth: lists.length,
+        listOwner: lists.at(-1) || null };
       out.push(replacement);
       continue;
     }
@@ -749,7 +1283,7 @@ function stripFences(text, replacement) {
 // Inline code spans. A run of N backticks opens one and only a run of exactly N
 // closes it; a run that finds no partner is literal text, and the run after it
 // is free to open a span of its own.
-function stripCodeSpans(text, replacement) {
+function stripCodeSpans(text, replacement, protectedRanges = [], onSpan = null) {
   const runs = [];
   for (let i = 0; i < text.length; i++) {
     if (text[i] !== '`') continue;
@@ -773,8 +1307,15 @@ function stripCodeSpans(text, replacement) {
   let out = '';
   let copied = 0;
   let k = 0;
+  let rangeIndex = 0;
   while (k < runs.length) {
     const open = runs[k];
+    while (protectedRanges[rangeIndex]?.end <= open.start) rangeIndex++;
+    // A tag protects an opener, but an earlier code span can close inside it.
+    if (protectedRanges[rangeIndex]?.start <= open.start || markdownEscaped(text, open.start)) {
+      k++;
+      continue;
+    }
     const peers = byLen.get(open.len);
     let c = cursor.get(open.len) || 0;
     while (c < peers.length && peers[c] <= k) c++;
@@ -784,6 +1325,7 @@ function stripCodeSpans(text, replacement) {
       k++; // no partner inside this paragraph — the run is literal text
       continue;
     }
+    if (onSpan) onSpan(open.start, close.start + close.len);
     out += text.slice(copied, open.start) + replacement;
     copied = close.start + close.len;
     cursor.set(open.len, c + 1);
@@ -798,23 +1340,952 @@ function withoutMarkdownCode(source) {
   return stripCodeSpans(stripFences(source, ' '), ' ');
 }
 
+// Match CommonMark raw HTML tags. An attribute starts with an ASCII name and
+// has a valid quoted or unquoted value. Invalid angle text stays visible.
+const MARKDOWN_TAG = /<(?:\/[a-z][a-z0-9-]*[ \t\n]*|[a-z][a-z0-9-]*(?:[ \t\n]+[a-z_:][a-z0-9:._-]*(?:[ \t\n]*=[ \t\n]*(?:"[^"]*"|'[^']*'|[^ \t\n"'=<>`]+))?)*[ \t\n]*\/?)>/gi;
+// HTML ignores the slash flag on non-void elements. Unknown component and
+// foreign tag names retain the detector's self-closing syntax.
+const NON_VOID_HTML = new Set(('a abbr address article aside audio b bdi bdo blockquote body button ' +
+  'canvas caption cite code colgroup data datalist dd del details dfn dialog div dl dt em fieldset ' +
+  'figcaption figure footer form h1 h2 h3 h4 h5 h6 head header hgroup html i iframe ins kbd label ' +
+  'legend li main map mark menu meter nav noscript object ol optgroup option output p picture pre ' +
+  'progress q rp rt ruby s samp script search section select slot small span strong style sub ' +
+  'summary sup table tbody td template textarea tfoot th thead time title tr u ul var video').split(' '));
+
+function selfClosingTag(text, foreign = false) {
+  const name = /^<\/?([a-z][a-z0-9-]*)/i.exec(text)?.[1];
+  if (!foreign && name && NON_VOID_HTML.has(name.toLowerCase())) return false;
+  let state = 'name';
+  let quote = null;
+  let slash = false;
+  for (const char of text) {
+    if (state === 'quoted') {
+      if (char === quote) state = 'beforeName';
+      continue;
+    }
+    if (char === '>') return slash && state !== 'unquoted';
+    const space = /[ \t\n\f\r]/.test(char);
+    if (state === 'beforeValue') {
+      if (space) continue;
+      if (char === '"' || char === "'") {
+        quote = char;
+        state = 'quoted';
+      } else state = 'unquoted';
+    } else if (state === 'unquoted') {
+      if (space) state = 'beforeName';
+    } else if (char === '=') state = 'beforeValue';
+    else if (space) state = 'beforeName';
+    else state = 'name';
+    if (!space) slash = char === '/' && state !== 'unquoted';
+  }
+  return false;
+}
+
+const FOREIGN_BREAKOUT = new Set(('b big blockquote body br center code dd div dl dt em embed ' +
+  'h1 h2 h3 h4 h5 h6 head hr i img li listing menu meta nobr ol p pre ruby s small span strong ' +
+  'strike sub sup table tt u ul var').split(' '));
+
+// Track namespace boundaries needed for slash flags, not a browser tree.
+function selfClosingContext(component = false) {
+  const scopes = [];
+  const positions = new Map();
+  const pop = () => {
+    const scope = scopes.pop();
+    if (scope.previous === undefined) positions.delete(scope.name);
+    else positions.set(scope.name, scope.previous);
+  };
+  return (text, paragraphBreak = false) => {
+    if (paragraphBreak) {
+      scopes.length = 0;
+      positions.clear();
+    }
+    const match = /^<(\/?)([a-z][a-z0-9-]*)/i.exec(text);
+    const name = match[2].toLowerCase();
+    const closing = Boolean(match[1]);
+    let parent = scopes.at(-1)?.namespace || 'html';
+    const breakout = closing ? name === 'br' || name === 'p' : FOREIGN_BREAKOUT.has(name) ||
+      (name === 'font' && tagAttributes(text).some(([attr]) => ['color', 'face', 'size'].includes(attr)));
+    if (parent !== 'html' && breakout) {
+      while (scopes.length && scopes.at(-1).namespace !== 'html') pop();
+      parent = 'html';
+    }
+    const root = name === 'svg' || name === 'math';
+    const integration = parent === 'svg' ? ['foreignobject', 'desc', 'title'].includes(name) :
+      parent === 'math' && (['mi', 'mo', 'mn', 'ms', 'mtext'].includes(name) ||
+        (name === 'annotation-xml' && /^(?:text\/html|application\/xhtml\+xml)$/i.test(
+          decodeEntities(tagAttributes(text).find(([attr]) => attr === 'encoding')?.[1] || ''))));
+    const foreign = component || root || parent !== 'html';
+    const closes = selfClosingTag(text, foreign);
+    if (closing) {
+      const index = positions.get(name);
+      if (index !== undefined) while (scopes.length > index) pop();
+    } else if (!closes && (root || integration)) {
+      const previous = positions.get(name);
+      positions.set(name, scopes.length);
+      scopes.push({ name, namespace: root ? name : 'html', previous });
+    }
+    return closes;
+  };
+}
+
+// Consume each closing candidate once. A greater-than inside a quoted attribute
+// does not finish the token, and an unfinished quote consumes the remaining text.
+function rawClosingTag(source, from, name) {
+  let cursor = from;
+  const prefix = `</${name}`;
+  while ((cursor = source.indexOf('</', cursor)) !== -1) {
+    if (source.slice(cursor, cursor + prefix.length).toLowerCase() !== prefix ||
+      !/[ \t\n\f\r/>]/.test(source[cursor + prefix.length] || '')) {
+      cursor += 2;
+      continue;
+    }
+    let end = cursor + prefix.length;
+    let state = 'beforeName';
+    let quote = null;
+    for (; end < source.length; end++) {
+      const char = source[end];
+      const space = /[ \t\n\f\r]/.test(char);
+      if (state === 'quoted') {
+        if (char === quote) state = 'beforeName';
+        continue;
+      }
+      if (char === '>') return { index: cursor, end: end + 1,
+        text: source.slice(cursor, end + 1) };
+      if (state === 'beforeValue') {
+        if (space) continue;
+        if (char === '"' || char === "'") {
+          quote = char;
+          state = 'quoted';
+        } else state = 'unquoted';
+      } else if (state === 'unquoted') {
+        if (space) state = 'beforeName';
+      } else if (char === '=' && state !== 'beforeName') state = 'beforeValue';
+      else if (space) {
+        if (state === 'name') state = 'afterName';
+      } else if (char !== '/') state = 'name';
+    }
+    return null;
+  }
+  return null;
+}
+// Scan one immutable region. Offsets include newlines inside attributes.
+function scanRawHtml(source, initialRaw = null, component = false) {
+  const selfCloses = selfClosingContext(component);
+  let cursor = 0;
+  let mode = initialRaw === 'comment' ? 'comment' : initialRaw ? 'rawtext' : 'data';
+  let start = 0;
+  let quote = null;
+  let attributeState = 'name';
+  let commentOpenedHere = false;
+  let rawName = initialRaw === 'comment' ? null : initialRaw;
+  const tokens = [];
+  const emit = (type, end) => {
+    const token = { type, index: start, end, text: source.slice(start, end) };
+    if (type === 'tag') {
+      const head = /^<(\/?)([a-z][a-z0-9-]*)/i.exec(token.text);
+      token.name = head[2].toLowerCase();
+      token.closing = Boolean(head[1]);
+      token.selfClosing = selfCloses(token.text);
+    }
+    tokens.push(token);
+    cursor = end;
+    mode = 'data';
+  };
+  while (cursor < source.length) {
+    if (mode === 'data') {
+      const next = source.indexOf('<', cursor);
+      if (next === -1) break;
+      if (source.startsWith('<!--', next)) {
+        start = next;
+        cursor = next + 4;
+        commentOpenedHere = true;
+        mode = 'comment';
+        continue;
+      }
+      const nameStart = next + (source[next + 1] === '/' ? 2 : 1);
+      if (!/[a-z]/i.test(source[nameStart] || '')) { cursor = next + 1; continue; }
+      start = next;
+      cursor = nameStart + 1;
+      quote = null;
+      attributeState = 'name';
+      mode = 'tag';
+      continue;
+    }
+    if (mode === 'tag') {
+      while (cursor < source.length) {
+        const char = source[cursor++];
+        if (quote) {
+          if (char === quote) quote = null;
+        } else if (char === '>') {
+          emit('tag', cursor);
+          const opened = tokens[tokens.length - 1];
+          if (!opened.closing && !opened.selfClosing &&
+            ['script', 'style', 'textarea'].includes(opened.name)) {
+            rawName = opened.name;
+            mode = 'rawtext';
+          }
+          break;
+        } else if (attributeState === 'beforeValue') {
+          if (/[ \t\n\f\r]/.test(char)) continue;
+          if (char === '"' || char === "'") {
+            quote = char;
+            attributeState = 'beforeName';
+          } else attributeState = 'unquoted';
+        } else if (attributeState === 'unquoted') {
+          if (/[ \t\n\f\r]/.test(char)) attributeState = 'beforeName';
+        } else if (char === '=' && attributeState !== 'beforeName') attributeState = 'beforeValue';
+        else if (/[ \t\n\f\r]/.test(char)) {
+          if (attributeState === 'name') attributeState = 'afterName';
+        } else if (char !== '/') attributeState = 'name';
+      }
+      continue;
+    }
+    if (mode === 'comment') {
+      const shortEnd = !commentOpenedHere ? null : source[start + 4] === '>' ? start + 5 :
+        source[start + 4] === '-' && source[start + 5] === '>' ? start + 6 : null;
+      if (shortEnd !== null) {
+        emit('comment', shortEnd);
+        continue;
+      }
+      const close = /--!?>/g;
+      close.lastIndex = cursor;
+      const match = close.exec(source);
+      if (match) emit('comment', match.index + match[0].length);
+      else break;
+      continue;
+    }
+    const match = rawClosingTag(source, cursor, rawName);
+    if (match) {
+      start = match.index;
+      emit('tag', match.end);
+      rawName = null;
+    } else break;
+  }
+  const openRaw = mode === 'comment' ? 'comment' : rawName;
+  if (mode === 'comment') emit('comment', source.length);
+  return { tokens, openRaw };
+}
+
+function rawHtmlTokens(source) {
+  return scanRawHtml(source).tokens;
+}
+function markdownEscaped(source, offset) {
+  let slashes = 0;
+  while (source[offset - slashes - 1] === '\\') slashes++;
+  return slashes % 2 === 1;
+}
+
+const MARKDOWN_TAG_AT = new RegExp(MARKDOWN_TAG.source, 'iy');
+
+function inlineProtectedRanges(source) {
+  const ranges = [];
+  const blanks = blankLineOffsets(source);
+  let cursor = 0;
+  let noLongCommentClose = false;
+  while ((cursor = source.indexOf('<', cursor)) !== -1) {
+    if (markdownEscaped(source, cursor)) { cursor++; continue; }
+    if (source.startsWith('<!--', cursor)) {
+      const shortEnd = source[cursor + 4] === '>' ? cursor + 5 :
+        source[cursor + 4] === '-' && source[cursor + 5] === '>' ? cursor + 6 : null;
+      const longEnd = shortEnd || noLongCommentClose ? -1 :
+        source.indexOf('-->', cursor + 4);
+      if (longEnd === -1 && !shortEnd) noLongCommentClose = true;
+      const close = shortEnd || (longEnd === -1 ? null : longEnd + 3);
+      if (close && close > cursor + 4 && !blankLineBetween(blanks, cursor + 4, close)) {
+        ranges.push({ start: cursor, end: close });
+        cursor = close;
+        continue;
+      }
+    }
+    MARKDOWN_TAG_AT.lastIndex = cursor;
+    const match = MARKDOWN_TAG_AT.exec(source);
+    if (match && !/\n[ \t]*\n/.test(match[0])) {
+      ranges.push({ start: cursor, end: cursor + match[0].length });
+      cursor += match[0].length;
+    } else cursor++;
+  }
+  return ranges;
+}
+
+function codeSpanCandidates(source) {
+  const lengths = new Map();
+  const byLength = new Map();
+  for (let i = 0; i < source.length; i++) {
+    if (source[i] !== '`') continue;
+    let length = 1;
+    while (source[i + length] === '`') length++;
+    lengths.set(i, length);
+    if (!byLength.has(length)) byLength.set(length, []);
+    byLength.get(length).push(i);
+    i += length - 1;
+  }
+  const cursors = new Map();
+  const blanks = blankLineOffsets(source);
+  return (start) => {
+    const length = lengths.get(start);
+    const peers = byLength.get(length);
+    let cursor = cursors.get(length) || 0;
+    while (cursor < peers.length && peers[cursor] <= start) cursor++;
+    cursors.set(length, cursor);
+    const close = peers[cursor];
+    return close !== undefined && !blankLineBetween(blanks, start + length, close) ?
+      close + length : null;
+  };
+}
+
+// The next token owns its complete source range. A spelling inside a comment
+// or raw-text element cannot open another element or a Markdown code span.
+function markdownInlineTags(source, initialRaw = null) {
+  const selfCloses = selfClosingContext();
+  const tags = [];
+  const blanks = blankLineOffsets(source);
+  const tokens = [];
+  const textareaRanges = [];
+  const codeRanges = [];
+  const commentEnds = [...source.matchAll(/--!?>/g)].map((match) => ({
+    index: match.index, end: match.index + match[0].length, spelling: match[0],
+  }));
+  let commentCursor = 0;
+  const nextInlineCommentEnd = (from) => {
+    while (commentEnds[commentCursor] && (commentEnds[commentCursor].index < from ||
+      commentEnds[commentCursor].spelling !== '-->')) commentCursor++;
+    return commentEnds[commentCursor];
+  };
+  let cursor = 0;
+  let rawName = initialRaw;
+  let rawStart = initialRaw ? 0 : null;
+  let rawContentStart = initialRaw === 'textarea' ? 0 : null;
+  const nextCodeSpan = codeSpanCandidates(source);
+  let nextTag = -2;
+  let nextTick = -2;
+  let rawCodeRanges = null;
+  let rawCodeCursor = 0;
+  let previousTagEnd = 0;
+  const addTag = (text, index) => {
+    const match = Object.assign([text], { index });
+    tags.push(match);
+    const selfClosing = selfCloses(text, blankLineBetween(blanks, previousTagEnd, index));
+    tokens.push({ type: 'tag', index, end: index + text.length, text, selfClosing });
+    previousTagEnd = index + text.length;
+  };
+  while (cursor < source.length) {
+    if (rawName) {
+      if (rawName === 'comment') {
+        const close = nextInlineCommentEnd(cursor);
+        if (!close) break;
+        const finish = close.end;
+        tokens.push({ type: 'comment', index: rawStart, end: finish,
+          text: source.slice(rawStart, finish) });
+        commentCursor++;
+        cursor = finish;
+        rawName = null;
+        rawStart = null;
+        continue;
+      }
+      if (rawCodeRanges === null) {
+        rawCodeRanges = [];
+        if (source.includes('`')) {
+          const protectedRanges = inlineProtectedRanges(source);
+          stripCodeSpans(source, ' ', protectedRanges, (start, end) => {
+            rawCodeRanges.push({ start, end });
+          });
+        }
+      }
+      // Rejected Markdown angle text owns no token. Search plain closes
+      // directly so an inner valid close remains available.
+      const closing = new RegExp(`</${rawName}[ \\t\\n\\f\\r]*>`, 'gi');
+      closing.lastIndex = cursor;
+      let match = null;
+      let candidate;
+      while ((candidate = closing.exec(source)) !== null) {
+        while (rawCodeRanges[rawCodeCursor]?.end <= candidate.index) rawCodeCursor++;
+        // Inline Markdown accepts only a plain closing tag. Raw HTML blocks
+        // use browser recovery and can accept attributes or a trailing slash.
+        if (!markdownEscaped(source, candidate.index) &&
+          !(rawCodeRanges[rawCodeCursor]?.start <= candidate.index)) {
+          match = { index: candidate.index, end: closing.lastIndex, text: candidate[0] };
+          break;
+        }
+      }
+      if (!match) break;
+      const finish = match.end;
+      if (rawName === 'textarea') textareaRanges.push({ start: rawContentStart, end: match.index });
+      addTag(match.text, match.index);
+      cursor = finish;
+      rawName = null;
+      rawStart = null;
+      rawContentStart = null;
+      continue;
+    }
+    if (nextTag === -2 || (nextTag !== -1 && nextTag < cursor)) {
+      nextTag = source.indexOf('<', cursor);
+    }
+    if (nextTick === -2 || (nextTick !== -1 && nextTick < cursor)) {
+      nextTick = source.indexOf('`', cursor);
+    }
+    if (nextTick !== -1 && (nextTag === -1 || nextTick < nextTag)) {
+      let length = 1;
+      while (source[nextTick + length] === '`') length++;
+      const end = !markdownEscaped(source, nextTick) ? nextCodeSpan(nextTick) : null;
+      if (end !== null) {
+        codeRanges.push({ start: nextTick, end });
+        cursor = end;
+      } else cursor = nextTick + length;
+      continue;
+    }
+    const next = nextTag;
+    if (next === -1) break;
+    if (markdownEscaped(source, next)) { cursor = next + 1; continue; }
+    if (source.startsWith('<!--', next)) {
+      const shortEnd = source[next + 4] === '>' ? next + 5 :
+        source[next + 4] === '-' && source[next + 5] === '>' ? next + 6 : null;
+      if (shortEnd !== null) {
+        tokens.push({ type: 'comment', index: next, end: shortEnd,
+          text: source.slice(next, shortEnd) });
+        cursor = shortEnd;
+        continue;
+      }
+      const close = nextInlineCommentEnd(next + 4);
+      if (close && !blankLineBetween(blanks, next + 4, close.end)) {
+        const finish = close.end;
+        tokens.push({ type: 'comment', index: next, end: finish,
+          text: source.slice(next, finish) });
+        commentCursor++;
+        cursor = finish;
+        continue;
+      }
+      cursor = next + 4;
+      continue;
+    }
+    MARKDOWN_TAG_AT.lastIndex = next;
+    const match = MARKDOWN_TAG_AT.exec(source);
+    if (!match || /\n[ \t]*\n/.test(match[0])) { cursor = next + 1; continue; }
+    addTag(match[0], next);
+    const opening = /^<(script|style|textarea)(?=[\s/>])/i.exec(match[0]);
+    if (opening && !tokens.at(-1).selfClosing) {
+      rawName = opening[1].toLowerCase();
+      rawStart = next;
+      rawContentStart = next + match[0].length;
+    }
+    cursor = next + match[0].length;
+  }
+  if (rawName) {
+    if (rawName === 'textarea') textareaRanges.push({ start: rawContentStart, end: source.length });
+    if (rawName === 'comment') tokens.push({ type: 'comment', index: rawStart,
+      end: source.length, text: source.slice(rawStart) });
+  }
+  return { tags, tokens, textareaRanges, codeRanges, openRaw: rawName };
+}
+
+function markdownTagMatches(source, rawHtml = false, tokens = null) {
+  if (tokens || rawHtml) return (tokens || rawHtmlTokens(source)).filter((token) => token.type === 'tag')
+    .map((token) => Object.assign([token.text], { index: token.index }));
+  return markdownInlineTags(source).tags;
+}
+
+function stripMarkdownTags(source, rawHtml = false, tokens = null) {
+  const pieces = [];
+  let copied = 0;
+  for (const match of markdownTagMatches(source, rawHtml, tokens)) {
+    pieces.push(source.slice(copied, match.index), ' ');
+    copied = match.index + match[0].length;
+  }
+  pieces.push(source.slice(copied));
+  return pieces.join('');
+}
+
+function markdownAttributeRuns(source, rawHtml = false, tokens = null) {
+  if (rawHtml) return attrTextRuns(source, tokens || rawHtmlTokens(source));
+  return attrTextRuns(markdownTagMatches(source, false, tokens).map((match) => match[0]).join(' '));
+}
+
+function markdownVisibleRuns(source, html, tokens = null) {
+  const boundary = html ? BLOCK_ELEMENT : NON_MARKUP_BOUNDARY;
+  const runs = [];
+  const pieces = [];
+  let copied = 0;
+  const finish = () => {
+    let text = pieces.join('');
+    if (!html) text = markdownLinkLabels(text.replace(/^\s{0,3}#{1,6}\s+/, '')
+      .replace(/^\s{0,3}[-*+]\s+/, ''));
+    text = decodeEntities(text, { markdownEscapes: !html }).replace(/\s+/g, ' ').trim();
+    if (text) runs.push(text);
+    pieces.length = 0;
+  };
+  for (const match of markdownTagMatches(source, html, tokens)) {
+    pieces.push(source.slice(copied, match.index));
+    if (boundary.test(match[0])) finish();
+    else pieces.push(' ');
+    copied = match.index + match[0].length;
+  }
+  pieces.push(source.slice(copied));
+  finish();
+  return runs;
+}
+
+// A tag's quoted backticks are HTML data. Code spans still remove complete
+// Markdown spans, including tags written inside those spans.
+function withoutMarkdownCodeAroundHtml(source, initialRaw = null) {
+  // Region classification has already masked fences with their container context.
+  const { codeRanges } = markdownInlineTags(source, initialRaw);
+  return maskSourceRanges(source, codeRanges);
+}
+
+function maskSourceRanges(source, ranges) {
+  const ordered = ranges.sort((a, b) => a.start - b.start);
+  const pieces = [];
+  let copied = 0;
+  for (const range of ordered) {
+    if (range.end <= copied) continue;
+    const start = Math.max(copied, range.start);
+    pieces.push(source.slice(copied, start),
+      source.slice(start, range.end).replace(/[^\n]/g, ' '));
+    copied = range.end;
+  }
+  pieces.push(source.slice(copied));
+  return pieces.join('');
+}
+
+// Both region types use the same ordered tag and comment events. The active
+// HTML exclusion survives a Markdown block boundary while reference policy changes.
+function stripMarkdownHidden(source, rawHtml, sourceTokens = null, openHidden = null) {
+  const tokens = sourceTokens || (rawHtml ? rawHtmlTokens(source) : markdownInlineTags(source).tokens);
+  const ranges = [];
+  let hidden = openHidden;
+  let start = hidden ? 0 : null;
+  let after = 0;
+  if (hidden === 'comment') {
+    const close = tokens.find((token) => token.type === 'comment' && token.index === 0 &&
+      (rawHtml ? /--!?>$/.test(token.text) : token.text.endsWith('-->')));
+    if (!close) return { text: maskSourceRanges(source,
+      [{ start: 0, end: source.length }]), hidden };
+    after = close.end;
+    ranges.push({ start: 0, end: after });
+    hidden = null;
+    start = null;
+  }
+  for (const token of tokens) {
+    if (token.index < after) continue;
+    if (hidden) {
+      const closing = token.type === 'tag' &&
+        /^<\/(script|style|code|pre)(?=[ \t\n\f\r/>])/i.exec(token.text);
+      if (closing && closing[1].toLowerCase() === hidden) {
+        ranges.push({ start, end: token.end });
+        hidden = null;
+        start = null;
+      }
+      continue;
+    }
+    if (token.type === 'comment') {
+      ranges.push({ start: token.index, end: token.end });
+      if (rawHtml && !/(?:-->|--!>|<!-->|<!--->)$/.test(token.text)) {
+        hidden = 'comment';
+        start = token.index;
+      }
+      continue;
+    }
+    const opening = /^<(script|style|code|pre)(?=[\s/>])/i.exec(token.text);
+    if (opening && !token.selfClosing) {
+      hidden = opening[1].toLowerCase();
+      start = token.index;
+    }
+  }
+  if (hidden && hidden !== 'comment') ranges.push({ start, end: source.length });
+  return { text: maskSourceRanges(source, ranges), hidden };
+}
+
+// Type 6 block tags can interrupt a paragraph. A complete tag on its own line
+// starts type 7 only after a paragraph boundary. Output is not a type 6 tag.
+const MARKDOWN_HTML_BLOCK = /^ {0,3}<\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?=[\s/>]|$)/i;
+const MARKDOWN_HTML_TAG_LINE = new RegExp(`^ {0,3}${MARKDOWN_TAG.source}\\s*$`, 'i');
+const MARKDOWN_SPECIAL_BLOCK = /^ {0,3}<(script|pre|style|textarea)(?=[\s>]|$)/i;
+function markdownContainer(line, parseList = true, maxQuoteDepth = Infinity, lists = []) {
+  // Structural columns use four-column tab stops. Keep source offsets for
+  // attribute text and masks, including tabs partly consumed by a prefix.
+  let expanded = line;
+  let offsets = null;
+  if (line.includes('\t')) {
+    expanded = '';
+    offsets = [];
+    for (let index = 0; index < line.length; index++) {
+      const width = line[index] === '\t' ? 4 - expanded.length % 4 : 1;
+      for (let column = 0; column < width; column++) offsets.push(index);
+      expanded += line[index] === '\t' ? ' '.repeat(width) : line[index];
+    }
+    offsets.push(line.length);
+  }
+  let body = expanded;
+  let quoteDepth = 0;
+  let list = false;
+  const listItems = [];
+  let markerValue = null;
+  let markerIndent = 0;
+  let listQuoteDepth = 0;
+  let indent = 0;
+  const indents = [];
+  let quotesAfterList = false;
+  while (true) {
+    const leading = /^ */.exec(body)[0].length;
+    indent = Math.max(indent, leading);
+    indents[quoteDepth] ??= leading;
+    const containerIndentAllowed = leading <= 3 || lists.some((owner) =>
+      owner.quoteDepth === quoteDepth && leading >= owner.contentIndent &&
+      leading - owner.contentIndent <= 3);
+    const quote = containerIndentAllowed && /^ *>[ \t]?/.exec(body);
+    if (quote && quoteDepth < maxQuoteDepth) {
+      body = body.slice(quote[0].length);
+      quoteDepth++;
+      if (list) quotesAfterList = true;
+      continue;
+    }
+    const marker = parseList && containerIndentAllowed &&
+      /^ *([-+*]|\d{1,9}[.)])(?:[ \t]+|$)/.exec(body);
+    if (marker) {
+      if (!list) {
+        markerValue = marker[1];
+        markerIndent = leading;
+        listQuoteDepth = quoteDepth;
+      }
+      list = true;
+      const parent = listItems.findLast((item) => item.quoteDepth === quoteDepth);
+      const prefix = leading + marker[1].length;
+      const spaces = marker[0].length - prefix;
+      const width = body.slice(marker[0].length).trim() && spaces <= 4 ?
+        marker[0].length : prefix + 1;
+      listItems.push({ quoteDepth, contentIndent: (parent?.contentIndent || 0) + width });
+      body = body.slice(width);
+      continue;
+    }
+    break;
+  }
+  const blockOffset = expanded.length - body.length;
+  return { body: line.slice(offsets?.[blockOffset] ?? blockOffset), blockBody: body,
+    source: line, offsets, blockOffset, quoteDepth, list, listItems, marker: markerValue,
+    quotesAfterList, listQuoteDepth, indent, indents, markerIndent };
+}
+
+function retainedListDepth(lists, container, blank) {
+  if (blank && !container.list) return lists.length;
+  // Losing an outer owner also ends every item nested inside it.
+  const ended = lists.findIndex((owner) => {
+    const indent = container.list && container.listQuoteDepth === owner.quoteDepth ?
+      container.markerIndent : (container.indents[owner.quoteDepth] || 0);
+    return container.quoteDepth < owner.quoteDepth || indent < owner.contentIndent;
+  });
+  return ended === -1 ? lists.length : ended;
+}
+
+function updateListStack(lists, container, blank) {
+  lists.length = retainedListDepth(lists, container, blank);
+  lists.push(...container.listItems);
+}
+
+function markdownBlockBody(container, owner, preserveSource = false) {
+  const body = container.blockBody;
+  const indent = !container.list && owner?.quoteDepth === container.quoteDepth ? owner.contentIndent : 0;
+  const available = /^ */.exec(body)[0].length;
+  const removed = container.indent >= indent ? Math.min(indent, available) : 0;
+  const offset = container.blockOffset + removed;
+  return preserveSource ? container.source.slice(container.offsets?.[offset] ?? offset) : body.slice(removed);
+}
+
+// Decide block boundaries on the original source. Removing backticks first can
+// turn inline HTML into a false block and can erase HTML attribute values.
+function markdownRegions(source) {
+  const regions = [];
+  let kind = 'markdown';
+  let lines = [];
+  let endMarker = null;
+  let quoteDepth = 0;
+  let inList = false;
+  let listDepth = 0;
+  let listOwner = null;
+  const lists = [];
+  let paragraphOpen = false;
+  let paragraphQuoteDepth = 0;
+  let paragraphOuterList = false;
+  let paragraphListOwner = null;
+  let fence = null;
+  let regionStart = 0;
+  let nextLineStart = 0;
+  const pushLine = (text, lineStart) => {
+    if (!lines.length) regionStart = lineStart;
+    lines.push(text);
+  };
+  const flush = () => {
+    if (lines.length) {
+      const text = lines.join('\n');
+      regions.push({ kind, text, start: regionStart, end: regionStart + text.length });
+    }
+    lines = [];
+  };
+  for (const line of source.split('\n')) {
+    const lineStart = nextLineStart;
+    nextLineStart += line.length + 1;
+    let container = markdownContainer(line, kind !== 'html' && !fence,
+      fence?.quoteDepth ?? Infinity, lists);
+    // Sibling items end the owning item. Only a new list must satisfy the
+    // paragraph interruption rule, including numeric 01 and nonempty content.
+    const sibling = paragraphListOwner && container.list &&
+      container.listQuoteDepth === paragraphListOwner.quoteDepth &&
+      container.markerIndent < paragraphListOwner.contentIndent;
+    if (paragraphOpen && container.quoteDepth === paragraphQuoteDepth &&
+      container.list && !sibling && (/^\s*$/.test(container.body) ||
+      (/^\d/.test(container.marker) && Number.parseInt(container.marker, 10) !== 1))) {
+      container = markdownContainer(line, false, Infinity, lists);
+    }
+    const blank = /^\s*$/.test(container.body);
+    // Classify the line before changing owners. A lazy continuation keeps
+    // the existing stack without copying it or restoring removed entries.
+    const retainedDepth = retainedListDepth(lists, container, blank);
+    const nextOwner = container.listItems.at(-1) || lists[retainedDepth - 1];
+    const blockBody = markdownBlockBody(container, nextOwner);
+    if (kind === 'html' && ((endMarker === null && blank) ||
+      container.quoteDepth < quoteDepth ||
+      (inList && (retainedDepth < listDepth || lists[listDepth - 1] !== listOwner)))) {
+      flush();
+      kind = 'markdown';
+      endMarker = null;
+      paragraphOpen = false;
+    }
+    let continuation = false;
+    const startedAsHtml = kind === 'html';
+    if (kind === 'markdown') {
+      const openingFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(blockBody);
+      const opensFence = openingFence &&
+        !(openingFence[1][0] === '`' && openingFence[2].includes('`'));
+      const atx = /^ {0,3}#{1,6}(?:[ \t]|$)/.test(blockBody);
+      const thematic = /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/.test(blockBody);
+      const ownsUnderline = container.quoteDepth === paragraphQuoteDepth &&
+        (!paragraphListOwner || (retainedDepth === lists.length &&
+          lists.at(-1) === paragraphListOwner && !container.list));
+      const setext = paragraphOpen && ownsUnderline && /^ {0,3}(?:=+|-+)[ \t]*$/.test(blockBody);
+      // A missing quote marker can continue the open paragraph. A true block
+      // start still ends it, even when that line has no quote marker.
+      const lazyQuote = paragraphOpen && container.quoteDepth < paragraphQuoteDepth &&
+        !container.list && !atx && !thematic && !setext && !blank && !opensFence &&
+        !MARKDOWN_HTML_BLOCK.test(blockBody) && !MARKDOWN_SPECIAL_BLOCK.test(blockBody);
+      const effectiveQuoteDepth = lazyQuote ? paragraphQuoteDepth : container.quoteDepth;
+      const outerListEnded = paragraphOuterList && paragraphListOwner !== nextOwner &&
+        container.quoteDepth > 0;
+      const startsLeaf = container.list ||
+        effectiveQuoteDepth !== paragraphQuoteDepth || outerListEnded || atx || thematic;
+      continuation = paragraphOpen && !startsLeaf && !blank && !setext && !opensFence;
+      // Lazy paragraph lines retain their list owners for later owned lines.
+      if (!(continuation && !MARKDOWN_HTML_BLOCK.test(blockBody) &&
+        !MARKDOWN_SPECIAL_BLOCK.test(blockBody) && !/^ {0,3}<!--/.test(blockBody))) {
+        lists.length = retainedDepth;
+        lists.push(...container.listItems);
+      }
+      if (lines.length && startsLeaf && !fence) {
+        flush();
+        paragraphOpen = false;
+      }
+      if (fence && (container.quoteDepth < fence.quoteDepth ||
+        (fence.listOwner && lists[fence.listDepth - 1] !== fence.listOwner))) fence = null;
+      if (fence) {
+        // Keep offsets while removing code before regions lose their list context.
+        pushLine(' '.repeat(line.length), lineStart);
+        if (fence.closing.test(blockBody)) fence = null;
+        paragraphOpen = false;
+        continue;
+      }
+      if (opensFence) {
+        const char = openingFence[1][0] === '`' ? '\\`' : '~';
+        fence = { closing: new RegExp(`^ {0,3}${char}{${openingFence[1].length},}\\s*$`),
+          quoteDepth: container.quoteDepth, listDepth: lists.length,
+          listOwner: lists.at(-1) || null };
+        pushLine(' '.repeat(line.length), lineStart);
+        paragraphOpen = false;
+        continue;
+      }
+      if (!paragraphOpen && /^ {4}/.test(blockBody)) {
+        pushLine(' '.repeat(line.length), lineStart);
+        continue;
+      }
+      if (blank || container.list || effectiveQuoteDepth !== paragraphQuoteDepth) paragraphOpen = false;
+      const special = MARKDOWN_SPECIAL_BLOCK.exec(blockBody);
+      const startsTagBlock = MARKDOWN_HTML_TAG_LINE.test(blockBody) &&
+        !paragraphOpen;
+      if (special || /^ {0,3}<!--/.test(blockBody) ||
+        MARKDOWN_HTML_BLOCK.test(blockBody) || startsTagBlock) {
+        flush();
+        kind = 'html';
+        quoteDepth = container.quoteDepth;
+        inList = lists.length > 0;
+        listDepth = lists.length;
+        listOwner = lists.at(-1) || null;
+        if (special) {
+          const closing = new RegExp(`</${special[1]}[ \\t\\n]*>`, 'i');
+          endMarker = (text) => closing.test(text);
+        } else if (/^ {0,3}<!--/.test(blockBody)) {
+          // CommonMark keeps the block open until -->, even if a browser
+          // would end the comment at --!> inside that block.
+          endMarker = (text) => text.includes('-->');
+        } else {
+          endMarker = null;
+        }
+      }
+      if (kind === 'markdown') {
+        if (!continuation) {
+          paragraphOuterList = container.quotesAfterList;
+          paragraphListOwner = lists.at(-1) || null;
+        }
+        paragraphOpen = !blank && !setext &&
+          !atx && !thematic;
+        paragraphQuoteDepth = effectiveQuoteDepth;
+      }
+      if (kind === 'markdown' && (atx || setext || thematic)) {
+        pushLine(setext ? ' '.repeat(line.length) : line, lineStart);
+        flush();
+        paragraphOpen = false;
+        continue;
+      }
+    }
+    if (startedAsHtml) updateListStack(lists, container, blank);
+    const sourceBody = markdownBlockBody(container, lists.at(-1), true);
+    const rawLine = kind === 'html' && (quoteDepth > 0 || inList) ?
+      ' '.repeat(line.length - sourceBody.length) + sourceBody : line;
+    const inlineLine = blank && !container.list ? ' '.repeat(line.length) : continuation && container.quoteDepth > 0 ?
+      ' '.repeat(line.length - container.body.length) + container.body : line;
+    pushLine(kind === 'html' ? rawLine : inlineLine, lineStart);
+    if (kind === 'html') {
+      if (endMarker?.(blockBody)) {
+        flush();
+        kind = 'markdown';
+        endMarker = null;
+        paragraphOpen = false;
+      }
+    }
+  }
+  flush();
+  return regions;
+}
+
+function protectTextareaCodeEntities(source, textareaRanges) {
+  if (!textareaRanges.length) return { text: source, restore: (value) => value };
+  let sentinel = '\ue000';
+  while (source.includes(sentinel)) sentinel = String.fromCharCode(sentinel.charCodeAt(0) + 1);
+  const chars = source.split('');
+  let changed = false;
+  for (const area of textareaRanges) {
+    stripCodeSpans(source.slice(area.start, area.end), ' ', [], (from, to) => {
+      for (let i = area.start + from; i < area.start + to; i++) {
+        if (chars[i] === '&') {
+          chars[i] = sentinel;
+          changed = true;
+        }
+      }
+    });
+  }
+  return changed ? { text: chars.join(''), restore: (value) => value.replaceAll(sentinel, '&') } :
+    { text: source, restore: (value) => value };
+}
+
+// Keep text beside valid inline tags, but do not turn rejected angle text into
+// markup. Style bodies keep their original CSS spelling.
+function markdownMarkupSource(source, tokens, initialRaw) {
+  const pieces = [];
+  let copied = 0;
+  let inStyle = initialRaw === 'style';
+  const appendText = (end) => {
+    const text = source.slice(copied, end);
+    pieces.push(inStyle ? text : text.replace(/</g, '&lt;'));
+  };
+  for (const token of tokens) {
+    appendText(token.index);
+    if (token.type === 'tag') {
+      pieces.push(token.text);
+      if (/^<style(?=[\s/>])/i.test(token.text) && !token.selfClosing) inStyle = true;
+      if (/^<\/style(?=[\s/>])/i.test(token.text)) inStyle = false;
+    } else pieces.push(' ');
+    copied = token.end;
+  }
+  appendText(source.length);
+  return pieces.join('');
+}
+
+// Match the existing simple link syntax without rescanning unfinished suffixes.
+function markdownLinkLabels(source) {
+  const pieces = [];
+  let copied = 0;
+  let cursor = 0;
+  while ((cursor = source.indexOf('[', cursor)) !== -1) {
+    const labelEnd = source.indexOf(']', cursor + 1);
+    if (labelEnd === -1) break;
+    if (labelEnd === cursor + 1 || source[labelEnd + 1] !== '(') {
+      cursor = labelEnd + 1;
+      continue;
+    }
+    const end = source.indexOf(')', labelEnd + 2);
+    if (end === -1) break;
+    pieces.push(source.slice(copied, cursor), source.slice(cursor + 1, labelEnd));
+    copied = end + 1;
+    cursor = copied;
+  }
+  pieces.push(source.slice(copied));
+  return pieces.join('');
+}
+
+function markdownStreams(source) {
+  source = source.replace(/\r\n?/g, '\n');
+  const attrs = [];
+  const chunks = [];
+  const runs = [];
+  const paras = [];
+  const markupPieces = [];
+  let openHidden = null;
+  let activeRaw = null;
+  for (const region of markdownRegions(source)) {
+    const rawHtml = region.kind === 'html';
+    const prepared = rawHtml ? region.text : withoutMarkdownCodeAroundHtml(region.text, activeRaw);
+    const scan = rawHtml ? scanRawHtml(prepared, activeRaw) : markdownInlineTags(prepared, activeRaw);
+    markupPieces.push(rawHtml ? prepared : markdownMarkupSource(prepared, scan.tokens, activeRaw));
+    activeRaw = scan.openRaw;
+    const result = stripMarkdownHidden(prepared, rawHtml, scan.tokens, openHidden);
+    const body = result.text;
+    openHidden = result.hidden;
+    const visibleTokens = scan.tokens.filter((token) =>
+      token.end <= body.length && body[token.index] === '<');
+    attrs.push(...markdownAttributeRuns(body, rawHtml, visibleTokens));
+    if (region.kind === 'html') {
+      const htmlRuns = markdownVisibleRuns(body, true, visibleTokens);
+      runs.push(...htmlRuns);
+      paras.push(...htmlRuns);
+      chunks.push(decodeEntities(stripMarkdownTags(body, true, visibleTokens)));
+      continue;
+    }
+    const protectedText = protectTextareaCodeEntities(body, scan.textareaRanges);
+    const prose = markdownLinkLabels(stripMarkdownTags(protectedText.text, false, visibleTokens)
+      .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+      .replace(/^\s{0,3}[-*+]\s+/gm, ''));
+    const visible = protectedText.restore(decodeEntities(prose, { markdownEscapes: true }));
+    chunks.push(visible);
+    runs.push(...markdownVisibleRuns(protectedText.text, false, visibleTokens)
+      .map((run) => protectedText.restore(run)).filter(Boolean));
+    for (const paragraph of prose.split(/\n\s*\n/)) {
+      const text = protectedText.restore(decodeEntities(paragraph, { markdownEscapes: true }))
+        .replace(/\s+/g, ' ').trim();
+      if (text) paras.push(text);
+    }
+  }
+  return { visible: chunks.join(' '), runs, paragraphs: [...paras, ...attrs], attrs,
+    markupSource: markupPieces.filter(Boolean).join('\n') };
+}
+
 // Visible prose as one string. For HTML: strip tags. For markdown/text: strip the
 // lightweight markup that would otherwise pollute prose rules (fences, list bullets,
 // heading hashes, link syntax) while keeping the words.
 function plainText(source, isHtml) {
   if (isHtml) {
     const body = stripBetween(stripBetween(source, 'style'), 'script');
-    const visible = stripTags(body)
-      .replace(/&[a-z]+;/gi, ' ')
+    const visible = decodeEntities(stripTags(body), { blankUnknown: true })
       .replace(/\s+/g, ' ')
       .trim();
     return [visible, ...attrTextRuns(source)].filter(Boolean).join(' ');
   }
-  return withoutMarkdownCode(source)
-    .replace(/^\s{0,3}#{1,6}\s+/gm, '') // heading hashes
-    .replace(/^\s{0,3}[-*+]\s+/gm, '') // list bullets
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // links → link text
-    .trim();
+  const { visible, attrs } = markdownStreams(source);
+  return [visible, ...attrs].filter(Boolean).join(' ').trim();
 }
 
 // Prose with code removed — fenced blocks and inline spans in markdown, <code>
@@ -823,7 +2294,7 @@ function plainText(source, isHtml) {
 function proseWithoutCode(source, isHtml) {
   if (isHtml) {
     const body = ['style', 'script', 'code', 'pre'].reduce(stripBetween, source);
-    const visible = stripTags(body).replace(/\s+/g, ' ').trim();
+    const visible = decodeEntities(stripTags(body)).replace(/\s+/g, ' ').trim();
     return [visible, ...attrTextRuns(body)].filter(Boolean).join(' ');
   }
   return plainText(source, false);
@@ -838,11 +2309,24 @@ function paragraphs(source, isHtml) {
     // reader meets on its own, so the density gates should score it that way.
     return [...visibleTextRuns(source), ...attrTextRuns(source)];
   }
-  const noCode = stripFences(source, '\n');
-  return noCode
-    .split(/\n\s*\n/)
-    .map((p) => p.replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
+  // Split first, decode after: a decoded newline is inside a paragraph, not a
+  // break between two.
+  return markdownStreams(source).paragraphs;
+}
+
+// Component syntax permits <code/> and <Code/>. Represent those empty
+// elements with paired tags before the shared HTML consumers read them.
+function componentMarkup(source) {
+  const pieces = [];
+  let copied = 0;
+  for (const token of scanRawHtml(source, null, true).tokens) {
+    if (token.type !== 'tag' || token.closing || !token.selfClosing || !NON_VOID_HTML.has(token.name)) continue;
+    pieces.push(source.slice(copied, token.index),
+      token.text.replace(/\/\s*>$/, '>'), `</${token.name}>`);
+    copied = token.end;
+  }
+  pieces.push(source.slice(copied));
+  return pieces.join('');
 }
 
 // Build a parse context once, hand it to every rule. `filePath` lets the CSS a
@@ -850,36 +2334,45 @@ function paragraphs(source, isHtml) {
 // built site's directory. Without filePath the linked CSS is reported
 // unresolved rather than silently skipped.
 function parse(source, { filePath, root, ext } = {}) {
+  const original = source;
+  if (['jsx', 'tsx', 'vue', 'svelte', 'astro'].includes(ext) ||
+    /\.(?:jsx|tsx|vue|svelte|astro)$/i.test(filePath || '')) source = componentMarkup(source);
   const isCss = ext === 'css' || (filePath && /\.css$/i.test(filePath));
-  const isHtml = !isCss && (['html', 'htm', 'jsx', 'tsx', 'vue', 'svelte', 'astro'].includes(ext) || looksLikeHtml(source));
-  const elements = isHtml ? markupElements(source) : null;
+  const isMarkdown = ['md', 'markdown'].includes(ext);
+  const isHtml = !isCss && !isMarkdown &&
+    (['html', 'htm', 'jsx', 'tsx', 'vue', 'svelte', 'astro'].includes(ext) || looksLikeHtml(source));
+  const markdown = !isHtml && !isCss ? markdownStreams(source) : null;
+  const markupSource = isMarkdown ? markdown.markupSource : source;
+  const hasMarkup = isHtml || (isMarkdown && markupSource.length > 0);
+  const elements = hasMarkup ? markupElements(markupSource) : null;
   const utilities = elements ? require('./utilities').elementCss(elements) : '';
-  const inline = isHtml ? cssBlocks(source) : '';
-  const linked = isHtml ? linkedCss(source, { filePath, root }) : { css: '', found: [], unresolved: [] };
+  const inline = hasMarkup ? cssBlocks(markupSource) : '';
+  const linked = hasMarkup ? linkedCss(markupSource, { filePath, root }) : { css: '', found: [], unresolved: [] };
   const css = [isCss ? source : '', inline, linked.css, utilities].filter(Boolean).join('\n');
-  const markup = isHtml ? markupTokens(source) : null;
+  const markup = hasMarkup ? markupTokens(markupSource) : null;
   if (markup) for (const el of elements) for (const c of el.classes) markup.classes.add(c);
   return {
-    html: source,
+    html: original,
     isHtml,
     css,
     inlineCss: inline,
     linkedCss: linked.found,
     unresolvedCss: linked.unresolved,
-    runs: visibleTextRuns(source),
-    attrs: isHtml ? attrTextRuns(source) : [],
+    runs: isCss ? [source] : markdown ? markdown.runs : visibleTextRuns(source, { markup: isHtml }),
+    attrs: markdown ? markdown.attrs : isHtml ? attrTextRuns(source) : [],
     markup,
     elements,
     cssRules: cssRules(css),
-    text: plainText(source, isHtml),
-    codeless: proseWithoutCode(source, isHtml),
-    paragraphs: paragraphs(source, isHtml),
+    text: isCss ? source : markdown ? [markdown.visible, ...markdown.attrs].filter(Boolean).join(' ').trim() : plainText(source, isHtml),
+    codeless: isCss ? source : markdown ? [markdown.visible, ...markdown.attrs].filter(Boolean).join(' ').trim() : proseWithoutCode(source, isHtml),
+    paragraphs: isCss ? [source] : markdown ? markdown.paragraphs : paragraphs(source, isHtml),
   };
 }
 
 module.exports = {
   stripBetween,
   stripTags,
+  decodeEntities,
   visibleTextRuns,
   attrTextRuns,
   markupTokens,
