@@ -62,7 +62,7 @@ const SPELLED_FOR_CODE = /\b(code|pre|kbd|samp|tt)\b/i;
 // A type label (`<Object>`, `<string[]>`) is code, and so is a class that says
 // it names a type or code.
 const TYPE_CLASS = /(?:^|[-_])(?:type|code)(?:$|[-_])/i;
-const isTypeLabel = (el) => /^<[^<>\s][^<>]*>$/.test((el.text || '').trim()) ||
+const isTypeLabel = (el) => /^<[A-Za-z_][\w.$\[\]|,\s?:*<>-]*>$/.test((el.text || '').trim()) ||
   [...(el.classes || [])].some((c) => TYPE_CLASS.test(c));
 
 const monoAllowed = (el) => el.inCode || isTypeLabel(el) || (el.inTable && el.numericData && el.hasDigit);
