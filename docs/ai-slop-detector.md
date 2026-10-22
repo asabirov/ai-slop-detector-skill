@@ -167,9 +167,10 @@ values are stable — reference them in allowlists and PR notes.
 `restated-control-period` reads numeric period tokens and their explicit selected
 state. It compares `nM` or `nY` with a caption naming the previous or last
 number of months or years. `context-noun-control` reads `Clear all <plural>`
-labels inside a matching `noun-bar` or `noun-toolbar` class. The count rule
-accepts only a short count and scope line; it leaves extra instructions such
-as an approval deadline alone.
+labels inside a matching `noun-bar` or `noun-toolbar` class.
+`repeated-field-caption` only matches a caption of five words or fewer. The
+count rule accepts only a short count and scope line; it leaves extra
+instructions such as an approval deadline alone.
 
 `table-footnote` reads position, not wording. The data above it is a `<table>`, a
 tag ending in a data word (`DataTable`, `LineChart`, `BarGraph`), or a container
