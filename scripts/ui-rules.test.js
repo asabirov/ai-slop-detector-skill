@@ -43,6 +43,9 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
     assert.deepEqual(hits('<button aria-label="Close"><svg aria-hidden="true"></svg></button>', 'multiword-control'), []);
     assert.equal(hits('<input type="submit" value="Send answer">', 'multiword-control').length, 1);
   });
+  it('reads the input type case-insensitively, through the one decoded attribute dict', { timeout: 1000 }, () => {
+    assert.equal(hits('<input type="Submit" value="Send answer">', 'multiword-control').length, 1);
+  });
   it('silences a verb followed only by "all" but keeps every other multi-word label flagged', { timeout: 1000 }, () => {
     assert.deepEqual(hits('<button>Clear all</button>', 'multiword-control'), []);
     assert.deepEqual(hits('<div class="filter-bar"><button>Clear all</button></div>', 'multiword-control'), []);
@@ -162,6 +165,11 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
       const rule = RULES.find((r) => r.id === 'restated-table-count');
       assert.equal(rule.test(ctx).length, 1800);
     });
+  });
+  it('reads a heading past a large, ordinary non-text subtree, with no subtree-size cap to miss it', { timeout: 1000 }, () => {
+    const svg = '<svg>' + '<path d="M0 0"/>'.repeat(45) + '</svg>';
+    const html = `<section><h1>Report${svg}</h1><span class="status-badge">Report</span></section>`;
+    assert.equal(hits(html, 'restated-status-badge').length, 1);
   });
   describe('nested-depth performance', { timeout: 10000 }, () => {
     it('reads a deeply nested role=button control without quadratic cost', { timeout: 2000 }, () => {

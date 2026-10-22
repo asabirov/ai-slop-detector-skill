@@ -226,9 +226,9 @@ const CODE_TAGS = new Set(['code', 'pre', 'kbd', 'samp', 'tt']);
 // A line a control writes when the reader uses it. `role="status"`, `role="alert"`
 // and `aria-live` all say the same thing: this text appears because of something
 // the reader just did, so the reader is looking at it.
-function hasLiveRegion(attrs) {
-  const role = (attrs.get('role') || '').toLowerCase();
-  const live = (attrs.get('aria-live') || '').toLowerCase();
+function hasLiveRegion(attributes) {
+  const role = (attributes.role || '').toLowerCase();
+  const live = (attributes['aria-live'] || '').toLowerCase();
   return role === 'status' || role === 'alert' || live === 'polite' || live === 'assertive';
 }
 
@@ -279,9 +279,9 @@ function markupElements(html) {
     }
     const attrs = tagAttributes(token.text);
     const attribute = (name) => attrs.find(([key]) => key === name)?.[1] || '';
-    // Raw, undecoded: only read for the simple lowercase-keyword comparisons
-    // below (role, hidden, type). `attributes` is the decoded dict a rule reads.
-    const attrMap = new Map(attrs.map(([key, value]) => [key, value ?? '']));
+    // The one decoded dict: `live`, `hidden`, `inputType` and `inputValue`
+    // below all derive from it, so a rule reading `el.attributes` or these
+    // four fields sees the same decoded value, decoded once.
     const attributes = Object.create(null);
     for (const [key, value] of attrs) attributes[key] = decodeEntities(value ?? '');
     const classValue = attribute('class') || attribute('classname');
@@ -302,11 +302,11 @@ function markupElements(html) {
       // subtree can be read in the order a person reads it.
       chunks: [],
       style: attributes.style || '',
-      live: hasLiveRegion(attrMap),
-      hidden: attrMap.has('hidden') || (attrMap.get('aria-hidden') || '').toLowerCase() === 'true' ||
-        /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\b/i.test(attrMap.get('style') || ''),
-      inputType: (attrMap.get('type') || '').toLowerCase(),
-      inputValue: decodeEntities(attrMap.get('value') || ''),
+      live: hasLiveRegion(attributes),
+      hidden: Object.hasOwn(attributes, 'hidden') || (attributes['aria-hidden'] || '').toLowerCase() === 'true' ||
+        /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\b/i.test(attributes.style || ''),
+      inputType: (attributes.type || '').toLowerCase(),
+      inputValue: attributes.value || '',
       inTable: tag === 'td' || tag === 'th' || (parent >= 0 && out[parent].inTable),
       inCode: CODE_TAGS.has(tag) || (parent >= 0 && out[parent].inCode),
     };

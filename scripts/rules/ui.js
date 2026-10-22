@@ -226,14 +226,6 @@ const cardish = (s) => /(?:^|[\s,.#>])(?:card|panel|tile|callout|alert)(?:$|[\s,
 function visibleText(info, index) {
   return subtreeText(info.elements, info.ends, index, (_el, i) => !info.hidden[i]);
 }
-// A short label's subtree is a handful of nodes. Past this bound an element is
-// a container, not a label, so its own match is read, not its whole subtree:
-// without the bound, nested label-shaped containers each re-walk their already
-// counted descendants, which is quadratic in nesting depth.
-const LABEL_SUBTREE_CAP = 40;
-function boundedText(info, index) {
-  return info.ends[index] - index > LABEL_SUBTREE_CAP ? '' : visibleText(info, index);
-}
 // A control's own label, read without re-reading a nested control's text:
 // the walk stops at the first nested element `isBoundary` names, instead of
 // descending into its subtree. That keeps a label read linear even when
@@ -251,6 +243,16 @@ function boundaryText(info, index, isBoundary, excludeCode = false) {
   return chunks.sort((a, b) => a[0] - b[0]).map((c) => c[1]).join(' ')
     .replace(/\{[^{}]*\}/g, ' ').replace(/\s+/g, ' ').trim();
 }
+// Same-kind boundaries for `boundaryText`, one per label shape: a heading
+// stops at a nested heading, a badge at a nested badge, an option at a
+// nested option, a caption (`p`/`small`) at a nested caption. Each keeps the
+// read linear when that shape nests inside itself, the same way `control`
+// keeps `multiword-control` linear, with no subtree-size cap to miss a large,
+// ordinary, non-text subtree such as an inline SVG.
+const isHeading = (el) => /^h[1-6]$/.test(el.tag);
+const isBadge = (el) => [...el.classes].some((c) => /(?:^|[-_])(?:status|badge|pill)(?:$|[-_])/.test(c));
+const isOption = (el) => el.tag === 'option';
+const isCaption = (el) => /^(?:p|small)$/.test(el.tag);
 function liveAncestor(elements, i) {
   for (let p = i; p >= 0; p = elements[p].parent) if (elements[p].live) return true;
   return false;
@@ -283,7 +285,7 @@ function redundantContextNoun(label, noun) {
 }
 function control(el) {
   return el.tag === 'button' || el.attributes.role === 'button' ||
-    (el.tag === 'input' && /^(?:button|submit|reset)$/.test(el.attributes.type || '')) ||
+    (el.tag === 'input' && /^(?:button|submit|reset)$/.test(el.inputType)) ||
     (el.tag === 'a' && [...el.classes].some((c) => /^(?:btn|button)(?:-|$)/.test(c)));
 }
 function normalized(text) { return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim(); }
@@ -344,27 +346,27 @@ module.exports = [
     return [...groups].filter(([, parents]) => parents.size >= 3).map(([caption, parents]) => `${caption} under ${parents.size} fields`);
   }),
   rule('restated-status-badge', 2, 'A status badge repeats the page title or a field state.', 'Remove the repeated badge.', (ctx) => {
-    const info = data(ctx), { elements, sectionOf } = info;
+    const info = data(ctx), { elements, sectionOf, headingScopeOf } = info;
     const addTo = (map, key, value) => {
       if (!map.has(key)) map.set(key, new Set());
       map.get(key).add(value);
     };
     const titlesBySection = new Map();
     for (let i = 0; i < elements.length; i++) {
-      if (/^h[1-6]$/.test(elements[i].tag)) addTo(titlesBySection, sectionOf[i], normalized(boundedText(info, i)));
+      if (isHeading(elements[i])) addTo(titlesBySection, sectionOf[i], normalized(boundaryText(info, i, isHeading)));
     }
     const fieldStatesBySection = new Map();
     for (let i = 0; i < elements.length; i++) {
       const el = elements[i];
       let value = '';
-      if (el.tag === 'option') value = Object.hasOwn(el.attributes, 'selected') ? el.attributes.value || boundedText(info, i) : '';
+      if (el.tag === 'option') value = Object.hasOwn(el.attributes, 'selected') ? el.attributes.value || boundaryText(info, i, isOption) : '';
       else if (el.tag === 'select') value = el.attributes.value || '';
       else if (el.tag === 'input') {
         // A field's visible state is what a reader sees: a checked radio or
         // checkbox, or a text-like value. An unchecked option shows nothing, and
         // `type="hidden"` shows nothing by definition — reading either reports a
         // badge as repeating a state the page never actually renders.
-        const type = (el.attributes.type || 'text').toLowerCase();
+        const type = el.inputType || 'text';
         if (type === 'hidden') value = '';
         else if (/^(?:radio|checkbox)$/.test(type) && !Object.hasOwn(el.attributes, 'checked')) value = '';
         else value = el.attributes.value || '';
@@ -372,8 +374,8 @@ module.exports = [
       if (value) addTo(fieldStatesBySection, sectionOf[i], normalized(value));
     }
     return elements.flatMap((el, i) => {
-      if (![...el.classes].some((c) => /(?:^|[-_])(?:status|badge|pill)(?:$|[-_])/.test(c))) return [];
-      const label = normalized(boundedText(info, i));
+      if (!isBadge(el)) return [];
+      const label = normalized(boundaryText(info, i, isBadge));
       if (!label || !/\p{L}/u.test(label)) return [];
       // Compared only with the heading and fields in the badge's own section
       // (its nearest <section>/<nav>/<tr>/… ancestor): a cart badge, a nav
@@ -388,8 +390,8 @@ module.exports = [
   rule('marker-explainer', 2, 'A sentence explains a visible marker without adding information.', 'Remove the sentence and keep the marker clear.', (ctx) => {
     const info = data(ctx);
     return info.elements.flatMap((el, i) => {
-      if (!/^(?:p|small)$/.test(el.tag) || el.inCode) return [];
-      const text = boundedText(info, i);
+      if (!isCaption(el) || el.inCode) return [];
+      const text = boundaryText(info, i, isCaption);
       return /\b(?:accent|inset) (?:bars?|stripes?) (?:marks?|shows?|indicates?|means?)\b/i.test(text) ? [text.slice(0, 90)] : [];
     });
   }),
@@ -409,8 +411,8 @@ module.exports = [
     const info = data(ctx), { elements, bodyRows, nextTable } = info, hits = [];
     for (let i = 0; i < elements.length; i++) {
       const el = elements[i];
-      if (!/^(?:p|small)$/.test(el.tag)) continue;
-      const text = boundedText(info, i);
+      if (!isCaption(el)) continue;
+      const text = boundaryText(info, i, isCaption);
       const match = /^(\d+)\s+of\s+(?:the\s+)?\d[\d,]*\s+[\p{L}-]+(?:\s+(?:this|last)\s+(?:year|month|week|quarter))?\.?$/iu.exec(text);
       if (!match) continue;
       const table = nextTable[i];
