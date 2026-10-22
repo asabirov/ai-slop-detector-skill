@@ -79,13 +79,15 @@ build output is a gate nobody can act on.
 `scripts/detect.js` takes exactly one file and is the older entry point; `bin/slop-detector.js`
 is the same engine over many.
 
-Text reaches a rule decoded, which the README states as the spec. Before, only attribute
-values and the per-element text decoded, and only six names; the visible runs, the prose and
-the paragraphs did not, so `&middot;`, `&nbsp;` and even `&#8599;` reached a rule as written.
-The table is now the standard's own, in `scripts/lib/entities.js`.
+## Text parser and decoding
 
-One place outside the text streams decodes: the `style` attribute, before it is read as CSS,
-because that is what a browser does with it.
+Text reaches a rule decoded. The table is the standard's own, in `scripts/lib/entities.js`. So `&middot;`,
+`&nbsp;` and `&#8599;` reach a rule as the characters a browser shows.
+
+Two places outside the text streams also decode. The `style` attribute decodes before the visual
+rules read it as CSS. The heading markup that `emoji-heading` and `heading-period` read in
+`scripts/rules/visual.js` decodes too, as does a MathML `annotation-xml` encoding value. Standalone CSS
+keeps references literal.
 
 One pass resolves an entity, and it runs last, after the tags or the markdown syntax are
 gone, so nothing reads what it produced: `&#38;middot;` is the text `&middot;` on the page
@@ -100,40 +102,91 @@ number of backslashes. An even number lets the reference decode. Markdown prose 
 1 to 7 decimal digits or 1 to 6 hexadecimal digits in a numeric reference. Longer forms
 stay literal there. Raw HTML blocks use HTML reference rules, including longer numeric forms.
 Markdown code syntax does not remove text from raw HTML blocks or readable attributes.
-Quoted HTML attributes keep comment markers as data. Textarea content keeps tag and
-comment spellings as text. A raw HTML comment accepts `--!>` as an end marker.
-If Markdown escapes that sequence in a new paragraph, the HTML comment stays open.
-Raw HTML ends when its Markdown list item ends.
-HTML tag and comment state persists across source lines. A code element can stay
-hidden after a Markdown block boundary, while the new block uses Markdown reference
-rules. Script, style, and textarea text also retains its lexical state across that
-boundary. A marker-shaped line inside an active fence or raw HTML block stays in
-that block. Markdown code syntax does not take ownership of an earlier comment
-or textarea. The parser determines Markdown leaf blocks before it reads inline
-syntax. Sibling items end separate inline blocks, regardless of their numeric
-start. A new ordered list interrupts a paragraph only with content and a start
-value of one, including `01.`. Empty markers do not interrupt paragraphs.
-Lazy continuation lines retain their list owner but cannot become setext
-underlines. A setext underline must retain the owning list indentation and quote
-markers. An ATX or setext heading ends its inline block before the next paragraph.
-A fence keeps extra quote markers as content after it removes its owning prefix.
-It expands tabs at source columns before it removes that prefix.
-Short inline comments close before later code spans. Backticks in tags
-and comments do not open code spans. In raw HTML blocks, script and style
-closing tags with attributes or a trailing slash restore later text.
-Quotes inside unquoted values stay data. Quoted values can contain `>`.
-A rejected Markdown close leaves a nested valid close available.
-The README records the parser's remaining malformed HTML limits.
 
-In markup, `p`, `div`, headings, `span`, `li`, `td`, `th`, `section`, `header`,
-`footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible run. The definition
-tags keep each value separate. The original twelve boundaries remain, including
-`span` and `a`. Other tags stay inside the run. Thus an inline `svg`, `label`, or
-custom element does not hide a dotted chain. The parser uses tag names without
-CSS layout or a DOM, so its runs only approximate displayed text. A boundary
-name must match the full tag, so `dt-label`, `dd-value`, `dl-label`, and `br-icon`
-stay inline. Files not read as markup keep the original twelve boundaries. This avoids splitting their
-tag-shaped text on the new definition and line-break tags.
+Every prose stream a rule reads — a page's visible runs, its prose, its
+paragraphs, its readable attributes, and the same for markdown and plain text —
+decodes semicolon-terminated character references, including every HTML5 name and both
+numeric forms. So a dotted chain written `&middot;` and one typed with the dot are
+the same line. Numeric C1 references use HTML's replacement glyphs, so `&#149;`
+reads as `•` and `&#146;` reads as `’`. The scans that read markup for class
+names, selectors and tag shapes work on the page as written.
+Standalone CSS keeps character references literal. HTML decodes references in
+style attributes before the visual rules read them. Quoted attribute data,
+including `>`, stays outside visible prose. Readable attributes have separate
+prose streams. Each HTML token scan moves forward through comments, tags, and
+raw text for its consumer. A quoted closing tag inside an attribute cannot end
+hidden script or code content. A trailing slash inside an unquoted attribute
+value stays part of that value. It cannot close the element.
+A slash flag cannot close a known non-void HTML element. Foreign elements and unknown component names retain self-closing syntax.
+Component files, including JSX and TSX, also keep self-closing native tags. Namespace lookups use recorded stack positions.
+HTML paragraph starts leave foreign content. An HTML encoding on MathML `annotation-xml` supplies an HTML integration point.
+The first encoding attribute supplies its decoded value.
+Markdown prose keeps references literal after an odd number of backslashes,
+even when the file contains raw HTML. References after an even number decode.
+Markdown prose accepts 1 to 7 decimal digits or 1 to 6 hexadecimal digits.
+Longer references stay literal in Markdown prose. Inside raw HTML blocks,
+HTML decodes them without these Markdown limits. The parser also reads
+human-readable attributes in raw HTML, including single-quoted values.
+Raw HTML in Markdown still supplies markup and CSS to visual rules. Inline
+`<style>` contents count, while commented or fenced styles do not. Inline HTML
+keeps its text, so numeric table cells retain the monospace exemption.
+The simple Markdown link scanner skips unfinished suffixes without repeated
+searches. Lazy list continuations keep their owners without copying the complete stack.
+Tests measure public parse growth for unfinished links, raw HTML, and lazy lists.
+These checks do not establish a bound for every possible input. Markdown
+syntax is removed before references are decoded, so
+an encoded bracket cannot turn visible text into a link destination.
+The parser excludes script, style, and code
+contents from Markdown prose. Autolinks and literal angle-bracket text remain
+visible to text rules. A comment marker inside a quoted HTML attribute stays
+attribute data. A raw HTML comment can end with `--!>`.
+When Markdown escapes that sequence, the comment stays open.
+Textarea content keeps tag and comment spellings as text.
+Raw HTML blocks can start after completed headings and fences. Script, style,
+and textarea state stays active across a Markdown block boundary. A list-shaped
+line inside an active fence or raw HTML block keeps that block open. A raw HTML
+region ends when its list item ends. The parser determines Markdown leaf blocks
+before it reads inline comments, tags, and code spans. Sibling list items end
+separate inline blocks, including items numbered `2.` or `02.`.
+Blank paragraphs end inline comment candidates, including blank lines inside lists and quotes.
+A new ordered list interrupts an open paragraph only with content and a start
+value of one, including `01.`. An empty marker cannot interrupt a paragraph.
+A line without its list indentation or quote marker can continue a paragraph.
+Such a lazy line keeps its list owner. A setext underline must belong to that
+owner and retain the quote markers. An unindented `===` stays paragraph text
+inside a list. An ATX or setext heading ends its inline block before the next
+paragraph starts. A fence treats extra quote markers as content after it removes
+its owning container prefix. Fence indentation expands tabs at source columns
+before it removes that prefix. Five spaces after a list marker leave four
+spaces of code indentation. Short `<!-->` and
+`<!--->` comments end before later code spans. Backticks in tags and comments
+do not open code spans. In raw HTML blocks, script and style closing tags can
+contain quoted `>` characters, attributes, or a trailing slash. A quote inside
+an unquoted attribute value stays data and does not hide the next `>`.
+This also applies after an equals sign inside that value.
+A rejected Markdown closing candidate cannot consume a nested valid close.
+Inline raw closes accept a form-feed separator. Vertical tab and nonbreaking space are not
+closing-tag separators. The text parser remains approximate for malformed HTML
+tags across a blank line and unfinished tags at the end of a file. Malformed
+HTML nesting also remains approximate. Some raw HTML block closers with a
+different tag name remain a known limit. An unclosed `pre` block can stay hidden
+after a list or quote ends.
+
+A code element can stay hidden after a Markdown block boundary, while the new block uses Markdown
+reference rules. Markdown code syntax does not take ownership of an earlier comment or textarea.
+
+In markup, `p`, `div`, headings, `span`, `li`, table cells, `section`, `header`,
+`footer`, `text`, `a`, `dl`, `dt`, `dd`, and `br` end a visible text run. This keeps
+definition values separate. Other tags stay in the surrounding run, so inline
+`svg` and `label` content can still complete a chain. This split does not use
+CSS layout or a DOM, so it can differ from browser text boundaries. Files not
+read as markup use the earlier boundary list, without `dl`, `dt`, `dd`, or `br`.
+The boundary names must match complete tags, so `dt-label` and `dd-value` stay inline.
+Code is not prose. In Markdown regions, fenced blocks, indented code blocks, and inline code spans come out
+before decoration rules read them. Raw HTML blocks and readable HTML attributes keep backticks as text.
+Spans use matching runs of N backticks, and the HTML sniff runs after Markdown code removal. A Markdown
+file that names `<style>` in a code span stays Markdown. An escaped backtick stays visible, and a fenced
+block inside a blockquote stays code.
 
 `--level` accepts a number (`1`–`4`) or a name (`ban`, `recommended`, `strict`,
 `paranoid`). `--json` emits `{ verdict, level, files[], stats }` for chaining.
