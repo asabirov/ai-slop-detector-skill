@@ -7,6 +7,11 @@ const cache = new WeakMap();
 const STATE = /:(?:hover|focus|active|disabled|visited|checked)\b/i;
 const MONO = /\b(?:monospace|ui-monospace|menlo|monaco|consolas|courier|[a-z]+ mono)\b/i;
 const COLOR_NAMES = { purple: [128, 0, 128], violet: [238, 130, 238], pink: [255, 192, 203], blue: [0, 0, 255], red: [255, 0, 0], green: [0, 128, 0], orange: [255, 165, 0], magenta: [255, 0, 255], cyan: [0, 255, 255], white: [255, 255, 255], black: [0, 0, 0] };
+// Page copy names a selection marker by a colour word as often as by the
+// designer words "accent"/"inset"; a chart legend saying "line" instead of
+// "bar"/"stripe" never matches this, whatever colour it names.
+const MARKER_BAR = new RegExp(`\\b(?:accent|inset|${Object.keys(COLOR_NAMES).join('|')})\\s+(?:bars?|stripes?)\\b`, 'i');
+const MARKER_EXPLAINS = /\b(?:marks?|shows?|indicates?|means?|changes?|changed)\b/i;
 
 function colours(value) {
   const out = [];
@@ -85,7 +90,15 @@ function data(ctx) {
   // title or field far away in a different nav/section/row never counts as
   // "the same state" just because it sits somewhere on the same document.
   const BADGE_SCOPE_TAGS = /^(?:section|nav|article|aside|main|header|footer|form|tr)$/;
+  // Header, main and footer are the page's own top-level landmarks — usually
+  // siblings of one another, not one another's ancestor — so a page title in
+  // <header><h1> and a badge in <main> are the same part of the page even
+  // though neither nests inside the other. Transparent for a heading
+  // comparison only, and the walk still stops at a <tr>; a field state keeps
+  // the narrower, same-section `sectionOf` below.
+  const HEADING_TRANSPARENT = /^(?:header|main|footer)$/;
   const sectionOf = new Int32Array(elements.length).fill(-1);
+  const headingScopeOf = new Int32Array(elements.length).fill(-1);
   for (const el of elements) if (/^h[1-6]$/.test(el.tag) || inHeading.has(elements[el.parent])) inHeading.add(el);
   const ends = subtreeEnds(elements);
   const hidden = new Uint8Array(elements.length);
@@ -107,6 +120,9 @@ function data(ctx) {
     inThead[i] = el.tag === 'table' ? 0 : el.tag === 'thead' || (parent >= 0 && inThead[parent]) ? 1 : 0;
     if (el.tag === 'tr' && tableOf[i] >= 0 && !inThead[i]) bodyRows[tableOf[i]]++;
     sectionOf[i] = parent >= 0 ? (BADGE_SCOPE_TAGS.test(elements[parent].tag) ? parent : sectionOf[parent]) : -1;
+    headingScopeOf[i] = parent >= 0 ?
+      (BADGE_SCOPE_TAGS.test(elements[parent].tag) && !HEADING_TRANSPARENT.test(elements[parent].tag)
+        ? parent : headingScopeOf[parent]) : -1;
   }
   const nextTable = new Int32Array(elements.length).fill(-1);
   const latestTable = new Int32Array(elements.length).fill(-1);
@@ -140,7 +156,7 @@ function data(ctx) {
     nextTableOrAbove[i] = nextTable[i] >= 0 ? nextTable[i] : (parent >= 0 ? nextTable[parent] : -1);
   }
   const result = { rows, elements, index, inHeading, ends, hidden, fieldId, manyFields,
-    selectedPeriod, contextNoun, bodyRows, nextTable: nextTableOrAbove, sectionOf };
+    selectedPeriod, contextNoun, bodyRows, nextTable: nextTableOrAbove, sectionOf, headingScopeOf };
   cache.set(ctx, result);
   return result;
 }
@@ -311,9 +327,9 @@ module.exports = [
   }),
   cssRule('inset-accent-marker', 2, 'An inset accent stripe repeats an existing selection border.', 'Keep one selection marker.', (p) => {
     const borderValue = [p.border, p['border-left'], p['border-right'], p.outline].join(' ');
+    const highlightValue = p.background || p['background-color'] || '';
     return /\binset\s+[1-9]\d*(?:px|rem|em)\s+0\b|\binset\s+0\s+0\s+0\s+[1-9]\d*(?:px|rem|em)/.test(p['box-shadow'] || '') &&
-      /(?:solid|outline)/.test(borderValue) &&
-      chromatic(borderValue);
+      ((/(?:solid|outline)/.test(borderValue) && chromatic(borderValue)) || chromatic(highlightValue));
   }),
   rule('repeated-field-caption', 2, 'The same caption under each field adds no field-specific information.', 'Keep only a caption that explains its own field.', (ctx) => {
     const info = data(ctx), { elements, fieldId, manyFields } = info;
@@ -353,7 +369,7 @@ module.exports = [
     };
     const titlesBySection = new Map();
     for (let i = 0; i < elements.length; i++) {
-      if (isHeading(elements[i])) addTo(titlesBySection, sectionOf[i], normalized(boundaryText(info, i, isHeading)));
+      if (isHeading(elements[i])) addTo(titlesBySection, headingScopeOf[i], normalized(boundaryText(info, i, isHeading)));
     }
     const fieldStatesBySection = new Map();
     for (let i = 0; i < elements.length; i++) {
@@ -377,13 +393,14 @@ module.exports = [
       if (!isBadge(el)) return [];
       const label = normalized(boundaryText(info, i, isBadge));
       if (!label || !/\p{L}/u.test(label)) return [];
-      // Compared only with the heading and fields in the badge's own section
-      // (its nearest <section>/<nav>/<tr>/… ancestor): a cart badge, a nav
-      // pill, or a table row's own badge must not read a title or field from
-      // a different part of the page as its own state.
-      const section = sectionOf[i];
-      const titles = titlesBySection.get(section);
-      const fields = fieldStatesBySection.get(section);
+      // A field state is compared only within the badge's own section (its
+      // nearest <section>/<nav>/<tr>/… ancestor): a cart badge or a table
+      // row's own badge must not read a field value from a different part of
+      // the page as its own state. A title is compared more widely, through
+      // <header>/<main>/<footer>: those sit side by side as one page, so a
+      // page title in <header><h1> still repeats in a badge under <main>.
+      const titles = titlesBySection.get(headingScopeOf[i]);
+      const fields = fieldStatesBySection.get(sectionOf[i]);
       return (titles?.has(label) || fields?.has(label)) ? [`${label} badge repeats a title or field state`] : [];
     });
   }),
@@ -392,7 +409,9 @@ module.exports = [
     return info.elements.flatMap((el, i) => {
       if (!isCaption(el) || el.inCode) return [];
       const text = boundaryText(info, i, isCaption);
-      return /\b(?:accent|inset) (?:bars?|stripes?) (?:marks?|shows?|indicates?|means?)\b/i.test(text) ? [text.slice(0, 90)] : [];
+      // Page copy names a marker by its colour as often as by "accent"/"inset";
+      // a chart legend saying "line" instead of "bar"/"stripe" stays silent.
+      return MARKER_BAR.test(text) && MARKER_EXPLAINS.test(text) ? [text.slice(0, 90)] : [];
     });
   }),
   rule('restated-control-period', 2, 'A caption repeats the selected period.', 'Remove the repeated caption.', (ctx) => {

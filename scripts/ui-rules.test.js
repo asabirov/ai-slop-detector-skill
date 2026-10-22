@@ -97,6 +97,11 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
     assert.deepEqual(hits('<p>The dashed color line shows the target.</p>', 'marker-explainer'), []);
     assert.deepEqual(hits('<p>The red line shows the legal limit.</p>', 'marker-explainer'), []);
   });
+  it('accepts a colour word naming the marker, not only "accent" or "inset"', { timeout: 1000 }, () => {
+    assert.equal(hits('<p>A blue bar marks the fields that changed.</p>', 'marker-explainer').length, 1);
+    assert.equal(hits('<p>Fields with an accent bar were changed by the parser.</p>', 'marker-explainer').length, 1);
+    assert.deepEqual(hits('<p>The dashed color line shows the target.</p>', 'marker-explainer'), []);
+  });
   it('counts one field through deeply nested caption spans', { timeout: 1000 }, () => {
     const html = '<div>' + '<span>'.repeat(1600) + '<input>As parsed' + '</span>'.repeat(1600) + '</div>';
     assert.deepEqual(hits(html, 'repeated-field-caption'), []);
@@ -142,10 +147,24 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
   it('requires a letter in the badge label', { timeout: 1000 }, () => {
     assert.deepEqual(hits('<section><input type="number" value="1"><span class="cart-badge">1</span></section>', 'restated-status-badge'), []);
   });
+  it('compares a page title across the header/main/footer landmarks, stopping the walk at tr', { timeout: 1000 }, () => {
+    assert.equal(hits('<header><h1>Needs review</h1></header><main><span class="status-badge">Needs review</span><form><p>x</p></form></main>', 'restated-status-badge').length, 1);
+    // A nav pill and a table-row badge must stay silent even though a landmark title now reaches further.
+    assert.deepEqual(hits('<nav><a class="pill active">Settings</a></nav><main><h1>Settings</h1></main>', 'restated-status-badge'), []);
+    assert.deepEqual(hits('<section><select><option selected>Paid</option></select><table><tbody><tr><td><span class="badge">Paid</span></td></tr></tbody></table></section>', 'restated-status-badge'), []);
+    // A field state keeps the narrower, same-section comparison, even across header/main.
+    assert.deepEqual(hits('<header><input value="Draft"></header><main><span class="status-badge">Draft</span></main>', 'restated-status-badge'), []);
+  });
   it('requires the border or outline itself, not only the stripe, to carry an accent color', { timeout: 1000 }, () => {
     const nav = (style) => `<style>.nav-item.active { ${style} }</style><div class="nav-item active">Dashboard</div>`;
     assert.deepEqual(hits(nav('border: 1px solid #e5e7eb; box-shadow: inset 3px 0 0 #2563eb'), 'inset-accent-marker'), []);
     assert.equal(hits(nav('border: 1px solid #2563eb; box-shadow: inset 3px 0 0 #2563eb'), 'inset-accent-marker').length, 1);
+  });
+  it('accepts a background or background-color highlight as the second marker', { timeout: 1000 }, () => {
+    const row = (style) => `<style>.row.active { ${style} }</style><div class="row active">Option A</div>`;
+    assert.equal(hits(row('background: #eff6ff; box-shadow: inset 3px 0 0 #2563eb'), 'inset-accent-marker').length, 1);
+    assert.equal(hits(row('background-color: #eff6ff; box-shadow: inset 3px 0 0 #2563eb'), 'inset-accent-marker').length, 1);
+    assert.deepEqual(hits(row('box-shadow: inset 3px 0 0 #2563eb'), 'inset-accent-marker'), []);
   });
   it('matches a plural selection-marker sentence and reads a nested subtree', { timeout: 1000 }, () => {
     assert.equal(hits('<p>The accent bars mark fields that changed.</p>', 'marker-explainer').length, 1);
