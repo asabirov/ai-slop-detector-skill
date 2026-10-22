@@ -282,7 +282,7 @@ function markupElements(html) {
     // and `inputValue` below all derive from it, so a rule reading
     // `el.attributes` or these fields sees the same decoded value, decoded once.
     const attributes = Object.create(null);
-    for (const [key, value] of attrs) attributes[key] = decodeEntities(value ?? '');
+    for (const [key, value] of attrs) if (!(key in attributes)) attributes[key] = decodeEntities(value ?? '');
     const classValue = attributes.class || attributes.classname || '';
     const parent = stack.length ? stack[stack.length - 1] : -1;
     const el = {
@@ -1016,9 +1016,9 @@ function blocksBesideHeading(elements, isMarked) {
 // An element's own prose plus its descendants', in the order a person reads it.
 // `text` on one element leaves a nested run out: `<h2>Revenue <b>per unit</b></h2>`
 // gives the <h2> "Revenue " and the <b> "per unit".
-function subtreeText(elements, ends, i, include = () => true) {
+function subtreeText(elements, ends, i) {
   const chunks = [];
-  for (let k = i; k < ends[i]; k++) if (include(elements[k], k)) chunks.push(...elements[k].chunks);
+  for (let k = i; k < ends[i]; k++) chunks.push(...elements[k].chunks);
   return orderedText(chunks);
 }
 
@@ -2398,7 +2398,6 @@ module.exports = {
   blocksUnderData,
   blocksBesideHeading,
   subtreeEnds,
-  subtreeText,
   boundaryText,
   CHART_CLASS,
   CODE_TAGS,

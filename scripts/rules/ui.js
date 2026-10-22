@@ -11,7 +11,18 @@ const COLOR_NAMES = { purple: [128, 0, 128], violet: [238, 130, 238], pink: [255
 // designer words "accent"/"inset"; a chart legend saying "line" instead of
 // "bar"/"stripe" never matches this, whatever colour it names.
 const MARKER_BAR = new RegExp(`\\b(?:accent|inset|${Object.keys(COLOR_NAMES).join('|')})\\s+(?:bars?|stripes?)\\b`, 'i');
-const MARKER_EXPLAINS = /\b(?:marks?|shows?|indicates?|means?|changes?|changed)\b/i;
+// "changed" names something that happened to the marker itself; the bare
+// present tense "change"/"changes" is as often an unrelated instruction
+// ("change the date") as it is an explanation of the marker.
+const MARKER_EXPLAINS = /\b(?:marks?|shows?|indicates?|means?|changed)\b/i;
+// A selector that names a selection state, for the background-highlight
+// branch of `inset-accent-marker`: an ordinary painted surface is not a
+// selected option just because it also carries a colored inset stripe.
+const STATE_SELECTOR = /\.(?:active|selected|current)\b|\[aria-(?:selected|current)\b|:checked\b/i;
+// A one-side inset stripe, horizontal (`inset <x> 0`) or vertical
+// (`inset 0 <y> 0`, a bar above or below), with no blur: the width is
+// whichever offset is non-zero.
+const STRIPE = /\binset\s+(-?[\d.]+)(px|rem|em)\s+0\b|\binset\s+0(?:px|rem|em)?\s+(-?[\d.]+)(px|rem|em)\s+0\b/;
 
 function colours(value) {
   const out = [];
@@ -94,11 +105,12 @@ function data(ctx) {
   // page title and a badge under it are the same part of the page whatever
   // landmark separates them — `<header><h1>` and a badge nested in
   // `<main><section>`, `<main><article>` or `<main><form>` must still match.
-  // The walk stops only at `tr` and `nav`, which keep their own scope: a
-  // table row's own badge, and a nav pill naming the current page, must not
-  // read a heading from outside their own row or nav as the page title. A
-  // field state keeps the narrower, same-section `sectionOf` below.
-  const HEADING_SCOPE_STOP = /^(?:tr|nav)$/;
+  // The walk stops only at `tr`, `nav` and `aside`, which keep their own
+  // scope: a table row's own badge, a nav pill naming the current page, and
+  // a help card's own heading, must not read a heading from outside their
+  // own row, nav or aside as the page title. A field state keeps the
+  // narrower, same-section `sectionOf` below.
+  const HEADING_SCOPE_STOP = /^(?:tr|nav|aside)$/;
   const sectionOf = new Int32Array(elements.length).fill(-1);
   const headingScopeOf = new Int32Array(elements.length).fill(-1);
   for (const el of elements) if (/^h[1-6]$/.test(el.tag) || inHeading.has(elements[el.parent])) inHeading.add(el);
@@ -109,10 +121,10 @@ function data(ctx) {
   // the rule instead of climbing the parent chain for every candidate, which
   // made `repeated-field-caption` quadratic on deeply nested captions.
   const live = new Uint8Array(elements.length);
-  // Whether a figure or a chart-class container owns the element, computed
-  // the same way: a caption inside a chart names what the chart already
-  // shows, so a sentence explaining its marker there carries no information
-  // a reader does not already have from the chart itself.
+  // Whether a figure, a chart-class container or a legend owns the element,
+  // computed the same way: a caption inside one of these names what the
+  // chart already shows, so a sentence explaining its marker there carries
+  // no information a reader does not already have from the chart itself.
   const chart = new Uint8Array(elements.length);
   const fieldId = new Int32Array(elements.length).fill(-1);
   const manyFields = new Uint8Array(elements.length);
@@ -121,33 +133,57 @@ function data(ctx) {
   const bodyRows = new Uint32Array(elements.length);
   const tableOf = new Int32Array(elements.length).fill(-1);
   const inThead = new Uint8Array(elements.length);
+  const inTfoot = new Uint8Array(elements.length);
+  const hasTdChild = new Uint8Array(elements.length);
+  const containsBadge = new Uint8Array(elements.length);
+  // Whether a <header> landmark owns the element: an h1, or any heading
+  // inside <header>, is the page title and is compared page-wide; every
+  // other heading keeps the narrower, same-section scope a field state uses.
+  const inHeader = new Uint8Array(elements.length);
   for (let i = 0; i < elements.length; i++) {
     const el = elements[i], parent = el.parent;
     hidden[i] = (parent >= 0 && hidden[parent]) || el.hidden ||
       [...el.classes].some((c) => /^(?:sr-only|visually-hidden)$/.test(c)) ? 1 : 0;
     live[i] = (parent >= 0 && live[parent]) || el.live ? 1 : 0;
     chart[i] = (parent >= 0 && chart[parent]) || el.tag === 'figure' ||
-      [...el.classes].some((c) => CHART_CLASS.test(c)) ? 1 : 0;
+      [...el.classes].some((c) => CHART_CLASS.test(c) || /(?:^|[-_])legend(?:$|[-_])/.test(c)) ? 1 : 0;
+    inHeader[i] = (parent >= 0 && inHeader[parent]) || el.tag === 'header' ? 1 : 0;
     fieldId[i] = /^(?:input|select|textarea)$/.test(el.tag) ? i : -1;
     selectedPeriod[i] = selectedPeriodMonths(el);
     contextNoun[i] = nounFromClasses(el.classes) || (parent >= 0 ? contextNoun[parent] : '');
     tableOf[i] = el.tag === 'table' ? i : parent >= 0 ? tableOf[parent] : -1;
     inThead[i] = el.tag === 'table' ? 0 : el.tag === 'thead' || (parent >= 0 && inThead[parent]) ? 1 : 0;
-    if (el.tag === 'tr' && tableOf[i] >= 0 && !inThead[i]) bodyRows[tableOf[i]]++;
+    inTfoot[i] = el.tag === 'table' ? 0 : el.tag === 'tfoot' || (parent >= 0 && inTfoot[parent]) ? 1 : 0;
+    if (el.tag === 'td' && parent >= 0) hasTdChild[parent] = 1;
     sectionOf[i] = parent >= 0 ? (BADGE_SCOPE_TAGS.test(elements[parent].tag) ? parent : sectionOf[parent]) : -1;
     headingScopeOf[i] = parent >= 0 ?
       (HEADING_SCOPE_STOP.test(elements[parent].tag) ? parent : headingScopeOf[parent]) : -1;
+  }
+  // A header row with no <thead> still has only <th> cells; count only a
+  // row that holds at least one <td>, which needs every cell's own tag
+  // decided first, so this runs after the forward pass above. A <tfoot>
+  // row (a totals row) is excluded the same way a <thead> row is.
+  for (let i = 0; i < elements.length; i++) {
+    if (elements[i].tag === 'tr' && tableOf[i] >= 0 && !inThead[i] && !inTfoot[i] && hasTdChild[i]) bodyRows[tableOf[i]]++;
   }
   const nextTable = new Int32Array(elements.length).fill(-1);
   const latestTable = new Int32Array(elements.length).fill(-1);
   // The first <table> inside each element's own subtree, so a table wrapped
   // for layout (a responsive `.wrap` div) still counts as the sibling's table.
   const firstTable = new Int32Array(elements.length).fill(elements.length);
+  // The first <canvas> inside each element's own subtree, so a chart drawn
+  // with <canvas> silences a caption that only shares its own container,
+  // not only one named by a chart class or wrapped in <figure>.
+  const firstCanvas = new Int32Array(elements.length).fill(elements.length);
   for (let i = elements.length - 1; i >= 0; i--) {
     const el = elements[i], parent = el.parent;
     if (el.tag === 'table') firstTable[i] = i;
+    if (el.tag === 'canvas') firstCanvas[i] = i;
+    if (isBadge(el)) containsBadge[i] = 1;
     if (parent < 0) continue;
     if (firstTable[i] < firstTable[parent]) firstTable[parent] = firstTable[i];
+    if (firstCanvas[i] < firstCanvas[parent]) firstCanvas[parent] = firstCanvas[i];
+    if (containsBadge[i]) containsBadge[parent] = 1;
     nextTable[i] = latestTable[parent];
     if (firstTable[i] !== elements.length) latestTable[parent] = firstTable[i];
     if (fieldId[i] >= 0) {
@@ -165,12 +201,21 @@ function data(ctx) {
   // example inside a <header>, next to its <h2>) reaches the table beside
   // that wrapper, not only a table that is the line's own sibling.
   const nextTableOrAbove = new Int32Array(elements.length).fill(-1);
+  // The one selected period of an element's nearest enclosing container,
+  // pushed down from the bottom-up `selectedPeriod` above: a caption in any
+  // sibling wrapper of the control group (a `<footer>` beside a `<div
+  // class="chart">`) reads the same period as a caption that is a direct
+  // child of that container.
+  const periodScope = new Int32Array(elements.length);
   for (let i = 0; i < elements.length; i++) {
     const parent = elements[i].parent;
     nextTableOrAbove[i] = nextTable[i] >= 0 ? nextTable[i] : (parent >= 0 ? nextTable[parent] : -1);
+    periodScope[i] = selectedPeriod[i] > 0 ? selectedPeriod[i] :
+      selectedPeriod[i] < 0 ? -1 : (parent >= 0 ? periodScope[parent] : 0);
   }
   const result = { rows, elements, index, inHeading, ends, hidden, live, chart, fieldId, manyFields,
-    selectedPeriod, contextNoun, bodyRows, nextTable: nextTableOrAbove, sectionOf, headingScopeOf };
+    selectedPeriod, contextNoun, bodyRows, nextTable: nextTableOrAbove, sectionOf, headingScopeOf,
+    firstCanvas, containsBadge, inHeader, periodScope };
   cache.set(ctx, result);
   return result;
 }
@@ -271,6 +316,10 @@ const isCaption = (el) => /^(?:p|small)$/.test(el.tag);
 // count (years normalized to months) never collide, because every day count
 // carries the low decimal digit 1 and every month/year count carries 0.
 const periodCode = (count, unit) => unit === 'days' ? count * 10 + 1 : count * (unit === 'years' ? 12 : 1) * 10;
+// The whole caption: an optional lead-in phrase, the period phrase, and
+// nothing after it but an optional full stop. A caption that adds its own
+// fact around the period phrase is not anchored by this and stays silent.
+const PERIOD_CAPTION = /^(?:change against|compared (?:with|to)|against|relative to|vs\.?)\s+the\s+(?:previous|last|past|prior|trailing)\s+(\d+)\s+(months?|years?|days?)\.?$/i;
 function selectedPeriodMonths(el) {
   if (!/^(?:button|option)$/.test(el.tag)) return 0;
   const value = el.tag === 'option' ? el.attributes.value || el.text.trim() : el.text.trim();
@@ -315,21 +364,67 @@ module.exports = [
     const info = data(ctx), { elements } = info;
     return elements.flatMap((el, i) => {
       if (!control(el) || el.inCode) return [];
-      const label = boundaryText(info, i, control, true) || el.attributes['aria-label'] || (el.tag === 'input' ? el.attributes.value : '') || '';
+      // Read only the visible label (and, for an `<input>`, its rendered
+      // value): an accessible name given through `aria-label` is allowed to
+      // be more descriptive than a visible one-word label, so a control with
+      // no visible text at all — an icon with an accessible name, #63's own
+      // expected shape — is never counted here.
+      const label = boundaryText(info, i, control, true) || (el.tag === 'input' ? el.attributes.value : '') || '';
       if (!label) return [];
       const normalizedLabel = normalized(label);
-      const words = normalizedLabel.split(/\s+/).filter((w) => /\p{L}/u.test(w));
+      // Count words on the label's own text, not the fully normalized copy:
+      // normalizing turns an internal hyphen or apostrophe into a space, so
+      // "Re-run" or "Don't" would otherwise count as two words.
+      const words = label.toLowerCase().replace(/[^\p{L}\p{N}'-]+/gu, ' ').trim()
+        .split(/\s+/).filter((w) => /\p{L}/u.test(w));
       if (words.length < 2) return [];
       if (VERB_ALL_ONLY.test(normalizedLabel)) return [];
       if (redundantContextNoun(label, info.contextNoun[i])) return [];
       return [`<${el.tag}> ${label.slice(0, 80)}`];
     });
   }),
-  cssRule('inset-accent-marker', 2, 'An inset accent stripe repeats an existing selection border.', 'Keep one selection marker.', (p) => {
-    const borderValue = [p.border, p['border-left'], p['border-right'], p.outline].join(' ');
-    const highlightValue = p.background || p['background-color'] || '';
-    return /\binset\s+[1-9]\d*(?:px|rem|em)\s+0\b|\binset\s+0\s+0\s+0\s+[1-9]\d*(?:px|rem|em)/.test(p['box-shadow'] || '') &&
-      ((/(?:solid|outline)/.test(borderValue) && chromatic(borderValue)) || chromatic(highlightValue));
+  rule('inset-accent-marker', 2, 'An inset accent stripe repeats another selection marker.', 'Keep one selection marker.', (ctx) => {
+    const { rows } = data(ctx);
+    // A cascade usually spreads the two markers across declarations: a base
+    // selector gives the border its style, a more specific one (`.active`)
+    // recolors it or adds the stripe. Read each property across every
+    // selector that reaches an element, not only its own declaration block.
+    const stripeEls = new Set(), solidEls = new Set(), coloredBorderEls = new Set(),
+      coloredHighlightEls = new Set(), namedEls = new Set();
+    for (const row of rows) {
+      const p = row.props;
+      const styleValue = [p.border, p['border-left'], p['border-right'], p.outline,
+        p['border-style'], p['border-left-style'], p['border-right-style'], p['outline-style']].join(' ');
+      const colorValue = [p.border, p['border-left'], p['border-right'], p.outline,
+        p['border-color'], p['border-left-color'], p['border-right-color'], p['outline-color']].join(' ');
+      const highlightValue = p.background || p['background-color'] || '';
+      const stripe = STRIPE.exec(p['box-shadow'] || '');
+      const width = stripe ? Math.abs(parseFloat(stripe[1] ?? stripe[3])) * ((stripe[2] ?? stripe[4]) === 'px' ? 1 : 16) : 0;
+      const isSolid = /(?:solid|outline)/.test(styleValue);
+      const isColoredBorder = chromatic(colorValue);
+      const isColoredHighlight = chromatic(highlightValue);
+      const isNamed = STATE_SELECTOR.test(row.selector);
+      if (!(width >= 2) && !isSolid && !isColoredBorder && !isColoredHighlight && !isNamed) continue;
+      for (const el of targets(ctx, row)) {
+        if (width >= 2) stripeEls.add(el);
+        if (isSolid) solidEls.add(el);
+        if (isColoredBorder) coloredBorderEls.add(el);
+        if (isColoredHighlight) coloredHighlightEls.add(el);
+        if (isNamed) namedEls.add(el);
+      }
+    }
+    const hits = [];
+    for (const el of stripeEls) {
+      const borderMarker = solidEls.has(el) && coloredBorderEls.has(el);
+      // A plain background highlight counts as the second marker only on an
+      // element some selector names as a selection state; an ordinary button
+      // or badge with a colored fill and an edge glow is not a selected option.
+      const highlightMarker = namedEls.has(el) && coloredHighlightEls.has(el);
+      if (borderMarker || highlightMarker) {
+        hits.push(`<${el.tag}>${el.id ? '#' + el.id : [...el.classes].slice(0, 2).map((c) => '.' + c).join('')}`);
+      }
+    }
+    return hits;
   }),
   rule('repeated-field-caption', 2, 'The same caption under each field adds no field-specific information.', 'Keep only a caption that explains its own field.', (ctx) => {
     const info = data(ctx), { elements, fieldId, manyFields } = info;
@@ -353,6 +448,14 @@ module.exports = [
       if (info.live[i]) continue;
       const field = el.parent >= 0 ? fieldId[el.parent] : -1;
       if (field < 0 || manyFields[el.parent] || seenFields.has(field) || words[i] > 5) continue;
+      const fieldEl = elements[field];
+      // A radio or checkbox's own label — the text beside it that a reader
+      // clicks to select it — is never a repeated caption, whichever side of
+      // the control it sits on. For every other field, only a caption that
+      // comes after it in the markup is a trailing note; one before it is
+      // the field's own label ("Quantity" beside its input).
+      if (/^(?:radio|checkbox)$/.test(fieldEl.inputType)) continue;
+      if (el.start < fieldEl.start) continue;
       const key = normalized(boundaryText(info, i, isCaption));
       if (!key || key.split(' ').length > 5) continue;
       seenFields.add(field);
@@ -362,14 +465,28 @@ module.exports = [
     return [...groups].filter(([, parents]) => parents.size >= 3).map(([caption, parents]) => `${caption} under ${parents.size} fields`);
   }),
   rule('restated-status-badge', 2, 'A status badge repeats the page title or a field state.', 'Remove the repeated badge.', (ctx) => {
-    const info = data(ctx), { elements, sectionOf, headingScopeOf } = info;
+    const info = data(ctx), { elements, sectionOf, headingScopeOf, containsBadge, inHeader } = info;
     const addTo = (map, key, value) => {
       if (!map.has(key)) map.set(key, new Set());
       map.get(key).add(value);
     };
-    const titlesBySection = new Map();
+    // Only the page title — an h1, or any heading inside the <header>
+    // landmark — is compared page-wide. Any other heading (an h2 naming its
+    // own section, such as a dashboard section named after a state) keeps
+    // the same narrower, same-section scope a field state uses: a badge in
+    // a different section must not read an unrelated heading as its title.
+    const pageTitlesByScope = new Map();
+    const sectionHeadingsBySection = new Map();
     for (let i = 0; i < elements.length; i++) {
-      if (isHeading(elements[i])) addTo(titlesBySection, headingScopeOf[i], normalized(boundaryText(info, i, isHeading)));
+      const el = elements[i];
+      // A heading that is itself styled as a badge, or that contains one (a
+      // badge given as the heading, such as `<h2><span class="pill">Beta
+      // </span></h2>`), is not a separate page title: without this, a badge
+      // nested in or styled as its own heading repeats itself.
+      if (!isHeading(el) || isBadge(el) || containsBadge[i]) continue;
+      const text = normalized(boundaryText(info, i, isHeading));
+      if (el.tag === 'h1' || inHeader[i]) addTo(pageTitlesByScope, headingScopeOf[i], text);
+      else addTo(sectionHeadingsBySection, sectionOf[i], text);
     }
     const fieldStatesBySection = new Map();
     for (let i = 0; i < elements.length; i++) {
@@ -393,21 +510,28 @@ module.exports = [
       if (!isBadge(el)) return [];
       const label = normalized(boundaryText(info, i, isBadge));
       if (!label || !/\p{L}/u.test(label)) return [];
-      // A field state is compared only within the badge's own section (its
-      // nearest <section>/<nav>/<tr>/… ancestor): a cart badge or a table
-      // row's own badge must not read a field value from a different part of
-      // the page as its own state. A title is compared more widely, through
-      // <header>/<main>/<footer>: those sit side by side as one page, so a
-      // page title in <header><h1> still repeats in a badge under <main>.
-      const titles = titlesBySection.get(headingScopeOf[i]);
+      // A field state and a section heading are compared only within the
+      // badge's own section (its nearest <section>/<nav>/<tr>/… ancestor): a
+      // cart badge or a table row's own badge must not read a field value or
+      // an unrelated section's heading as its own state. The page title is
+      // compared more widely, through <header>/<main>/<footer>: those sit
+      // side by side as one page, so a page title in <header><h1> still
+      // repeats in a badge under <main>.
+      const titles = pageTitlesByScope.get(headingScopeOf[i]);
+      const sectionHeadings = sectionHeadingsBySection.get(sectionOf[i]);
       const fields = fieldStatesBySection.get(sectionOf[i]);
-      return (titles?.has(label) || fields?.has(label)) ? [`${label} badge repeats a title or field state`] : [];
+      return (titles?.has(label) || sectionHeadings?.has(label) || fields?.has(label)) ?
+        [`${label} badge repeats a title or field state`] : [];
     });
   }),
   rule('marker-explainer', 2, 'A sentence explains a visible marker without adding information.', 'Remove the sentence and keep the marker clear.', (ctx) => {
-    const info = data(ctx);
-    return info.elements.flatMap((el, i) => {
+    const info = data(ctx), { elements, firstCanvas } = info;
+    return elements.flatMap((el, i) => {
       if (!isCaption(el) || el.inCode || info.chart[i]) return [];
+      // A caption beside a <canvas>-drawn chart in the same plain container
+      // (a `.card` with no chart class) names what that chart already
+      // shows, the same as one inside <figure> or a chart-class container.
+      if (el.parent >= 0 && firstCanvas[el.parent] < elements.length) return [];
       const text = boundaryText(info, i, isCaption);
       // Page copy names a marker by its colour as often as by "accent"/"inset";
       // a chart legend saying "line" instead of "bar"/"stripe" stays silent.
@@ -417,15 +541,22 @@ module.exports = [
     });
   }),
   rule('restated-control-period', 2, 'A caption repeats the selected period.', 'Remove the repeated caption.', (ctx) => {
-    const { elements, selectedPeriod } = data(ctx), hits = [];
+    const info = data(ctx), { elements, periodScope } = info, hits = [];
     for (let i = 0; i < elements.length; i++) {
       if (!/^(?:p|small|span)$/.test(elements[i].tag)) continue;
-      const period = /\b(?:previous|last|past|prior|trailing)\s+(\d+)\s+(months?|years?|days?)\b/i.exec(elements[i].text);
+      // The whole caption, not a phrase anywhere inside it: a caption that
+      // adds its own fact around the period ("Revenue grew 20% against the
+      // previous 12 months.") is not only the repeated period, and must stay
+      // silent even when it sits near an active period control.
+      const text = boundaryText(info, i, isCaption);
+      const period = PERIOD_CAPTION.exec(text);
       if (!period) continue;
       const unit = /^day/i.test(period[2]) ? 'days' : /^year/i.test(period[2]) ? 'years' : 'months';
       const code = periodCode(Number(period[1]), unit);
-      const p = elements[i].parent;
-      if (p >= 0 && selectedPeriod[p] === code) hits.push(elements[i].text.trim().slice(0, 90));
+      // The nearest enclosing container's one selected period, not only the
+      // caption's direct parent: a caption in a sibling wrapper of the
+      // control group (a footer beside a chart) still reads it.
+      if (periodScope[i] === code) hits.push(text.slice(0, 90));
     }
     return hits;
   }),
@@ -435,7 +566,7 @@ module.exports = [
       const el = elements[i];
       if (!isCaption(el)) continue;
       const text = boundaryText(info, i, isCaption);
-      const match = /^(\d+)\s+of\s+(?:the\s+)?\d[\d,]*\s+[\p{L}-]+(?:\s+(?:this|last)\s+(?:year|month|week|quarter))?\.?$/iu.exec(text);
+      const match = /^(?:showing\s+)?(\d+)\s+of\s+(?:the\s+)?\d[\d,]*\s+[\p{L}-]+(?:\s+(?:this|last)\s+(?:year|month|week|quarter))?\.?$/iu.exec(text);
       if (!match) continue;
       const table = nextTable[i];
       if (table >= 0 && bodyRows[table] === Number(match[1])) hits.push(text.slice(0, 90));
