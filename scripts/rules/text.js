@@ -25,26 +25,72 @@ function phraseRule(patterns) {
 
 // ── level 1 · ban (chat residue leaked into prose → error) ───────────────
 
+// "Certainly!" is chat residue at any sentence start. The comma form needs the
+// start of a reply or a paragraph, because after a full stop "Of course," is ordinary prose.
+const BANG_OPENER = /(?:^|[.!?]['’"”)\]]?\s+|\n)\s*(?:certainly|great question|excellent question|absolutely|sure thing|of course)\s*!/gi;
+const COMMA_OPENER = /^\s*(?:certainly|great question|excellent question|absolutely|sure thing|of course)\s*,/i;
+const commaOpeners = (ctx) => ctx.paragraphs.map((p) => COMMA_OPENER.exec(p)).filter(Boolean).map((m) => m[0].trim());
+
+const REST = [
+  BANG_OPENER,
+  /\bI['’]d be happy to\b/gi,
+  // "Sure, here is…" is chat residue wherever a sentence opens. Only `sure`
+  // takes the sentence-end position; `certainly` there is the opener check's, and
+  // two patterns on one opener would report it twice.
+  /(?:^|[.!?]['’"”)\]]?\s+|\n\s*\n\s*)(sure)['’]?s?,?\s+(here|is|are|what|how)\b/gi,
+  // Bare "here is" opens a paragraph or it opens nothing. Mid-paragraph it is
+  // ordinary English, and a line break inside a paragraph is a wrap, not a
+  // sentence start — matching one read every indented continuation line as an
+  // opener.
+  /(?:^|\n\s*\n\s*)(certainly|here)['’]?s?,?\s+(here|is|are|what|how)\b/gi,
+  /\b(hope this (?:email |message )?finds you well|as an ai language model)\b/gi,
+];
+
 const sycophancyOpener = {
   id: 'sycophancy-opener',
   level: 1,
   severity: 'error',
   why: 'RLHF chat residue ("Certainly!", "Great question!", "I’d be happy to…") that survived from a chatbot into published copy. Near-diagnostic.',
   fix: 'Delete the opener. Start with the point.',
-  test: phraseRule([
-    /(?:^|[.!?]\s+|\n)\s*(certainly|great question|excellent question|absolutely|sure thing|of course)\s*[!,]/gi,
-    /\bI['’]d be happy to\b/gi,
-    // "Sure, here is…" is chat residue wherever a sentence opens. Only `sure`
-    // takes the sentence-end position; `certainly` there is pattern 1's, and
-    // two patterns on one opener would report it twice.
-    /(?:^|[.!?]['’"”)\]]?\s+|\n\s*\n\s*)(sure)['’]?s?,?\s+(here|is|are|what|how)\b/gi,
-    // Bare "here is" opens a paragraph or it opens nothing. Mid-paragraph it is
-    // ordinary English, and a line break inside a paragraph is a wrap, not a
-    // sentence start — matching one read every indented continuation line as an
-    // opener (config/bin/verify-settings:620).
-    /(?:^|\n\s*\n\s*)(certainly|here)['’]?s?,?\s+(here|is|are|what|how)\b/gi,
-    /\b(hope this (?:email |message )?finds you well|as an ai language model)\b/gi,
-  ]),
+  test: (ctx) => [...new Set([...commaOpeners(ctx), ...phraseRule(REST)(ctx)])],
+};
+
+// A single reply cannot show what the other person said. Compare only explicit
+// adjacent Incoming/Reply pairs, and require two shared content words in the
+// thanked-for clause. The skill handles threads without these labels.
+const REPLY_STOP = new Set([
+  'about', 'after', 'again', 'before', 'being', 'could', 'every',
+  'everything', 'from', 'have', 'into', 'just', 'sent', 'that', 'their',
+  'them', 'there', 'these', 'this', 'those', 'with', 'your',
+  'всего', 'всё', 'все', 'данные', 'добрый', 'день', 'спасибо', 'этого',
+  'этому', 'этот', 'эти',
+]);
+
+function contentWords(s) {
+  return new Set((s.toLowerCase().match(/[\p{L}]{5,}/gu) || [])
+    .filter((word) => !REPLY_STOP.has(word)));
+}
+
+const replyEcho = {
+  id: 'reply-echo',
+  level: 2,
+  severity: 'warning',
+  why: 'A reply thanks the other person by repeating two actions or details they just reported. The recap adds no decision or useful information.',
+  fix: 'Remove the repeated clause. Acknowledge briefly and give the next action or decision.',
+  test(ctx) {
+    const hits = [];
+    const pairs = /^Incoming(?:\s*\((?:RU|EN)\))?:\s*(.+)\r?\n(?:Reply|Comment|Message)(?:\s*\((?:RU|EN)\))?:\s*(.+)$/gmi;
+    let pair;
+    while ((pair = pairs.exec(ctx.text)) !== null) {
+      const reply = pair[2];
+      const thanks = reply.match(/(?:thanks?\s+for|спасибо,?\s+что)\s+([^.!?\n]{1,180})/i);
+      if (!thanks || !/(?:\band\b|(?:^|\s)и(?:\s|$))/i.test(thanks[1])) continue;
+      const incoming = contentWords(pair[1]);
+      const shared = [...contentWords(thanks[1])].filter((word) => incoming.has(word));
+      if (shared.length >= 2) hits.push(thanks[0].slice(0, 100));
+    }
+    return hits;
+  },
 };
 
 // ── level 2 · recommended (strong structural + exact-phrase tells) ───────
@@ -98,16 +144,19 @@ const formulaicCloser = {
   },
 };
 
+const WHETHER = /\bwhether you['’]re\s+an?\b[^.?!]{1,50}?\bor\b/gi;
+// Only the sentence-opening form: "from src to dest, then" mid-sentence is a range.
+// A paragraph start counts as a sentence start, so a line under a heading is seen.
+const FROM_TO = /(?:^\s*|[.!?]['’"”)\]]?\s+)from\s+[a-z][a-z\s]{1,25}?\s+to\s+[a-z][a-z\s]{1,25}?,\s/gi;
+const fromTo = (paragraph) => (paragraph.match(FROM_TO) || []).map((m) => m.trim().slice(0, 70));
+
 const scopeTemplate = {
   id: 'scope-template',
   level: 2,
   severity: 'warning',
   why: '"Whether you’re a X or a Y" / "from X to Y" enumerating-scope cliché that fakes inclusiveness.',
   fix: 'Name the actual audience or range.',
-  test: phraseRule([
-    /\bwhether you['’]re\s+an?\b[^.?!]{1,50}?\bor\b/gi,
-    /\bfrom\s+[a-z][a-z\s]{1,25}?\s+to\s+[a-z][a-z\s]{1,25}?,\s/gi,
-  ]),
+  test: (ctx) => [...new Set([...phraseRule([WHETHER])(ctx), ...ctx.paragraphs.flatMap(fromTo)])],
 };
 
 // ── level 3 · strict (density-gated & structural → warning) ──────────────
@@ -236,6 +285,7 @@ const burstiness = {
 
 module.exports = [
   sycophancyOpener,
+  replyEcho,
   negativeParallelism,
   hedgeOpener,
   worldOpener,

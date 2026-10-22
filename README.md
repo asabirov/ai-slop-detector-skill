@@ -6,12 +6,9 @@ This project combines editorial judgment with deterministic checks. It does not 
 
 ![CLI demo: a chatbot greeting fails the ban level; clean prose passes with exit code zero](assets/demo.svg)
 
-The image shows actual output from the synthetic fixtures below. Regenerate it
-with `python3 docs/render-demo.py > assets/demo.svg` (Python 3 and Node required).
-
 ## Quick start
 
-Requires Node.js 20+ and Git. No dependency installation is needed for a local scan.
+You need Node.js 20 or newer and Git. The detector has no dependencies to install.
 
 ```bash
 git clone https://github.com/asabirov/ai-slop-detector-skill.git
@@ -20,196 +17,75 @@ node bin/slop-detector.js fixtures/slop.md --level 1
 node bin/slop-detector.js fixtures/clean.md --level 1
 ```
 
-The first scan reports `sycophancy-opener` and exits **1**. That failure is expected:
-it catches a chatbot greeting in the sample. The second scan reports `PASS` and
-exits **0**. Replace the fixture path with a file or directory to scan your work.
-
-The CLI is **not published to npm**. The public registry returned 404 for
-`@apliteni/slop-detector` on 2026-09-23. Run from this clone or use the GitHub-based `npx` commands under [Running it](#running-it).
+The first scan reports `sycophancy-opener` and exits **1**. That failure is expected, because the sample holds a chatbot greeting. The second scan reports `PASS` and exits **0**. Replace the fixture path with a file or directory to scan your own work.
 
 ## Why it exists
 
-AI-assisted drafts can keep chatbot greetings, vague claims, and comments that simply describe the code. The skill identifies specific problems in a finished artifact. The optional CLI finds repeatable patterns across files and provides stable exit codes for CI. Neither tool can prove who wrote the work.
+AI-assisted drafts can keep chatbot greetings, vague claims, and comments that only describe the code. The skill finds specific problems in a finished artifact. The optional command-line tool finds repeatable patterns across files and gives stable exit codes for CI. Neither tool can prove who wrote the work.
 
 ## Install, update, roll back, and remove
 
-Install the tagged skill for Claude Code and Codex with:
+Install the tagged skill for Claude Code and Codex:
 
 ```bash
-DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill/tree/v2.3.1 --skill ai-slop-detector --agent claude-code codex --global
+DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill/tree/v2.7.0 --skill ai-slop-detector --agent claude-code codex --global
 ```
 
-`DO_NOT_TRACK=1` tells the skills CLI not to send telemetry. The `npx skills`
-installer requires Node.js/npm and Git. It puts the skill in
-`~/.agents/skills/ai-slop-detector`, where Codex reads it, and links it into
-`~/.claude/skills` for Claude Code.
-
-The skill itself needs nothing else. The optional CLI needs Node.js 20+ and
-comes with the install, so you can run it from there:
+`DO_NOT_TRACK=1` stops the skills tool from sending telemetry. The installer needs Node.js, npm and Git. It puts the skill in `~/.agents/skills/ai-slop-detector` and links it into `~/.claude/skills`. The command-line tool is in the same folder:
 
 ```bash
 node ~/.agents/skills/ai-slop-detector/bin/slop-detector.js <path>
 ```
 
-Update to a later release tag with the same command and its new tag. Roll back
-by rerunning it with the previous release tag. The newest tag is on the
-[releases page](https://github.com/asabirov/ai-slop-detector-skill/releases).
-Remove it with:
+To update or roll back, run the install command again with another release tag. The [releases page](https://github.com/asabirov/ai-slop-detector-skill/releases) lists the newest tag. To remove the skill:
 
 ```bash
 DO_NOT_TRACK=1 npx skills remove ai-slop-detector --agent claude-code codex --global
 ```
 
-If you prefer not to use `npx skills`, clone the repository at the `v2.3.1` release tag into your agent's skills folder as `ai-slop-detector`. To update or roll back, run `git fetch --tags` in that folder and check out another release tag; to remove it, delete the folder.
+Without `npx skills`, clone the repository at the `v2.7.0` release tag into your agent's skills folder as `ai-slop-detector`. To update or roll back, run `git fetch --tags` there and check out another tag. To remove it, delete the folder.
 
-Versions are the `vX.Y.Z` release tags that the release workflow creates; the skill has no version field of its own.
-After each release the same workflow opens a pull request that renames every tag in this file to the newest release,
-because `main` takes no push. Until the owner merges it, the tags here name the last release whose pull request was
-merged. The workflow retries on the next merge to `main`, so a release whose pull request never opened is not lost.
+After each release, a workflow opens a pull request that renames the tags in this file. Until that pull request merges, the tags here name the last release it covered.
 
 ## Using the skill
 
-The skill's description asks the agent to check its work before opening a pull
-request, sending a review page, or delivering other finished work, without
-waiting for an explicit request. Routine chat replies are left out. You can also ask it
-to “check this README for AI slop”. The skill makes one focused pass and reports
-the passage, the reader's problem and a specific correction. It preserves useful technical
-detail and does not rewrite for readability; use a separate editing pass for that.
+The agent checks its work before it opens a pull request or sends other finished work. It does not check routine chat replies. You can also ask: "check this README for AI slop". The skill makes one focused pass. It reports the passage, the reader's problem and a specific correction. [SKILL.md](SKILL.md) holds the agent instructions, including the editorial checks for interface copy. The skill never runs a command or reviews untouched files on its own.
 
-The editorial UI checks cover headline full stops, middot separators, repeated
-qualification badges, unhelpful implementation captions, a heading, label or legend
-repeating what a value or a mark already shows, the same fact stated twice, an
-explanation wrapped around a changing number, a footnote under a table, a lede or
-subtitle beside the heading that names one, and tooltip text set as its own line, in rendered pages and interface copy files. They preserve necessary
-disclosures and useful user
-information. Component style mismatches need a rendered comparison; uncertain
-ones are reported as needing a design review. These are agent review instructions, not additional
-CLI rules.
+## What the command-line tool checks
 
-For unclear marketing lines, the skill can run a fresh-reader check
-(see [SKILL.md](SKILL.md)); the CLI does not.
+Three rule packs share one engine:
 
-Read [SKILL.md](SKILL.md) for the workflow. The skill does not automatically run a
-command, install dependencies or review untouched files. Use the CLI when
-requested, required by the repository or useful for a batch scan. Editorial
-judgment does not waive an existing CI gate.
+- **Visual** reads markup and the CSS a page applies. It finds fake protocol URIs, monospace used as decoration, emoji headings, gradients, glow shadows, nested cards, oversized stats, multi-word buttons, repeated field captions, duplicate status badges, and an explanatory line placed under or beside a table or chart.
+- **Text** reads visible prose and the attributes a person reads, such as `title`, `alt` and `placeholder`. It finds "not just X, but Y", sycophancy, clusters of inflated words, and a reply that repeats the message before it.
+- **Comments** reads source files. It finds design documents written into code comments.
 
-## What it does today
+There are four levels. Each level adds rules to the one below: `ban`, `recommended` (the default), `strict` and `paranoid`. Only `error` findings give a non-zero exit code. Level 1 is the merge gate and the higher levels are polish.
 
-Three rule packs over one engine.
+The [reference](docs/ai-slop-detector.md) lists every rule with its level and severity. It also covers the text parser, the coverage limits of the UI rules, and how to extend the tool.
 
-- **Visual** reads markup and the CSS a page applies, including stylesheets it
-  links from disk. Catches fake protocol URIs, monospace used as decoration,
-  emoji headings, gradients, glow shadows, glass surfaces, nested cards,
-  oversized stats, motion and repeated layout defaults. It also reads position:
-  an explanatory line under a table or a chart — the basis of the numbers, what
-  they exclude, where they came from, or an "as of" date — fails at level 1,
-  whether or not a local design rule asks for the line — and so does a lede, group
-  subtitle or "as of" line set beside the heading that names it. A component counts
-  as a table: `<DataTable/>` and `<LineChart/>` are what a screen actually ships.
-  It reads one value holding two facts, `4 April · 3 days late`, where the
-  older chain rule waited for a third dot. A number on each side is what makes it
-  two facts, so a time beside who did it stays silent, and so do the same words
-  around the numbers, which is a dimension, a range or a pair of quarters. A
-  value with no word in it is arithmetic, and only a short value is read at all.
-  Native font stacks, numeric table data, a count line, a chart legend, a caption
-  naming its figure, and a total, unit, byline or control beside a heading are
-  allowed.
-- **Text** reads visible prose plus the attributes a person actually reads
-  (`title`, `alt`, `placeholder`, `aria-label`, `data-tip`, the meta
-  description). Catches "not just X, but Y", hedge openers, sycophancy residue,
-  clustered inflated vocabulary.
-- **Comments** reads source files. Catches the design document an agent files
-  into a code comment because the project gave it nowhere else to write one.
-  `comment-chaptered` joins blocks separated by exactly one blank line, with
-  no code between them: 8+ comment lines require two headings or interior
-  dividers in total to fail level 1. A block of 8+ lines with one signal
-  still fails on its own, even inside a joined run.
-  One title in a joined run is a label; two chapter signals make chapters.
-  Blank separators do not count toward length; individual block frames stay
-  exempt. Essay and ratio measurements are unchanged.
+## Running it in CI
 
-Code is not prose. Fenced blocks and inline code spans come out of a document
-before the rules that judge decoration read it, so a page can quote the pattern
-it explains. Spans are matched the way CommonMark matches them, a run of N
-backticks closing only on a run of N, and the HTML sniff is taken after that
-removal so a markdown file naming `<style>` in backticks is still markdown.
-
-Four levels, each a superset of the one below: `ban`, `recommended` (default),
-`strict`, `paranoid`. Only `error` findings exit non-zero, so level 1 is the
-merge gate and the higher levels are polish.
-
-[The CLI reference](docs/ai-slop-detector.md) documents coverage and thresholds.
-[SKILL.md](SKILL.md) is the personal skill entrypoint.
-
-## Running it
-
-In a repository's CI, or anywhere with Node 20:
+Pin a release tag. An unpinned run follows `main`, and a rule that gets stricter can fail a build that passed yesterday.
 
 ```bash
 REPO=github:asabirov/ai-slop-detector-skill
-npx -y "$REPO#v2.3.1" dist --level 1        # pin a tag in CI
-npx -y "$REPO#v2.3.1" src scripts --level 1
-npx -y "$REPO" 'src/**/*.js' --json         # unpinned tracks main
+npx -y "$REPO#v2.7.0" src scripts --level 1
+npx -y "$REPO#v2.7.0" 'src/**/*.js' --json
 ```
 
-There is no npm package. `npx` installs from this repository, so a runner needs
-network and access to GitHub. Pin a tag: unpinned tracks `main`, and a rule that
-tightens will fail a build that passed yesterday. The tag above is the one the
-release workflow last put here, which lags while its pull request waits; the
-newest is on the [releases page](https://github.com/asabirov/ai-slop-detector-skill/releases).
+There is no npm package. `npx` installs from this repository, so the runner needs network access to GitHub.
 
-In this repository:
+JavaScript and TypeScript files skip the visual rules by default, and the output says how many files skipped them. To check interface copy in such a file, add `--as artifact`. The code is then read as prose, which can cause false positives.
+
+## Check that it works
 
 ```bash
-npm test           # the unit tests, the fixtures, and this repo's own prose
+npm test           # unit tests and fixtures
 npm run lint:self  # the detector must pass its own rules
-npm run verify     # both, in that order — the one script CI runs
+npm run verify     # both of the above, the script CI runs
 ```
 
-`main` requires a `test` check, and that check runs `npm run verify`, so a pull
-request whose unit tests fail cannot merge. The release workflow reports its own
-`test` status on the README branch it opens, from the same script, so the two
-mean the same thing. Paste the full `npm run verify` output into the PR anyway:
-the check says pass or fail and nothing about which assertions ran. CodeQL runs
-alongside it.
-
-Every test has a budget — its own `{ timeout: ms }` or the module's default —
-and the suites take `test`, `it` and `describe` from `scripts/lib/budget.js`,
-which times each body on top of the timeout it hands to `node:test`. Without
-that a synchronous test runs as long as it likes: a timeout cannot interrupt
-code that never yields the thread.
-
-JavaScript and TypeScript source files skip visual rules by default. Text output
-reports how many files skipped them, including in mixed scans; JSON marks each
-file with `visualRulesSkipped`. Rerun UI copy with `--as artifact` to include
-those checks; code is then read as prose,
-which can produce false positives. CSS and component files such as `.tsx`
-already receive visual checks and do not get the skip notice.
-
-The UI rules use static markup and declaration heuristics rather than a browser
-or CSS engine: no runtime dependencies, fast batch scans, and no computed-style
-claims. They read standalone CSS, inline styles, and literal Tailwind classes in
-HTML, JSX, TSX, Vue, Svelte, and Astro. Dynamic classes, Tailwind configuration,
-CSS cascade resolution, and contrast checks need a rendered review. See the
-[CLI reference](docs/ai-slop-detector.md) for coverage and thresholds.
-
-## Changing a rule
-
-The rule set is a shared contract. Do not fork it, and do not silence a rule in
-the repository that trips over it. Open an issue here naming the rule `id`,
-showing the case, and saying what you would change.
-
-A CLI rule change is tested both ways: a triggering case goes into a slop
-fixture, and every `fixtures/clean.*` must stay silent at paranoid. If a new
-rule makes a clean fixture fire, the rule is wrong, not the fixture.
-
-A change to what the skill flags also ships examples in its pull request: one
-case whose result changes, one that reads the same both times, and a diff of
-the check's real output before and after. A CLI rule has a fixture to run. An
-editorial rule has none, so the two runs are the review itself, once against
-each version of the rule text. Two runs may differ on their own; say so when a
-line moves for that reason. `AGENTS.md` has the full rule.
+To change a rule, open an issue that names the rule `id` and shows the case. [AGENTS.md](AGENTS.md) has the rules for changing the code. The demo image above comes from `python3 docs/render-demo.py > assets/demo.svg`.
 
 ## License
 

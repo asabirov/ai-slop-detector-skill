@@ -8,6 +8,8 @@ npm test           # unit tests and fixtures
 npm run lint:self  # the detector must pass its own rules
 ```
 
+When parse code changes, also run `node scripts/bench.js`. It is not part of `npm test`.
+
 ## Test the function, not the process
 
 One test per entry point proves the command line is wired. Every other
@@ -49,11 +51,12 @@ rather than something beside it.
 A test asserting that a file contains the right string passes whether or not
 the thing that string names actually works.
 
-## The README is the spec
+## The README is for people
 
-It says what this does today, and it opens by naming the choice this design
-makes, the alternatives it turned down, and the fact that decided between them.
-A change is finished when that file matches what shipped.
+Keep it a short human overview: what this is, how to run it, and how to check
+that it works. Agent rules stay in `SKILL.md`, and rule detail stays in
+`docs/`. Update the README only when it no longer tells people what they need
+to know.
 
 ## A CLI rule change is tested both ways
 
