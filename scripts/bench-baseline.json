@@ -1,6 +1,10 @@
 {
   "slop.html": {
-    "parse": 1349,
-    "rules": 666
+    "parse": 1665,
+    "detect": 2025,
+    "host": "hz-fsn-1",
+    "node": "v24.20.0",
+    "cores": 16,
+    "load": 10.2
   }
 }

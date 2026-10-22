@@ -2,10 +2,12 @@
 'use strict';
 
 // Usage: node scripts/bench.js [--mb N] [--fixture slop.html] [--runs 5] [--update]
-// Builds an N MB page from a fixture body, times the parse step and the rules,
-// and prints ms per MB. It warns when a figure is twice the stored one.
+// Builds an N MB page from a fixture body, times the parse step and the whole
+// detect run, and prints CPU ms per MB. It warns when a figure is twice the
+// stored one. Time is CPU time, so a busy host moves it less than wall time.
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { detect } = require('./detect');
 const { parse } = require('./lib/html');
@@ -29,13 +31,18 @@ function median(values) {
   return sorted[sorted.length >> 1];
 }
 
+function cpuMs() {
+  const { user, system } = process.cpuUsage();
+  return (user + system) / 1000;
+}
+
 function timeOf(fn, runs) {
   fn();
   const times = [];
   for (let i = 0; i < runs; i++) {
-    const start = process.hrtime.bigint();
+    const start = cpuMs();
     fn();
-    times.push(Number(process.hrtime.bigint() - start) / 1e6);
+    times.push(cpuMs() - start);
   }
   return median(times);
 }
@@ -45,7 +52,11 @@ function measure({ fixture, mb, runs }) {
   const size = source.length / (1024 * 1024);
   const parseMs = timeOf(() => parse(source, { ext: 'html' }), runs);
   const detectMs = timeOf(() => detect(source, { level: 4, kind: 'artifact', ext: 'html' }), runs);
-  return { parse: parseMs / size, rules: Math.max(detectMs - parseMs, 0) / size };
+  return { parse: parseMs / size, detect: detectMs / size };
+}
+
+function hostNote() {
+  return { host: os.hostname(), node: process.version, cores: os.cpus().length, load: Number(os.loadavg()[0].toFixed(1)) };
 }
 
 function main(argv) {
@@ -57,11 +68,14 @@ function main(argv) {
   const figures = measure(options);
   console.log(`${options.fixture} at ${options.mb} MB, median of ${options.runs} runs`);
   console.log(`parse  ${figures.parse.toFixed(1)} ms/MB`);
-  console.log(`rules  ${figures.rules.toFixed(1)} ms/MB`);
+  console.log(`detect ${figures.detect.toFixed(1)} ms/MB, parse included`);
+  const where = hostNote();
+  console.log(`host ${where.host}, node ${where.node}, load ${where.load} on ${where.cores} cores`);
+  if (where.load > where.cores) console.log('load is above the core count, so treat these figures as slow');
 
   const stored = fs.existsSync(BASELINE) ? JSON.parse(fs.readFileSync(BASELINE, 'utf8')) : {};
   if (argv.includes('--update')) {
-    stored[options.fixture] = { parse: Math.round(figures.parse), rules: Math.round(figures.rules) };
+    stored[options.fixture] = { parse: Math.round(figures.parse), detect: Math.round(figures.detect), ...where };
     fs.writeFileSync(BASELINE, JSON.stringify(stored, null, 2) + '\n');
     console.log(`stored in ${path.relative(ROOT, BASELINE)}`);
     return 0;
@@ -72,13 +86,13 @@ function main(argv) {
     return 0;
   }
   let warned = false;
-  for (const step of ['parse', 'rules']) {
+  for (const step of ['parse', 'detect']) {
     if (figures[step] > base[step] * WARN_RATIO) {
       warned = true;
       console.warn(`WARNING: ${step} is ${figures[step].toFixed(1)} ms/MB, more than ${WARN_RATIO} times the stored ${base[step]} ms/MB`);
     }
   }
-  if (!warned) console.log(`within ${WARN_RATIO} times the stored figures (parse ${base.parse}, rules ${base.rules})`);
+  if (!warned) console.log(`within ${WARN_RATIO} times the stored figures (parse ${base.parse}, detect ${base.detect})`);
   return 0;
 }
 
