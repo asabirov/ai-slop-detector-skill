@@ -5,12 +5,18 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { performance } = require('node:perf_hooks');
 const { detect, resolveLevel, kindForPath, SEVERITY, VERDICT_ICON, LEVELS } = require('./detect');
 const { RULES } = require('./rules');
+const { NAMED } = require('./lib/entities');
 const {
   attrTextRuns,
   cssRules,
   plainText,
+  paragraphs,
+  visibleTextRuns,
+  decodeEntities,
+  parse,
   stripTags,
   markupTokens,
   markupElements,
@@ -32,12 +38,31 @@ const run = (f, level) =>
     filePath: path.join(FIX, f),
   });
 
-const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop.js', 'slop-linked-css.html', 'slop-table-footnote.tsx', 'slop-table-control-boundaries.html', 'slop-table-live-fragments.html', ...fs.readdirSync(FIX).filter((f) => f.startsWith('slop-ui-'))];
-const CLEAN_FIXTURES = ['clean.html', 'clean.md', 'clean.js'];
+const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop-reply.txt', 'slop.js', 'slop-linked-css.html', 'slop-table-footnote.tsx', 'slop-table-control-boundaries.html', 'slop-table-live-fragments.html', 'slop-entities.html', 'slop-entities.md', 'slop-html-ownership.md', ...fs.readdirSync(FIX).filter((f) => f.startsWith('slop-ui-'))];
+const CLEAN_FIXTURES = ['clean.html', 'clean.md', 'clean.js', 'clean-reply.txt'];
 
 function firedIds(file, level = 4) {
   return new Set(run(file, level).findings.map((f) => f.rule));
 }
+
+test('flags a reply that repeats the preceding message in Russian and English', { timeout: 1000 }, () => {
+  const rule = RULES.find((r) => r.id === 'reply-echo');
+  assert.ok(rule, 'reply-echo rule must exist');
+  const pairs = [
+    ['Incoming: Корректировки внесли и отправили всё аудитору.\nReply: Спасибо, что внесли корректировки и передали всё аудитору.', 1],
+    ['Incoming: We made the corrections and sent everything to the auditor.\nReply: Thanks for making the corrections and sending everything to the auditor.', 1],
+    ['Incoming: We sent the figures to the auditor.\nReply: Thanks, got it. I will check the file today.', 0],
+    ['Incoming: Корректировки внесли и отправили аудитору.\nReply: Спасибо, принято. Ответ направлю завтра.', 0],
+    ['Incoming: We sent the figures to the auditor.\nReply: Thanks for sending the figures and notifying the auditor.', 1],
+    ['Incoming: We sent the figures to the auditor.\nComment: Thanks for sending the figures and notifying the auditor.', 1],
+    ['Incoming: Корректировки внесли и отправили всё аудитору.\nMessage: Спасибо, что внесли корректировки и передали всё аудитору.', 1],
+    ['Incoming: We sent the figures to the auditor.\nReply: Thanks for your note. I will call the auditor tomorrow.', 0],
+    ['Incoming: We sent the figures to the auditor.\nReply: Thanks for sending the figures.', 0],
+  ];
+  for (const [text, count] of pairs) {
+    assert.strictEqual(rule.test({ text }).length, count, text);
+  }
+});
 
 // ── attribute prose is prose (lessly-landing#387) ──────────────────────
 // Stripping tags with `<[^>]+>` took the tooltip out with the tag. On
@@ -55,6 +80,868 @@ test('reads prose out of human-readable attributes, and only those', () => {
     'A named grant, expiring Friday',
     'Our recommended tier: a plan.',
   ]);
+});
+
+// ── an entity is the text a reader meets ────────────────────────────────
+// Six names decoded, and only inside an attribute. So a page could spell its
+// dotted chain `&middot;` or pad the dots with `&nbsp;` and no text rule saw a
+// dot at all. The reader sees one line either way.
+test('decodes the named entities a reader meets, not only the numeric ones', { timeout: 1000 }, () => {
+  assert.deepStrictEqual(
+    visibleTextRuns(
+      '<p>draft &middot; 2026 &middot; brainstorm</p>' +
+        '<p>beta&nbsp;&middot;&nbsp;internal</p>' +
+        '<p>Paris &rarr; Berlin &mdash; &euro;40</p>' +
+        '<p>&quux; stays</p>'
+    ),
+    ['draft · 2026 · brainstorm', 'beta · internal', 'Paris → Berlin — €40', '&quux; stays']
+  );
+  assert.ok(plainText('<p>Total &euro;40 &hellip; done</p>', true).includes('€40 … done'));
+  assert.ok(firedIds('slop-entities.html', 2).has('middot-chain'));
+  // Markdown prints an entity too, so the prose streams decode as well.
+  assert.strictEqual(plainText('a &middot; b &middot; c', false), 'a · b · c');
+  assert.deepStrictEqual(paragraphs('a &middot; b', false), ['a · b']);
+});
+
+test('reads numeric HTML replacement glyphs in visible text and attributes', { timeout: 1000 }, () => {
+  const page = '<p>Status &#149; 2026 &#x95; Active</p>' +
+    '<p>It&#146;s important to note this.</p>' +
+    '<span title="It&#x92;s crucial to remember the date.">Update</span>';
+  const findings = detect(page, { level: 4, kind: 'artifact', ext: 'html' }).findings;
+  assert.deepStrictEqual(visibleTextRuns(page).slice(0, 2), [
+    'Status • 2026 • Active',
+    'It’s important to note this.',
+  ]);
+  assert.deepStrictEqual(attrTextRuns(page), ['It’s crucial to remember the date.']);
+  assert.strictEqual(findings.filter((f) => f.rule === 'middot-chain').length, 1);
+  assert.strictEqual(findings.filter((f) => f.rule === 'hedge-opener').length, 2);
+});
+
+// One pass, and only a character a reader can be shown. Three passes let a
+// produced ampersand be read again, so `&#38;middot;` — the text `&middot;` on
+// the page — became a dot nobody sees. A code point past Unicode's last one threw
+// out of the whole run, and a lone surrogate came back as half a character.
+test('decodes once, and leaves what it cannot resolve as written', { timeout: 1000 }, () => {
+  assert.deepStrictEqual(
+    visibleTextRuns('<p>&#38;middot; and &#x26;lt;b&#x26;gt;</p>'),
+    ['&middot; and &lt;b&gt;']
+  );
+  assert.strictEqual(decodeEntities('&#1114112; &#xD800; &#x26A;'), '&#1114112; &#xD800; ɪ');
+  // The whole-page prose stream drops a name this engine cannot resolve, which it
+  // did before. Done as a second pass it ate the name a numeric ampersand had
+  // just produced, so the stream reported nothing where the page prints a name.
+  assert.strictEqual(plainText('<p>&#38;middot;</p>', true), '&middot;');
+  assert.strictEqual(plainText('<p>&quux; x</p>', true), 'x');
+  // Decoding runs last, after the markdown syntax is stripped, so a character it
+  // produces is never read as syntax. CommonMark resolves an entity after block
+  // structure: `&#35; x` prints `# x` in a paragraph.
+  assert.strictEqual(plainText('&#35; not a heading', false), '# not a heading');
+  assert.deepStrictEqual(paragraphs('one&#10;&#10;two', false), ['one two']);
+  assert.ok(firedIds('slop-entities.html').has('heading-period'));
+});
+
+// ── the table is the standard's, and names are case-sensitive ───────────
+// Six names were hand-picked, so `&nearr;` and `&thinsp;` got silence. The whole
+// HTML5 list decodes now, and a lower-cased lookup would have made `&Aacute;`
+// and `&aacute;` the same letter.
+test('decodes every HTML5 name, and reads its case', { timeout: 1000 }, () => {
+  assert.strictEqual(Object.keys(NAMED).length, 2125);
+  assert.strictEqual(decodeEntities('&nearr; &thinsp; &copy; &alpha;'), '↗ \u2009 © α');
+  assert.strictEqual(decodeEntities('&Aacute; &aacute;'), 'Á á');
+  assert.strictEqual(decodeEntities('&AACUTE;'), '&AACUTE;');
+  assert.strictEqual(decodeEntities('&#X26;lt;'), '&lt;');
+});
+
+test('keeps escaped Markdown references literal with odd backslash counts', { timeout: 1000 }, () => {
+  for (const reference of ['&nearr;', '&#8599;', '&#x2197;']) {
+    for (const count of [1, 3]) {
+      const source = `Write ${'\\'.repeat(count)}${reference} to spell the reference.`;
+      assert.ok(plainText(source, false).includes(reference), source);
+      assert.ok(paragraphs(source, false)[0].includes(reference), source);
+      assert.ok(!detect(source, { level: 4, kind: 'artifact', ext: 'md' }).findings
+        .some((finding) => finding.rule === 'external-link-arrow'), source);
+    }
+    for (const count of [0, 2]) {
+      const source = `Write ${'\\'.repeat(count)}${reference} to spell the reference.`;
+      assert.ok(plainText(source, false).includes('↗'), source);
+      assert.ok(detect(source, { level: 4, kind: 'artifact', ext: 'md' }).findings
+        .some((finding) => finding.rule === 'external-link-arrow'), source);
+    }
+  }
+  assert.strictEqual(plainText('<p>Write &nearr; here.</p>', true), 'Write ↗ here.');
+});
+
+test('keeps CSS references literal while decoding HTML attribute references', { timeout: 1000 }, () => {
+  for (const source of [
+    '.icon::after { content: "&nearr;"; }',
+    '/* Write &nearr; to encode the arrow. */\np { color: black; }',
+  ]) {
+    const ctx = parse(source, { ext: 'css' });
+    assert.ok(ctx.codeless.includes('&nearr;'), source);
+    assert.ok(ctx.runs.some((run) => run.includes('&nearr;')), source);
+    assert.ok(!detect(source, { level: 1, kind: 'artifact', ext: 'css' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  assert.strictEqual(parse('<p style="content: &nearr;">Hello.</p>', { ext: 'html' })
+    .elements[0].style, 'content: ↗');
+  assert.ok(!detect('.icon::after { content: "&rarr;"; }',
+    { level: 1, kind: 'artifact', ext: 'css' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('quoted tag data does not become visible prose', { timeout: 1000 }, () => {
+  const hidden = '<div data-note="> &nearr;">Hello.</div>';
+  const ctx = parse(hidden, { ext: 'html' });
+  assert.strictEqual(ctx.codeless, 'Hello.');
+  assert.deepStrictEqual(ctx.runs, ['Hello.']);
+  assert.deepStrictEqual(ctx.paragraphs, ['Hello.']);
+  assert.ok(!detect(hidden, { level: 1, kind: 'artifact', ext: 'html' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(!parse('<div data-note="&nearr;">Hello.</div>', { ext: 'html' })
+    .codeless.includes('↗'));
+  assert.ok(parse('<div title="Visit &nearr; now">Hello.</div>', { ext: 'html' })
+    .attrs.includes('Visit ↗ now'));
+  assert.strictEqual(stripTags("<div data-note=it's>hello</div>").trim(), 'hello');
+});
+
+test('strips many unfinished quoted tags within a bounded growth ratio', { timeout: 2000 }, () => {
+  const measure = (scan, count) => {
+    const source = '<a title="'.repeat(count);
+    const start = performance.now();
+    scan(source);
+    return performance.now() - start;
+  };
+  const median = (scan, count) => [measure(scan, count), measure(scan, count), measure(scan, count)]
+    .sort((a, b) => a - b)[1];
+  for (const scan of [stripTags, visibleTextRuns]) {
+    measure(scan, 500);
+    const small = median(scan, 500);
+    const large = median(scan, 2000);
+    assert.ok(large < 10 || large < small * 8,
+      `${scan.name} grew ${large / small} times on unfinished tags`);
+  }
+});
+
+test('reads CSS in Markdown raw HTML but not in a fence', { timeout: 1000 }, () => {
+  const raw = '<style>p {font-family: monospace}</style><p>Hello</p>';
+  const fenced = '```html\n' + raw + '\n```';
+  assert.ok(detect(raw, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+  assert.ok(!detect(fenced, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+  assert.ok(run('slop-entities.md', 1).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+  const inline = 'Hello <span style="font-family: monospace">world</span>.';
+  assert.ok(detect(inline, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+});
+
+test('keeps indented Markdown code literal without hiding paragraph continuations', { timeout: 1000 }, () => {
+  for (const source of ['    &nearr;', '\t&nearr;', '>     &nearr;']) {
+    assert.ok(!parse(source, { ext: 'md' }).codeless.includes('↗'), source);
+    assert.ok(!detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  const continuation = 'A paragraph starts here.\n    &nearr;';
+  assert.ok(parse(continuation, { ext: 'md' }).codeless.includes('↗'));
+  assert.ok(detect(continuation, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(!detect('```\n&nearr;\n```', { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('does not parse entity-produced brackets as Markdown links', { timeout: 1000 }, () => {
+  const visible = '&#91;Read&#93;(a &middot; b &middot; c)';
+  const link = '[Read](<a &middot; b &middot; c>)';
+  assert.deepStrictEqual(parse(visible, { ext: 'md' }).runs, ['[Read](a · b · c)']);
+  assert.ok(detect(visible, { level: 2, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'middot-chain'));
+  assert.ok(!detect(link, { level: 2, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'middot-chain'));
+  assert.ok(run('slop-entities.md', 2).findings
+    .some((finding) => finding.rule === 'middot-chain' && finding.span === '[Read](a · b · c)'));
+});
+
+test('an HTML comment with an unmatched quote stays outside prose', { timeout: 1000 }, () => {
+  const hidden = '<!-- title=" &nearr; -->\n<p>Hello.</p>';
+  assert.strictEqual(parse(hidden, { ext: 'html' }).codeless, 'Hello.');
+  assert.ok(!detect(hidden, { ext: 'html', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  const balanced = '<!-- title="closed" &nearr; -->\n<p>Hello.</p>';
+  assert.ok(!detect(balanced, { ext: 'html', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  const visible = '<!-- title=" &nearr; -->\n<p>Hello ↗.</p>';
+  assert.ok(detect(visible, { ext: 'html', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('quoted closing tags do not end hidden HTML content', { timeout: 1000 }, () => {
+  for (const [source, expected] of [
+    ['<script data-note="</script>">const sample = "&nearr;";</script><p>Hello.</p>', 'Hello.'],
+    ["<script data-note='</script>'>const sample = '&nearr;';</script><p>Hello.</p>", 'Hello.'],
+    ['<code data-note="</code>">&nearr;</code>', ''],
+    ['<pre data-note="</pre>">&nearr;</pre>', ''],
+  ]) {
+    assert.strictEqual(parse(source, { ext: 'html' }).codeless, expected, source);
+    assert.ok(!detect(source, { ext: 'html', kind: 'artifact', level: 1 }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  const visible = '<script data-note="</script>">hidden</script><p>Shown &nearr;.</p>';
+  assert.ok(detect(visible, { ext: 'html', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('list markers preserve code indentation after their prefix', { timeout: 1000 }, () => {
+  for (const source of ['-     &nearr;', '1.     &nearr;', '> -     &nearr;',
+    '- Text\n\n      &nearr;']) {
+    assert.ok(!parse(source, { ext: 'md' }).codeless.includes('↗'), source);
+    assert.ok(!detect(source, { ext: 'md', kind: 'artifact', level: 1 }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  for (const source of ['-    &nearr;', '1.    &nearr;', '- Text\n    &nearr;']) {
+    assert.ok(detect(source, { ext: 'md', kind: 'artifact', level: 1 }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  const followingProse = '-     &nearr;\n  Read &nearr;';
+  assert.ok(detect(followingProse, { ext: 'md', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('inline Markdown style content reaches CSS rules', { timeout: 1000 }, () => {
+  const html = '<style>p {font-family:monospace}</style><p>Hello</p>';
+  const inline = `Read ${html}`;
+  assert.ok(parse(inline, { ext: 'md' }).inlineCss.includes('font-family:monospace'));
+  assert.ok(detect(inline, { ext: 'md', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+  assert.ok(detect(html, { ext: 'md', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+  for (const contained of [`> ${inline}`, `- ${inline}`, `> - ${inline}`]) {
+    assert.ok(detect(contained, { ext: 'md', kind: 'artifact', level: 1 }).findings
+      .some((finding) => finding.rule === 'mono-noncode'), contained);
+  }
+  assert.ok(!detect(`\`\`\`html\n${html}\n\`\`\``,
+    { ext: 'md', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+  for (const hidden of [`\`${html}\``, `Write \\<style>p {font-family:monospace}</style>.`]) {
+    assert.ok(!detect(hidden, { ext: 'md', kind: 'artifact', level: 1 }).findings
+      .some((finding) => finding.rule === 'mono-noncode'), hidden);
+  }
+  assert.ok(run('slop-entities.md', 1).findings
+    .some((finding) => finding.rule === 'mono-noncode' && finding.span.includes('.inline-css')));
+});
+
+test('commented CSS cannot style Markdown raw HTML', { timeout: 1000 }, () => {
+  for (const source of [
+    '<!-- <style>p {font-family:monospace}</style> -->\n\n<p>Hello</p>',
+    '<!-- title=" <style>p {font-family:monospace}</style> -->\n\n<p>Hello</p>',
+    '> <!-- <style>p {font-family:monospace}</style> -->\n> <p>Hello</p>',
+    '- <!-- <style>p {font-family:monospace}</style> -->\n\n  <p>Hello</p>',
+  ]) {
+    assert.ok(!parse(source, { ext: 'md' }).css.includes('font-family:monospace'));
+    assert.ok(!detect(source, { ext: 'md', kind: 'artifact', level: 1 }).findings
+      .some((finding) => finding.rule === 'mono-noncode'));
+  }
+  assert.ok(detect('<style>p {font-family:monospace}</style><p>Hello</p>',
+    { ext: 'md', kind: 'artifact', level: 1 }).findings
+    .some((finding) => finding.rule === 'mono-noncode'));
+});
+
+test('full Markdown parse bounds unfinished tag growth', { timeout: 2000 }, () => {
+  const median = (source) => {
+    parse(source, { ext: 'md' });
+    const times = [];
+    for (let i = 0; i < 3; i++) {
+      const start = performance.now();
+      parse(source, { ext: 'md' });
+      times.push(performance.now() - start);
+    }
+    return times.sort((a, b) => a - b)[1];
+  };
+  for (const source of [
+    (count) => '<div>\n' + '<a title="'.repeat(count),
+    (count) => '<style>' + '</style a="'.repeat(count),
+    (count) => '<div>' + '<span>word</span>'.repeat(count) + '</div>',
+  ]) {
+    const small = median(source(250));
+    const large = median(source(1000));
+    assert.ok(large < 10 || large < small * 8,
+      `full parse grew ${large / small} times for ${source(1)}`);
+  }
+});
+
+test('unquoted trailing slashes belong to attribute values', { timeout: 1000 }, () => {
+  for (const ext of ['html', 'md']) {
+    for (const prefix of ext === 'md' ? ['', 'Read '] : ['']) {
+      for (const value of ['/assets/', '/', '"/assets/"', "'/assets/'"]) {
+        for (const tag of ['script', 'code']) {
+          const source = `${prefix}<${tag} data-path=${value}>&nearr;</${tag}><p>Hello.</p>`;
+          assert.ok(!parse(source, { ext }).codeless.includes('↗'), source);
+          assert.ok(!detect(source, { ext, kind: 'artifact', level: 1 }).findings
+            .some((finding) => finding.rule === 'external-link-arrow'), source);
+        }
+        const style = `${prefix}<style data-path=${value}>p{font-family:monospace}</style><p>Hello</p>`;
+        assert.ok(parse(style, { ext }).css.includes('font-family:monospace'), style);
+        assert.ok(detect(style, { ext, kind: 'artifact', level: 1 }).findings
+          .some((finding) => finding.rule === 'mono-noncode'), style);
+      }
+    }
+  }
+  assert.ok(run('slop-html-attributes.md', 1).findings
+    .some((finding) => finding.rule === 'mono-noncode' && finding.span.includes('.slash-css')));
+  assert.strictEqual(parse('<code data-path=/assets/ />shown', { ext: 'html' }).codeless, '');
+});
+
+test('inline Markdown tables retain numeric cell text', { timeout: 1000 }, () => {
+  for (const prefix of ['', 'Read ', '> Read ', '- Read ']) {
+    for (const [text, numeric] of [['123', true], ['<b>123</b>', true],
+      ['&#49;23', true], ['Hello', false], ['123 widgets', false],
+      ['`123`', false], ['<!-- 123 -->', false], ['<code>123</code>', true],
+      ['<invalid=123>', false]]) {
+      const source = `${prefix}<table><tr><td style="font-family:monospace">${text}</td></tr></table>`;
+      if (!prefix && text === '`123`') continue; // Raw HTML keeps backticks as text.
+      const cell = parse(source, { ext: 'md' }).elements.find((el) => el.tag === 'td');
+      assert.strictEqual(cell.numericData && cell.hasDigit, numeric, source);
+      assert.strictEqual(detect(source, { ext: 'md', kind: 'artifact', level: 1 }).findings
+        .some((finding) => finding.rule === 'mono-noncode'), !numeric, source);
+    }
+  }
+});
+
+for (const unit of ['[x](', '[']) {
+  test(`public Markdown parse bounds unfinished links: ${unit}`, { timeout: 5000 }, () => {
+    const median = (count) => {
+      const source = 'Read ' + unit.repeat(count);
+      parse(source, { ext: 'md' });
+      const times = [];
+      for (let i = 0; i < 3; i++) {
+        const start = performance.now();
+        const ctx = parse(source, { ext: 'md' });
+        times.push(performance.now() - start);
+        assert.strictEqual(ctx.codeless, source);
+      }
+      return times.sort((a, b) => a - b)[1];
+    };
+    const small = median(2000);
+    const large = median(8000);
+    assert.ok(large < 20 || large < small * 8,
+      `public parse grew ${large / small} times (${small} ms to ${large} ms)`);
+    assert.strictEqual(parse('Read [label](<target>) and [next](url).', { ext: 'md' }).codeless,
+      'Read label and next.');
+  });
+}
+
+test('keeps Markdown escapes when prose shares a file with raw HTML', { timeout: 1000 }, () => {
+  for (const html of ['<span>text</span>', '\n\n<div>text</div>']) {
+    for (const count of [1, 2, 3, 4]) {
+      const source = `Write ${'\\'.repeat(count)}&nearr; here. ${html}`;
+      const ctx = parse(source, { ext: 'md' });
+      assert.strictEqual(ctx.isHtml, false, source);
+      assert.strictEqual(ctx.codeless.includes('↗'), count % 2 === 0, source);
+      assert.strictEqual(ctx.paragraphs[0].includes('↗'), count % 2 === 0, source);
+      assert.strictEqual(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+        .some((finding) => finding.rule === 'external-link-arrow'), count % 2 === 0, source);
+    }
+  }
+  assert.strictEqual(parse('<p>Write &nearr; here.</p>', { ext: 'html' }).codeless, 'Write ↗ here.');
+});
+
+test('limits Markdown numeric reference digits without limiting HTML', { timeout: 1000 }, () => {
+  for (const [reference, decodes] of [
+    ['&#8599;', true], ['&#0008599;', true], ['&#00008599;', false],
+    ['&#x2197;', true], ['&#x002197;', true], ['&#x00002197;', false],
+  ]) {
+    const source = `Write ${reference} here.`;
+    const expected = decodes ? '↗' : reference;
+    assert.ok(plainText(source, false).includes(expected), source);
+    assert.ok(paragraphs(source, false)[0].includes(expected), source);
+    assert.strictEqual(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), decodes, source);
+    assert.ok(plainText(`<p>${source}</p>`, true).includes('↗'), source);
+  }
+  const mixed = 'Write &#00008599; with <span>text</span>.';
+  assert.ok(parse(mixed, { ext: 'markdown' }).codeless.includes('&#00008599;'));
+  assert.ok(!detect(mixed, { level: 1, kind: 'artifact', ext: 'markdown' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(firedIds('slop-entities.md', 1).has('external-link-arrow'));
+});
+
+test('hides raw HTML script, style, and code contents in Markdown', { timeout: 1000 }, () => {
+  for (const tag of ['script', 'style', 'code', 'pre']) {
+    const source = `<${tag}>const value = "↗";</${tag}>\n\nHello.`;
+    const ctx = parse(source, { ext: 'md' });
+    assert.ok(!ctx.codeless.includes('↗'), tag);
+    assert.ok(!ctx.text.includes('↗'), tag);
+    assert.ok(!ctx.paragraphs.some((p) => p.includes('↗')), tag);
+    assert.ok(!detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), tag);
+  }
+  const comment = '<!-- ↗ <span title="Visit the site &nearr;"> -->\n\nHello.';
+  const ctx = parse(comment, { ext: 'md' });
+  assert.ok(!ctx.codeless.includes('↗'));
+  assert.deepStrictEqual(ctx.attrs, []);
+});
+
+test('reads human-readable raw HTML attributes in Markdown', { timeout: 1000 }, () => {
+  const arrow = '<span title="Visit the site &nearr;">Update</span>';
+  const hedge = '<span title="It&rsquo;s important to note this.">Update</span>';
+  assert.deepStrictEqual(parse(arrow, { ext: 'md' }).attrs, ['Visit the site ↗']);
+  assert.ok(detect(arrow, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(detect(hedge, { level: 4, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'hedge-opener'));
+  assert.deepStrictEqual(parse('title="Visit the site &nearr;"', { ext: 'md' }).attrs, []);
+});
+
+test('uses HTML reference rules inside Markdown raw HTML blocks', { timeout: 1000 }, () => {
+  for (const reference of ['\\&nearr;', '&#00008599;', '&#x00002197;']) {
+    const block = `<div>Write ${reference} here.</div>`;
+    const prose = `Write ${reference} here.\n\n<span>Update</span>`;
+    assert.ok(parse(block, { ext: 'md' }).codeless.includes('↗'), reference);
+    assert.ok(detect(block, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), reference);
+    assert.ok(!detect(prose, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), reference);
+  }
+  const spanBlock = '<span>\nWrite \\&nearr; here.\n</span>';
+  assert.ok(parse(spanBlock, { ext: 'md' }).codeless.includes('↗'));
+  assert.ok(detect(spanBlock, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  const inlineSpan = 'Write \\&nearr; with <span>text</span>.';
+  assert.ok(!parse(inlineSpan, { ext: 'md' }).codeless.includes('↗'));
+  const spanInParagraph = 'Write here.\n<span>\n\\&nearr; stays literal.\n</span>';
+  assert.ok(!parse(spanInParagraph, { ext: 'md' }).codeless.includes('↗'));
+});
+
+test('keeps visible angle text and Markdown autolink labels', { timeout: 1000 }, () => {
+  for (const source of ['Show <↗> here.', 'Show \\<↗\\> here.',
+    '<https://example.com/↗>', '[https://example.com/↗](https://example.com/arrow)']) {
+    const ctx = parse(source, { ext: 'md' });
+    assert.ok(ctx.codeless.includes('↗'), source);
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+});
+
+test('keeps backticks and fence text visible inside raw HTML', { timeout: 1000 }, () => {
+  for (const source of [
+    '<div>Read `&nearr;` here.</div>',
+    '<div>\n```\n&nearr;\n```\n</div>',
+    '<span title="Read `&nearr;` here.">Update</span>',
+  ]) {
+    assert.ok(parse(source, { ext: 'md' }).codeless.includes('↗'), source);
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  const inline = '`value` <div>\\&nearr;</div>';
+  assert.ok(!detect(inline, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('keeps escaped hidden HTML openers visible in Markdown', { timeout: 1000 }, () => {
+  for (const tag of ['script', 'style', 'code', 'pre']) {
+    const escaped = `Write \\<${tag}>↗\\</${tag}> here.`;
+    const raw = `<div><${tag}>↗</${tag}></div>`;
+    assert.ok(detect(escaped, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), escaped);
+    assert.ok(!detect(raw, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), raw);
+  }
+  const comment = 'Write \\<!-- ↗ --> here.';
+  assert.ok(detect(comment, { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('keeps text after an HTML comment ending with --!>', { timeout: 1000 }, () => {
+  for (const source of [
+    'Write <!-- hidden --!> ↗ here.',
+    '<div><!-- hidden --!> ↗ here.</div>',
+    '<div><!-->↗</div>',
+    '<div><!--->↗</div>',
+    '<!-- hidden --!>\n\nWrite \\&nearr; here.',
+  ]) {
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  assert.ok(!detect('<!-- ↗ -->', { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('uses HTML references only inside valid raw HTML blocks', { timeout: 1000 }, () => {
+  for (const source of [
+    '> <div>Write \\&nearr; here.</div>',
+    '- <div>Write \\&nearr; here.</div>',
+    '</div>Write \\&nearr; here.',
+    '<textarea>\n\nWrite \\&nearr; here.\n</textarea>',
+  ]) {
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  for (const source of [
+    '<output>Write \\&nearr; here.</output>',
+    '<custom-tag @bad>\nWrite \\&nearr; here.\n</custom-tag>',
+  ]) {
+    assert.ok(!detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+});
+
+test('preserves angle text with invalid HTML tag grammar', { timeout: 1000 }, () => {
+  for (const source of ['Show <x @↗> here.', 'Show <x ↗> here.', 'Show </x ↗> here.',
+    'Show <span @↗> here.']) {
+    assert.ok(parse(source, { ext: 'md' }).codeless.includes('↗'), source);
+    assert.ok(parse(source, { ext: 'md' }).runs.some((run) => run.includes('↗')), source);
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  assert.ok(!detect('<div>Show <span @↗> here.</div>',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('lets a Markdown code span close inside tag-shaped text', { timeout: 1000 }, () => {
+  for (const source of ['`text\n<span title="`↗">', '`text\n<span title="`">↗`']) {
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  assert.ok(!detect('`text <span title="↗">`',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('keeps escaped backticks visible and hides quoted fences', { timeout: 1000 }, () => {
+  assert.ok(detect('Read \\`↗\\` here.',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(!detect('Read \\\\`↗` here.',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(!detect('> ~~~\n> ↗\n> ~~~',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('uses HTML syntax within a raw HTML block', { timeout: 1000 }, () => {
+  for (const source of ['<div>\n\\<script>↗</script>\n</div>',
+    '<div>\n\\<code>↗</code>\n</div>', '<div>\n\\<!-- ↗ -->\n</div>',
+    '<div>\n<span @↗>\n</span>\n</div>']) {
+    assert.ok(!detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  assert.ok(detect('Text \\<script>↗\\</script>',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('starts complete-tag HTML blocks after completed Markdown blocks', { timeout: 1000 }, () => {
+  for (const source of ['# Heading\n<span>\n\\&nearr;\n</span>',
+    '# Heading\n</span>\n\\&nearr;', '```\nvalue\n```\n<span>\n\\&nearr;\n</span>',
+    '---\n<span>\n\\&nearr;\n</span>', 'Heading\n===\n<span>\n\\&nearr;\n</span>',
+    'Text\n> <span>\n> \\&nearr;\n> </span>']) {
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  assert.ok(!detect('Text\n<span>\n\\&nearr;\n</span>',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('ends raw HTML when its Markdown list container ends', { timeout: 1000 }, () => {
+  assert.ok(!detect('- <div>\n  Text\n\\&nearr;',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(detect('- <div>\n  \\&nearr;\n  </div>',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('keeps comments inside HTML attribute values from hiding text', { timeout: 1000 }, () => {
+  for (const source of ['<div data-x="<!--">↗</div>',
+    '<div title="A <!-- marker">↗</div>']) {
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+  assert.ok(!detect('<div><!-- ↗ --></div>',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+test('preserves literal markup and comments in textarea text', { timeout: 1000 }, () => {
+  for (const source of ['<textarea><code>↗</code></textarea>',
+    '<textarea><!-- ↗ --></textarea>', '<textarea>\n\n<script>↗</script>\n</textarea>']) {
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+});
+
+test('keeps HTML code hidden across a Markdown blank line', { timeout: 1000 }, () => {
+  assert.ok(!detect('<div><code>\n\n↗\n</code></div>',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.strictEqual(markdownArrow('<div><code>\n\n↗\n</code>\nWrite \\&nearr; here.'), false);
+});
+
+test('accepts type 6 HTML names and multiline opening prefixes', { timeout: 1000 }, () => {
+  for (const source of ['<search>\\&nearr;</search>', '<div\n>\\&nearr;</div>',
+    '<textarea\n>\\&nearr;\n</textarea>']) {
+    assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'md' }).findings
+      .some((finding) => finding.rule === 'external-link-arrow'), source);
+  }
+});
+
+test('limits Markdown tags to paragraphs and accepts CRLF whitespace', { timeout: 1000 }, () => {
+  assert.ok(detect('Read <x\n\ndata-x="↗"> text.',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+  assert.ok(!detect('Read <x\r\ndata-x="↗"> text.',
+    { level: 1, kind: 'artifact', ext: 'md' }).findings
+    .some((finding) => finding.rule === 'external-link-arrow'));
+});
+
+const markdownArrow = (source) => detect(source,
+  { level: 1, kind: 'artifact', ext: 'md' }).findings
+  .some((finding) => finding.rule === 'external-link-arrow');
+
+test('reads code span closing backticks inside code without Markdown escapes', { timeout: 1000 }, () => {
+  for (const source of ['Read `↗\\` here.', 'Read ``↗\\`` here.']) {
+    assert.strictEqual(markdownArrow(source), false, source);
+  }
+  assert.strictEqual(markdownArrow('Read `code\\` ↗ `tail` here.'), true);
+  assert.strictEqual(markdownArrow('Read \\`↗\\` here.'), true);
+  assert.strictEqual(markdownArrow('Read `text <span title="\\`">↗ here.'), true);
+});
+
+test('keeps raw HTML script and style text in one lexical state', { timeout: 1000 }, () => {
+  for (const source of ['<div><script>const x="<!--";</script>↗</div>',
+    '<div><style>/* <!-- */</style>↗</div>',
+    '<div><script>const x="<span title=\'";</script>↗</div>']) {
+    assert.strictEqual(markdownArrow(source), true, source);
+  }
+  assert.strictEqual(markdownArrow('<div><script>↗</script></div>'), false);
+});
+
+test('keeps later comments hidden after earlier comments are removed', { timeout: 1000 }, () => {
+  for (const source of ['Text <!-- first --> <span>x</span> <!-- ↗ --> tail',
+    'Text <!-- a longer first comment --> <span>x</span> <!-- ↗ --> tail',
+    '<div><!-- first --> x <!-- ↗ --> tail</div>']) {
+    assert.strictEqual(markdownArrow(source), false, source);
+  }
+  assert.strictEqual(markdownArrow('Text <!-- first --> <span>↗</span> tail'), true);
+});
+
+test('keeps attribute data separate from tags and comments', { timeout: 1000 }, () => {
+  for (const source of ['<div title="Read <script>↗</script> now.">text</div>',
+    '<div title="Read <code>↗</code> now.">text</div>',
+    '<div title="Read\n<!-- ↗ --> now.">text</div>',
+    '<div title=\'Read &nearr; now.\'>text</div>',
+    'A <!-- x --> <span title="Read <!-- ↗ --> now.">text</span>.']) {
+    assert.strictEqual(markdownArrow(source), true, source);
+  }
+  assert.strictEqual(markdownArrow('<div title="\n<code>\n">\n\n\\&nearr;'), false);
+  assert.strictEqual(markdownArrow('<div data-x=a"b>↗</div>'), true);
+});
+
+test('keeps inline textarea tag spellings as text', { timeout: 1000 }, () => {
+  assert.strictEqual(markdownArrow('Read <textarea><code>↗</code></textarea> here.'), true);
+  assert.strictEqual(markdownArrow('Read <textarea><!-- ↗ --></textarea> here.'), true);
+});
+
+test('ends raw HTML and fences with their list or quote containers', { timeout: 1000 }, () => {
+  for (const source of ['- item\n\n  <div>\n  text\n\\&nearr;',
+    '- item\n  - <div>\n    text\n  \\&nearr;',
+    '10. <div>\n    text\n\\&nearr;',
+    '> - <div>\n>   text\n> \\&nearr;']) {
+    assert.strictEqual(markdownArrow(source), false, source);
+  }
+  assert.strictEqual(markdownArrow('- ~~~\n  ↗\n  ~~~'), false);
+  for (const source of ['> ~~~\n> code\n<span>\n\\&nearr;\n</span>',
+    '- ~~~\n  code\n<span>\n\\&nearr;\n</span>']) {
+    assert.strictEqual(markdownArrow(source), true, source);
+  }
+  assert.strictEqual(markdownArrow('- > <div>\n  > \\&nearr;\n  > </div>'), true);
+});
+
+test('scans many unfinished HTML prefixes within its budget', { timeout: 1000 }, () => {
+  const ctx = parse('<div>\n' + '<a '.repeat(3000), { ext: 'md' });
+  assert.ok(ctx.isHtml === false);
+});
+
+test('keeps inline comments and raw text owners separate', { timeout: 1000 }, () => {
+  const script = parse('Read <script>const x="<textarea>";</script>↗ here.', { ext: 'md' });
+  assert.deepStrictEqual(script.runs, ['Read ↗ here.']);
+  assert.deepStrictEqual(script.attrs, []);
+  for (const source of ['Text <!-- <textarea> --> <code>↗</code> tail',
+    'Text <!-- <textarea> --> <!-- ↗ --> tail']) {
+    const ctx = parse(source, { ext: 'md' });
+    assert.deepStrictEqual(ctx.runs, ['Text tail'], source);
+    assert.deepStrictEqual(ctx.attrs, [], source);
+  }
+  for (const name of ['script', 'style']) {
+    assert.strictEqual(markdownArrow(`<div><${name}>\n\n<!-- </${name}> -->\n↗`), true, name);
+  }
+});
+
+test('resolves comment and textarea ownership before Markdown code', { timeout: 1000 }, () => {
+  assert.strictEqual(markdownArrow('Text <!-- ` --> ↗ ` tail'), true);
+  assert.strictEqual(markdownArrow('Read <textarea>`↗`</textarea> here.'), true);
+  assert.strictEqual(markdownArrow('<div><textarea>\n\n<code>↗</code>\n</textarea></div>'), true);
+  assert.strictEqual(markdownArrow('Read <textarea>`&nearr;`</textarea> here.'), false);
+});
+
+test('keeps source offsets while it separates readable attributes', { timeout: 1000 }, () => {
+  const ctx = parse('<div><!-- hidden --><span title="Visit the site ↗">text</span></div>',
+    { ext: 'md' });
+  assert.deepStrictEqual(ctx.runs, ['text']);
+  assert.deepStrictEqual(ctx.attrs, ['Visit the site ↗']);
+  assert.deepStrictEqual(ctx.paragraphs, ['text', 'Visit the site ↗']);
+});
+
+test('keeps alternate comment endings in their HTML or Markdown context', { timeout: 1000 }, () => {
+  const escaped = parse('<div><!--\n\n--!> plain visible?\n\n' +
+    '<span title="Visit ↗ now">text</span>', { ext: 'md' });
+  assert.deepStrictEqual(escaped.runs, []);
+  assert.deepStrictEqual(escaped.attrs, []);
+  const raw = parse('<div><!-- hidden --!><span title="Visit ↗ now">text</span></div>',
+    { ext: 'md' });
+  assert.deepStrictEqual(raw.runs, ['text']);
+  assert.deepStrictEqual(raw.attrs, ['Visit ↗ now']);
+  const inline = parse('Text <!-- hidden --!> <span title="Visit ↗ now">text</span>',
+    { ext: 'md' });
+  assert.deepStrictEqual(inline.runs, ['Text <!-- hidden --!>', 'text']);
+  assert.deepStrictEqual(inline.attrs, ['Visit ↗ now']);
+});
+
+test('removes ordered-list continuation indentation before block checks', { timeout: 1000 }, () => {
+  assert.strictEqual(markdownArrow('10. item\n\n    ~~~\n    ↗\n    ~~~'), false);
+  assert.strictEqual(markdownArrow('10. item\n\n    <div>\n    \\&nearr;\n    </div>'), true);
+  assert.strictEqual(markdownArrow('1. item\n\n   ~~~\n   ↗\n   ~~~'), false);
+  assert.strictEqual(markdownArrow('> ~~~\n> - ↗\n> ~~~'), false);
+  assert.strictEqual(markdownArrow('- <div>\n  - text\n  \\&nearr;\n  </div>'), true);
+  assert.strictEqual(markdownArrow('- <textarea>\n  - text\n  \\&nearr;\n  </textarea>'), true);
+});
+
+test('scans unfinished comments and many raw lines with bounded growth', { timeout: 2000 }, () => {
+  const median = (source) => {
+    parse(source, { ext: 'md' });
+    const times = [];
+    for (let i = 0; i < 5; i++) {
+      const start = performance.now();
+      parse(source, { ext: 'md' });
+      times.push(performance.now() - start);
+    }
+    return times.sort((a, b) => a - b)[2];
+  };
+  const commentSmall = median('Read ' + '<!-- '.repeat(16000));
+  const commentLarge = median('Read ' + '<!-- '.repeat(32000));
+  const lineSmall = median('<div>\n' + 'a\n'.repeat(16000));
+  const lineLarge = median('<div>\n' + 'a\n'.repeat(32000));
+  assert.ok(commentLarge < commentSmall * 2.8,
+    `unfinished comments grew ${commentLarge / commentSmall} times`);
+  assert.ok(lineLarge < lineSmall * 2.8,
+    `short raw lines grew ${lineLarge / lineSmall} times`);
+});
+
+test('scans multiline unfinished raw tokens with bounded growth', { timeout: 2000 }, () => {
+  const median = (values) => values.sort((a, b) => a - b)[3];
+  const measure = (source) => {
+    const start = performance.now();
+    parse(source, { ext: 'md' });
+    return performance.now() - start;
+  };
+  for (const opener of ['<!--\n', '<a title="']) {
+    const sources = [6000, 24000].map((count) => '<div>\n' + opener + 'abc\n'.repeat(count));
+    for (let round = 0; round < 2; round++) {
+      for (const source of sources) measure(source);
+    }
+    const times = [[], []];
+    for (let round = 0; round < 7; round++) {
+      for (const index of round % 2 ? [1, 0] : [0, 1]) {
+        times[index].push(measure(sources[index]));
+      }
+    }
+    const small = median(times[0]);
+    const large = median(times[1]);
+    console.log(JSON.stringify({ opener, small, large, ratio: large / small, times }));
+    assert.ok(large < small * 8,
+      `${JSON.stringify(opener)} grew ${large / small} times for four times the input`);
+  }
+});
+
+test('keeps boundary-prefix custom elements inside a visible run', { timeout: 1000 }, () => {
+  for (const tag of ['dt-label', 'dd-value', 'dl-label', 'br-icon']) {
+    const page = `<p>draft · <${tag}>2026</${tag}> · brainstorm</p>`;
+    assert.deepStrictEqual(visibleTextRuns(page), ['draft · 2026 · brainstorm'], tag);
+    assert.ok(detect(page, { level: 4, kind: 'artifact', ext: 'html' }).findings
+      .some((finding) => finding.rule === 'middot-chain'), tag);
+  }
+  assert.deepStrictEqual(visibleTextRuns('<dl><dt>Release</dt><dd>2026</dd></dl><p>a<br>b</p>'),
+    ['Release', '2026', 'a', 'b']);
+  assert.ok(run('slop-entities.html', 4).findings.some((finding) =>
+    finding.rule === 'middot-chain' && finding.span === 'alpha · custom · omega'));
+});
+
+test('decodes every reference in slop-entities.html', { timeout: 1000 }, () => {
+  const findings = run('slop-entities.html', 4).findings;
+  assert.strictEqual(findings.length, 11);
+  const spans = (rule) => findings.filter((finding) => finding.rule === rule).map((finding) => finding.span);
+  assert.ok(spans('middot-chain').includes('beta · internal · preview'));
+  assert.ok(spans('middot-chain').includes('Status • 2026 • Active'));
+  assert.deepStrictEqual(spans('heading-period'), ['Release notes.']);
+  assert.deepStrictEqual(spans('hedge-opener'), ['It’s important to note', 'It’s crucial to remember']);
+});
+
+test('keeps inline SVG and label text in a visible chain', { timeout: 1000 }, () => {
+  for (const page of [
+    '<p>draft · <svg><use href="#icon"/></svg>2026 · brainstorm</p>',
+    '<p>draft · <label>2026</label> · brainstorm</p>',
+  ]) {
+    assert.deepStrictEqual(visibleTextRuns(page), ['draft · 2026 · brainstorm']);
+    const findings = detect(page, { level: 4, kind: 'artifact', ext: 'html' }).findings;
+    assert.ok(findings.some((finding) => finding.rule === 'middot-chain' &&
+      finding.span === 'draft · 2026 · brainstorm'), JSON.stringify(findings));
+  }
+  assert.deepStrictEqual(visibleTextRuns('<dl><dt>Release</dt><dd>draft · 2026 · brainstorm</dd><dd>beta · internal · preview</dd></dl>'), [
+    'Release', 'draft · 2026 · brainstorm', 'beta · internal · preview',
+  ]);
+});
+
+// Definition labels and values are separate runs. Inline markup stays in its
+// surrounding run so text rules can still read the complete line.
+test('separates definition values while preserving inline text', { timeout: 1000 }, () => {
+  const dl = '<dl><dt>Bookings this year</dt><dd>14 &middot; 1 no-show</dd></dl>';
+  assert.deepStrictEqual(visibleTextRuns(dl), ['Bookings this year', '14 · 1 no-show']);
+  assert.deepStrictEqual(visibleTextRuns(dl, { markup: false }), ['Bookings this year 14 · 1 no-show']);
+  // A phrasing element marks up words inside a line, so it does not end one. An
+  // inline icon is the same shape.
+  assert.deepStrictEqual(visibleTextRuns('<p>draft · <strong>2026</strong> · brainstorm</p>'), [
+    'draft · 2026 · brainstorm',
+  ]);
+  assert.deepStrictEqual(visibleTextRuns('<p>draft · <img src="i.png" alt=""> 2026 · x</p>'), [
+    'draft · 2026 · x',
+  ]);
+  assert.deepStrictEqual(visibleTextRuns('<p>draft · <time-ago>2026</time-ago> · x</p>'), [
+    'draft · 2026 · x',
+  ]);
+  assert.deepStrictEqual(visibleTextRuns('<p>one<svg><text>label</text></svg>two</p>'), [
+    'one',
+    'label',
+    'two',
+  ]);
+  assert.deepStrictEqual(visibleTextRuns('<p>a · <svg><use href="#d"/></svg> b · c</p>'), [
+    'a · b · c',
+  ]);
+  // A <br> does end one, and a <span> around a value still sets it apart.
+  assert.deepStrictEqual(visibleTextRuns('<p>a · b<br>c · d</p>'), ['a · b', 'c · d']);
+  assert.deepStrictEqual(visibleTextRuns('<div><span>Due</span><span>4 April</span></div>'), [
+    'Due',
+    '4 April',
+  ]);
+  // A markdown page's angle-bracket placeholder is not an element, and splitting
+  // on it would stop this line being read at all.
+  const markdown = 'Due: <date> · Priority: <none|low> · Notes: <preview>';
+  assert.deepStrictEqual(
+    detect(markdown, { level: 2, ext: 'md' }).findings.map((finding) => finding.rule),
+    ['middot-chain']
+  );
 });
 
 test('a rule fires on prose that exists only in an attribute', () => {
@@ -897,4 +1784,80 @@ test('a heading rule still reads the words and not the markup', () => {
   const ids = new Set(rules.map((f) => f.rule));
   assert.ok(ids.has('emoji-heading'), `expected emoji-heading, got ${[...ids].join(', ')}`);
   assert.ok(ids.has('heading-italic'), `expected heading-italic, got ${[...ids].join(', ')}`);
+});
+
+// Review cases for Markdown and raw HTML token ownership.
+const reviewRead = (source) => parse(source, { ext: 'md' });
+const reviewArrow = (source) => detect(source, { ext: 'md', kind: 'artifact', level: 1 })
+  .findings.some((finding) => finding.rule === 'external-link-arrow');
+
+for (const [name, source, expected] of [
+  ['short comment', 'Read <!--> ` -->↗ `', false],
+  ['short comment with extra dash', 'Read <!---> ` -->↗ `', false],
+  ['comment before heading', 'Read <!-- hidden\n# Heading ↗\n-->', true],
+  ['comment before list', 'Read <!-- hidden\n- item ↗\n-->', true],
+  ['comment before quote', 'Read <!-- hidden\n> quoted ↗\n-->', true],
+  ['quoted tag before heading', 'Read <x a="\n# ↗\n">', true],
+  ['code span before heading', '`hidden\n# ↗\n`', true],
+  ['script slash close', '<script>hidden</script/>↗', true],
+  ['script attributed close', '<script>hidden</script x>↗', true],
+  ['style attributed close', '<style>hidden</style x>↗', true],
+  ['ordinary comment control', 'Read <!-- hidden --> ` -->↗ `', false],
+  ['ordinary script control', '<script>hidden</script>↗', true],
+  ['same paragraph comment control', 'Read <!-- hidden\nordinary ↗\n-->', false],
+  ['same paragraph attribute control', 'Read <x a="\nordinary ↗\n">', false],
+]) test(name, { timeout: 1000 }, () => assert.equal(reviewArrow(source), expected));
+
+for (const [name, source, runs, attrs] of [
+  ['attribute tick before script', 'Read <span title="tick ` here">start</span><script>hidden</script> visible ↗ ` tail',
+    ['Read', 'start', 'visible ↗ ` tail'], ['tick ` here']],
+  ['attribute tick before textarea', 'Read <span title="tick ` here">start</span><textarea>value</textarea><span title="readable label">↗</span> ` tail',
+    ['Read', 'start', 'value', '↗', '` tail'], ['tick ` here', 'readable label']],
+  ['comment tick before script', 'Read <!-- ` --> <script>hidden</script> visible ↗ ` tail',
+    ['Read visible ↗ ` tail'], []],
+  ['comment tick before textarea', 'Read <!-- ` --> <textarea>value</textarea><span title="readable label">↗</span> ` tail',
+    ['Read value', '↗', '` tail'], ['readable label']],
+  ['inline script content tick', 'Print <script>const x = `value</script> visible ↗ ` tail',
+    ['Print'], []],
+  ['inline malformed script close', 'Read <script>hidden</script foo>↗', ['Read'], []],
+  ['inline malformed style close', 'Read <style>hidden</style/>↗', ['Read'], []],
+  ['later script after attribute tick', 'Read <script>one</script><span title="tick ` here">start</span><script>two</script> visible ↗ ` tail',
+    ['Read', 'start', 'visible ↗ ` tail'], ['tick ` here']],
+  ['nested tag tick in inline script', 'Read <script><span title="tick ` here"></span></script> visible ↗ ` tail',
+    ['Read visible ↗ ` tail'], []],
+  ['nested comment tick in inline script', 'Read <script><!-- ` --></script> visible ↗ ` tail',
+    ['Read visible ↗ ` tail'], []],
+  ['invalid angle text tick in inline script', 'Read <script><bad ` text</script> visible ↗ ` tail',
+    ['Read'], []],
+  ['unfinished comment tick in inline script', 'Read <script><!-- bad `</script> visible ↗ ` tail',
+    ['Read'], []],
+  ['raw script close keeps Markdown heading literal', '<script>hidden</script x>\n# Heading ↗',
+    ['# Heading ↗'], []],
+  ['raw style close keeps Markdown list literal', '<style>hidden</style/>\n- item ↗',
+    ['- item ↗'], []],
+  ['marker shaped fence close', '> ~~~\n> - ~~~\n> ↗\n> ~~~', [], []],
+  ['marker shaped raw text', '- <div>\n  - <span title="readable label">shown</span>\n  </div>',
+    ['-', 'shown'], ['readable label']],
+]) test(name, { timeout: 1000 }, () => {
+  const result = reviewRead(source);
+  assert.deepEqual(result.runs, runs);
+  assert.deepEqual(result.attrs, attrs);
+});
+
+test('unfinished script closes scale within a geometric budget', { timeout: 1400 }, () => {
+  const sizes = [2000, 4000, 8000];
+  const times = [];
+  for (const size of sizes) {
+    const source = 'Read <script>' + '</script x=" '.repeat(size);
+    assert.equal(reviewRead(source).codeless, 'Read');
+    const samples = [];
+    for (let i = 0; i < 3; i++) {
+      const start = performance.now();
+      assert.equal(reviewRead(source).codeless, 'Read');
+      samples.push(performance.now() - start);
+    }
+    times.push(samples.sort((a, b) => a - b)[1]);
+  }
+  assert.ok(times[2] < 800, `largest sample took ${times[2].toFixed(1)} ms`);
+  assert.ok(times[2] < 5 * Math.max(times[1], 1), `geometric samples: ${times}`);
 });

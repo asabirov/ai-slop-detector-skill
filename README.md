@@ -36,7 +36,7 @@ AI-assisted drafts can keep chatbot greetings, vague claims, and comments that s
 Install the tagged skill for Claude Code and Codex with:
 
 ```bash
-DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill/tree/v2.3.1 --skill ai-slop-detector --agent claude-code codex --global
+DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill/tree/v2.7.0 --skill ai-slop-detector --agent claude-code codex --global
 ```
 
 `DO_NOT_TRACK=1` tells the skills CLI not to send telemetry. The `npx skills`
@@ -60,7 +60,7 @@ Remove it with:
 DO_NOT_TRACK=1 npx skills remove ai-slop-detector --agent claude-code codex --global
 ```
 
-If you prefer not to use `npx skills`, clone the repository at the `v2.3.1` release tag into your agent's skills folder as `ai-slop-detector`. To update or roll back, run `git fetch --tags` in that folder and check out another release tag; to remove it, delete the folder.
+If you prefer not to use `npx skills`, clone the repository at the `v2.7.0` release tag into your agent's skills folder as `ai-slop-detector`. To update or roll back, run `git fetch --tags` in that folder and check out another release tag; to remove it, delete the folder.
 
 Versions are the `vX.Y.Z` release tags that the release workflow creates; the skill has no version field of its own.
 After each release the same workflow opens a pull request that renames every tag in this file to the newest release,
@@ -86,6 +86,12 @@ information. Component style mismatches need a rendered comparison; uncertain
 ones are reported as needing a design review. These are agent review instructions, not additional
 CLI rules.
 
+The editorial checks also report unnecessary status distinctions and manual
+commands on automatic features. They ask which distinctions matter and whether
+the system can act instead. Status counts alone do not decide a finding.
+Required manual recovery and controls for consent or user decisions remain
+acceptable. Both checks address the examples in [issue #91](https://github.com/asabirov/ai-slop-detector-skill/issues/91).
+
 For unclear marketing lines, the skill can run a fresh-reader check
 (see [SKILL.md](SKILL.md)); the CLI does not.
 
@@ -96,7 +102,10 @@ judgment does not waive an existing CI gate.
 
 ## What it does today
 
-Three rule packs over one engine.
+Three rule packs over one engine. Text rules read character references decoded, so `&middot;`
+and a typed dot are the same line. The text parser approximates what a browser displays. The
+parser rules, the visible-run boundaries and the known limits are in
+[docs/ai-slop-detector.md](docs/ai-slop-detector.md#text-parser-and-decoding).
 
 - **Visual** reads markup and the CSS a page applies, including stylesheets it
   links from disk. Catches fake protocol URIs, monospace used as decoration,
@@ -124,7 +133,21 @@ Three rule packs over one engine.
 - **Text** reads visible prose plus the attributes a person actually reads
   (`title`, `alt`, `placeholder`, `aria-label`, `data-tip`, the meta
   description). Catches "not just X, but Y", hedge openers, sycophancy residue,
-  clustered inflated vocabulary.
+  clustered inflated vocabulary, and a reply that repeats the preceding message.
+  The reply check compares an `Incoming:` line with an adjacent `Reply:`,
+  `Comment:`, or `Message:` line in a prose file. It accepts `(RU)` or `(EN)`
+  after each label. It warns when a “Thanks for” or “Спасибо, что” clause
+  joins actions and shares two content words with the incoming line. It checks shared words, so a
+  paraphrase with different words still needs editorial review.
+
+  For example, `Incoming: We made the corrections and sent everything to the
+  auditor.` followed by `Reply: Thanks for making the corrections and sending
+  everything to the auditor.` warns. So does `Incoming: Корректировки внесли и
+  отправили всё аудитору.` followed by `Reply: Спасибо, что внесли корректировки
+  и передали всё аудитору.` The reply repeats work the other person just named.
+  `Reply: Thanks, got it. I will check the file today.` and `Reply: Спасибо,
+  принято. Ответ направлю завтра.` stay silent after those incoming messages.
+  They acknowledge receipt and give a next action without repeating the work.
 - **Comments** reads source files. Catches the design document an agent files
   into a code comment because the project gave it nowhere else to write one.
   `comment-chaptered` joins blocks separated by exactly one blank line, with
@@ -154,8 +177,8 @@ In a repository's CI, or anywhere with Node 20:
 
 ```bash
 REPO=github:asabirov/ai-slop-detector-skill
-npx -y "$REPO#v2.3.1" dist --level 1        # pin a tag in CI
-npx -y "$REPO#v2.3.1" src scripts --level 1
+npx -y "$REPO#v2.7.0" dist --level 1        # pin a tag in CI
+npx -y "$REPO#v2.7.0" src scripts --level 1
 npx -y "$REPO" 'src/**/*.js' --json         # unpinned tracks main
 ```
 
@@ -199,6 +222,26 @@ claims. They read standalone CSS, inline styles, and literal Tailwind classes in
 HTML, JSX, TSX, Vue, Svelte, and Astro. Dynamic classes, Tailwind configuration,
 CSS cascade resolution, and contrast checks need a rendered review. See the
 [CLI reference](docs/ai-slop-detector.md) for coverage and thresholds.
+
+`nested-cards` counts a `card`, `panel`, or `tile` class only when an applied
+declaration gives the element a border, background, or box shadow. A rounded
+element with one of those styles also counts, even without a card-like class.
+The rule expands the side values in `border-width`, `border-style`, and
+`border-color` across CSS whitespace outside color functions. An omitted
+`border-width` uses the initial medium width when a visible style is set.
+The rule checks border styles outside color functions, so a missing color
+channel does not disable a solid border. It ignores transparent color tokens,
+nonpainting background shorthands with numeric positions, sizes, and empty
+layers. This includes `50% 50% transparent`, `center / 100% 100% transparent`,
+and `none, none transparent`. It recognizes unsigned decimal zero alpha in
+RGB, HSL, HWB, Lab, LCH, OKLab, OKLCH, and `color()` values. Signed zero,
+exponent forms, and missing alpha channels remain outside this check.
+It checks shadow lengths outside balanced
+color functions and ignores shadows with zero geometry. Complex color
+expressions remain painted when their final alpha is unknown.
+Class names alone do not establish a painted card.
+This static check cannot resolve inherited styles, complex selectors, later
+cascade resets, or dynamic classes. Review those cases in the rendered page.
 
 ## Changing a rule
 
