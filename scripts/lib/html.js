@@ -4,9 +4,39 @@
 // This is not a DOM. The checks are heuristic tells, and the linter runs
 // without a browser or package installation.
 
+// One parse() reads the same pages many times: the source with style and script
+// cut out, then each stream built from it. A scan of one page costs far more than
+// the lookup, so the last few results are kept and parse() drops them when it ends.
+const REMEMBERED = 4;
+const strippedPages = new Map();
+const scannedPages = new Map();
+
+function remembered(store, tag, page) {
+  return store.get(tag)?.get(page);
+}
+
+function remember(store, tag, page, value) {
+  let pages = store.get(tag);
+  if (!pages) store.set(tag, pages = new Map());
+  if (pages.size >= REMEMBERED) pages.delete(pages.keys().next().value);
+  pages.set(page, value);
+  return value;
+}
+
+function forgetPages() {
+  strippedPages.clear();
+  scannedPages.clear();
+}
+
 // A quoted closing spelling is attribute data. Only complete tag tokens can
 // end a hidden range, and an unfinished hidden element runs to the file end.
 function stripBetween(html, tag) {
+  const cached = remembered(strippedPages, tag, html);
+  if (cached !== undefined) return cached;
+  return remember(strippedPages, tag, html, stripBetweenUncached(html, tag));
+}
+
+function stripBetweenUncached(html, tag) {
   const ranges = [];
   let depth = 0;
   let start = 0;
@@ -20,6 +50,7 @@ function stripBetween(html, tag) {
     }
   }
   if (depth) ranges.push({ start, end: html.length });
+  if (!ranges.length) return html;
   const pieces = [];
   let copied = 0;
   for (const range of ranges) {
@@ -111,6 +142,12 @@ const BLOCK_ELEMENT = /^<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|
 const NON_MARKUP_BOUNDARY = /^<\/?(?:p|div|h[1-6]|span|li|td|th|section|header|footer|text|a)(?=[\s/>])/i;
 
 function visibleTextRuns(html, { markup = true } = {}) {
+  const cached = remembered(strippedPages, markup ? 'runs' : 'runs-text', html);
+  if (cached) return [...cached];
+  return [...remember(strippedPages, markup ? 'runs' : 'runs-text', html, visibleTextRunsUncached(html, markup))];
+}
+
+function visibleTextRunsUncached(html, markup) {
   const body = stripBetween(stripBetween(html, 'style'), 'script');
   const boundary = markup ? BLOCK_ELEMENT : NON_MARKUP_BOUNDARY;
   const out = [];
@@ -176,7 +213,14 @@ function tagAttributes(tag) {
 
 // One run per human-readable attribute value, longest first is not needed —
 // order follows the document, same as visibleTextRuns.
-function attrTextRuns(html, tokens = rawHtmlTokens(html)) {
+function attrTextRuns(html, tokens) {
+  if (tokens) return attrTextRunsOf(tokens);
+  const cached = remembered(strippedPages, 'attrs', html);
+  if (cached) return [...cached];
+  return [...remember(strippedPages, 'attrs', html, attrTextRunsOf(rawHtmlTokens(html)))];
+}
+
+function attrTextRunsOf(tokens) {
   const out = [];
   for (const token of tokens) {
     if (token.type !== 'tag' || /^<\/(?:script|style|code|pre)\b/i.test(token.text)) continue;
@@ -1572,7 +1616,9 @@ function scanRawHtml(source, initialRaw = null, component = false) {
 }
 
 function rawHtmlTokens(source) {
-  return scanRawHtml(source).tokens;
+  const cached = remembered(scannedPages, '', source);
+  if (cached !== undefined) return cached;
+  return remember(scannedPages, '', source, scanRawHtml(source).tokens);
 }
 function markdownEscaped(source, offset) {
   let slashes = 0;
@@ -2338,7 +2384,15 @@ function componentMarkup(source) {
 // page links be read from disk; `root` resolves root-relative hrefs against a
 // built site's directory. Without filePath the linked CSS is reported
 // unresolved rather than silently skipped.
-function parse(source, { filePath, root, ext } = {}) {
+function parse(source, options = {}) {
+  try {
+    return parseSource(source, options);
+  } finally {
+    forgetPages();
+  }
+}
+
+function parseSource(source, { filePath, root, ext } = {}) {
   const original = source;
   if (['jsx', 'tsx', 'vue', 'svelte', 'astro'].includes(ext) ||
     /\.(?:jsx|tsx|vue|svelte|astro)$/i.test(filePath || '')) source = componentMarkup(source);
