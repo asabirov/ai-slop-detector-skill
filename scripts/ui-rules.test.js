@@ -1512,3 +1512,29 @@ describe('mono-noncode type labels', { timeout: 1000 }, () => {
     has(`${css}<span class="ref typewriter">Hello there</span>`, 'mono-noncode');
   });
 });
+
+describe('implied end tags', { timeout: 1000 }, () => {
+  const { markupElements } = require('./lib/html');
+  const css = '<style>li{border:1px solid #ccc;border-radius:8px;background:#fff}</style>';
+  const parentTags = (html) => markupElements(html).map((el) => [el.tag, el.parent < 0 ? null : markupElements(html)[el.parent].tag]);
+  it('does not nest an unclosed list item in the one before it', { timeout: 1000 }, () => {
+    lacks(`${css}<ul><li>a<li>b<li>c</ul>`, 'nested-cards');
+    lacks(`${css}<ul><li>a</li><li>b</li><li>c</li></ul>`, 'nested-cards');
+    assert.deepEqual(parentTags('<ul><li>a<li>b<li>c</ul>').filter(([tag]) => tag === 'li'), [['li', 'ul'], ['li', 'ul'], ['li', 'ul']]);
+  });
+  it('closes p, dt, dd, tr, td, th and option the way a browser does', { timeout: 1000 }, () => {
+    const sibling = (html, tag, parent) => assert.deepEqual(
+      parentTags(html).filter(([name]) => name === tag).map(([, up]) => up), parent, html);
+    sibling('<div><p>a<p>b</div>', 'p', ['div', 'div']);
+    sibling('<dl><dt>a<dd>b<dt>c<dd>d</dl>', 'dd', ['dl', 'dl']);
+    sibling('<table><tr><td>a<td>b<tr><td>c</table>', 'td', ['tr', 'tr', 'tr']);
+    sibling('<table><tr><th>a<th>b<tr><td>c</table>', 'th', ['tr', 'tr']);
+    sibling('<select><option>a<option>b</select>', 'option', ['select', 'select']);
+  });
+  it('keeps a list inside a list item nested', { timeout: 1000 }, () => {
+    const found = parentTags('<ul><li>a<ul><li>b<li>c</ul><li>d</ul>').filter(([tag]) => tag === 'li');
+    assert.deepEqual(found, [['li', 'ul'], ['li', 'ul'], ['li', 'ul'], ['li', 'ul']]);
+    const els = markupElements('<ul><li>a<ul><li>b<li>c</ul><li>d</ul>');
+    assert.equal(els[3].parent, 2);
+  });
+});

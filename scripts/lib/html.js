@@ -291,6 +291,22 @@ const VOID_TAGS = new Set([
 // Mis-nested markup (an unclosed <code>) inflates the chain. That errs toward
 // calling something code, which is the quiet direction; a page whose <code>
 // never closes has a bigger problem than this rule.
+// A start tag that ends an open element without a closing tag, as a browser
+// does. Each entry names the open tags it closes and the tags the search must
+// not cross, so a list inside a list item stays nested.
+const P_PHRASING = new Set(['a', 'abbr', 'b', 'code', 'em', 'i', 'kbd', 'label', 'mark', 'small',
+  'span', 'strong', 'sub', 'sup', 'u']);
+const IMPLIED_END = {
+  p: { closes: ['p'], within: P_PHRASING },
+  li: { closes: ['li'], stop: ['ul', 'ol', 'menu'] },
+  dt: { closes: ['dt', 'dd'], stop: ['dl'] },
+  dd: { closes: ['dt', 'dd'], stop: ['dl'] },
+  tr: { closes: ['tr'], stop: ['table'] },
+  td: { closes: ['td', 'th'], stop: ['tr', 'table'] },
+  th: { closes: ['td', 'th'], stop: ['tr', 'table'] },
+  option: { closes: ['option'], stop: ['select', 'datalist', 'optgroup'] },
+};
+
 function markupElements(html) {
   const body = stripBetween(stripBetween(html, 'style'), 'script');
   const out = [];
@@ -320,6 +336,21 @@ function markupElements(html) {
         }
       }
       continue;
+    }
+    const implied = IMPLIED_END[tag];
+    if (implied) {
+      for (let i = stack.length - 1; i >= 0; i--) {
+        const open = out[stack[i]].tag;
+        if (implied.closes.includes(open)) {
+          while (stack.length > i) {
+            const closed = stack.pop();
+            out[closed].end = token.index;
+            openDepths.get(out[closed].tag).pop();
+          }
+          break;
+        }
+        if (implied.within ? !implied.within.has(open) : implied.stop.includes(open)) break;
+      }
     }
     const attrs = tagAttributes(token.text);
     // The one decoded dict: `classes`, `id`, `live`, `hidden`, `inputType`
