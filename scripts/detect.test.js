@@ -38,12 +38,31 @@ const run = (f, level) =>
     filePath: path.join(FIX, f),
   });
 
-const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop.js', 'slop-linked-css.html', 'slop-table-footnote.tsx', 'slop-entities.html', 'slop-entities.md', 'slop-html-ownership.md', ...fs.readdirSync(FIX).filter((f) => f.startsWith('slop-ui-'))];
-const CLEAN_FIXTURES = ['clean.html', 'clean.md', 'clean.js'];
+const SLOP_FIXTURES = ['slop.html', 'slop.md', 'slop-prose.txt', 'slop-reply.txt', 'slop.js', 'slop-linked-css.html', 'slop-table-footnote.tsx', 'slop-entities.html', 'slop-entities.md', 'slop-html-ownership.md', ...fs.readdirSync(FIX).filter((f) => f.startsWith('slop-ui-'))];
+const CLEAN_FIXTURES = ['clean.html', 'clean.md', 'clean.js', 'clean-reply.txt'];
 
 function firedIds(file, level = 4) {
   return new Set(run(file, level).findings.map((f) => f.rule));
 }
+
+test('flags a reply that repeats the preceding message in Russian and English', { timeout: 1000 }, () => {
+  const rule = RULES.find((r) => r.id === 'reply-echo');
+  assert.ok(rule, 'reply-echo rule must exist');
+  const pairs = [
+    ['Incoming: Корректировки внесли и отправили всё аудитору.\nReply: Спасибо, что внесли корректировки и передали всё аудитору.', 1],
+    ['Incoming: We made the corrections and sent everything to the auditor.\nReply: Thanks for making the corrections and sending everything to the auditor.', 1],
+    ['Incoming: We sent the figures to the auditor.\nReply: Thanks, got it. I will check the file today.', 0],
+    ['Incoming: Корректировки внесли и отправили аудитору.\nReply: Спасибо, принято. Ответ направлю завтра.', 0],
+    ['Incoming: We sent the figures to the auditor.\nReply: Thanks for sending the figures and notifying the auditor.', 1],
+    ['Incoming: We sent the figures to the auditor.\nComment: Thanks for sending the figures and notifying the auditor.', 1],
+    ['Incoming: Корректировки внесли и отправили всё аудитору.\nMessage: Спасибо, что внесли корректировки и передали всё аудитору.', 1],
+    ['Incoming: We sent the figures to the auditor.\nReply: Thanks for your note. I will call the auditor tomorrow.', 0],
+    ['Incoming: We sent the figures to the auditor.\nReply: Thanks for sending the figures.', 0],
+  ];
+  for (const [text, count] of pairs) {
+    assert.strictEqual(rule.test({ text }).length, count, text);
+  }
+});
 
 // ── attribute prose is prose (lessly-landing#387) ──────────────────────
 // Stripping tags with `<[^>]+>` took the tooltip out with the tag. On

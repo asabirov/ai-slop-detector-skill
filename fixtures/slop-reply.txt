@@ -1,0 +1,5 @@
+Incoming (RU): Добрый вечер, спасибо за данные и расчёты. Корректировки внесли и отправили всё аудитору на проверку. Спасибо!
+Reply (RU): Добрый день! Спасибо, что внесли корректировки и передали всё аудитору. Ждём его ответа.
+
+Incoming (EN): We made the corrections and sent everything to the auditor for review.
+Reply (EN): Thanks for making the corrections and sending everything to the auditor. I will wait for the result.

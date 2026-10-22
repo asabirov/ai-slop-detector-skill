@@ -291,6 +291,7 @@ selectors; complex selectors and inherited styles need rendered review.
 | id | Level | Severity | Tell |
 |----|-------|----------|------|
 | `sycophancy-opener` | 1 | error | Chat residue (`Certainly!`, `I'd be happy to…`) leaked into copy. |
+| `reply-echo` | 2 | warning | A thanked-for clause repeats details from an adjacent `Incoming:` line. |
 | `negative-parallelism` | 2 | warning | `not just X, but Y` / `it's not X, it's Y` — the top structural tell. |
 | `hedge-opener` | 2 | warning | `it's important to note`, `at its core`, `when it comes to`. |
 | `world-opener` | 2 | warning | `in today's fast-paced world / digital age` scene-setting. |
@@ -303,6 +304,12 @@ selectors; complex selectors and inherited styles need rendered review.
 | `bold-header-list` | 3 | warning | `**Header:** text` markdown list items — the top formatting tell. |
 | `em-dash-density` | 4 | warning | Em-dashes above human baseline (>2 per 100 words). |
 | `low-burstiness` | 4 | warning | Metronomic sentence length (low variance). |
+
+`reply-echo` reads adjacent `Incoming:` and `Reply:`, `Comment:`, or `Message:`
+lines. It also accepts `(RU)` and `(EN)` after each label. It needs two shared
+content words in a “Thanks for” or “Спасибо, что” clause joined with “and” or
+“и”. A brief acknowledgement stays silent. Different wording can hide a recap,
+so review the conversation when the lines are not in the file.
 
 Prose means prose wherever a reader meets it. The text pack reads the visible text **and**
 the human-readable attributes — `title`, `alt`, `placeholder`, `aria-label`, `data-tip` — plus

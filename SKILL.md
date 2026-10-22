@@ -18,6 +18,7 @@ Apply the relevant rules:
 3. **Give presentation a purpose.** Flag decoration that misleads or obstructs reading, such as fake addresses, numbers implying a nonexistent sequence, or labels with no information. Respect intentional design; use the UI checks below for specific presentation problems. Flag a list whose sections use different kinds of category, such as one by priority and one by status. An item can fit several sections but shows up in only one. Group by one kind; use sorting, filters or labels for the rest.
 4. **Keep useful comments.** Explain constraints, reasons, and surprising behavior. Remove narration of obvious code. Keep safety and maintenance context beside the code that needs it; length or dividers alone do not justify moving it.
 5. **Preserve what works.** Keep facts, qualifications, terminology, quotations, technical values, and voice. Make the smallest helpful edit and leave effective passages unchanged.
+6. **Do not echo a message.** When reviewing a reply, compare it with the preceding message. Flag a clause that repeats what the other person just reported. Remove that clause even if the reply also gives a next action. A brief acknowledgement, such as “Thanks, got it” or “Спасибо, принято”, is acceptable. If the preceding message is unavailable, do not claim that the reply repeats it.
 
 Example: given only that a product exports CSV in three steps, replace “Unlock a seamless export experience” with “Export CSV in three steps.”
 

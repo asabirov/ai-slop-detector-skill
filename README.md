@@ -457,7 +457,21 @@ The boundary names must match complete tags, so `dt-label` and `dd-value` stay i
 - **Text** reads visible prose plus the attributes a person actually reads
   (`title`, `alt`, `placeholder`, `aria-label`, `data-tip`, the meta
   description). Catches "not just X, but Y", hedge openers, sycophancy residue,
-  clustered inflated vocabulary.
+  clustered inflated vocabulary, and a reply that repeats the preceding message.
+  The reply check compares an `Incoming:` line with an adjacent `Reply:`,
+  `Comment:`, or `Message:` line in a prose file. It accepts `(RU)` or `(EN)`
+  after each label. It warns when a “Thanks for” or “Спасибо, что” clause
+  joins actions and shares two content words with the incoming line. It checks shared words, so a
+  paraphrase with different words still needs editorial review.
+
+  For example, `Incoming: We made the corrections and sent everything to the
+  auditor.` followed by `Reply: Thanks for making the corrections and sending
+  everything to the auditor.` warns. So does `Incoming: Корректировки внесли и
+  отправили всё аудитору.` followed by `Reply: Спасибо, что внесли корректировки
+  и передали всё аудитору.` The reply repeats work the other person just named.
+  `Reply: Thanks, got it. I will check the file today.` and `Reply: Спасибо,
+  принято. Ответ направлю завтра.` stay silent after those incoming messages.
+  They acknowledge receipt and give a next action without repeating the work.
 - **Comments** reads source files. Catches the design document an agent files
   into a code comment because the project gave it nowhere else to write one.
   `comment-chaptered` joins blocks separated by exactly one blank line, with
