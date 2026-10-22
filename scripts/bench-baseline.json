@@ -1,0 +1,9 @@
+{
+  "slop.html": {
+    "parse": 543,
+    "detect": 881,
+    "node": "v24.20.0",
+    "cores": 8,
+    "load": 8.9
+  }
+}

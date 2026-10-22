@@ -8,6 +8,8 @@ npm test           # unit tests and fixtures
 npm run lint:self  # the detector must pass its own rules
 ```
 
+When parse code changes, also run `node scripts/bench.js`. It is not part of `npm test`.
+
 ## Test the function, not the process
 
 One test per entry point proves the command line is wired. Every other

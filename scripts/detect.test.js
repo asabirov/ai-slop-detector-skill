@@ -64,9 +64,9 @@ test('flags a reply that repeats the preceding message in Russian and English', 
   }
 });
 
-// ── attribute prose is prose (lessly-landing#387) ──────────────────────
+// ── attribute prose is prose ──────────────────────
 // Stripping tags with `<[^>]+>` took the tooltip out with the tag. On
-// lessly.com/pricing that hid the whole compare table — 26 values, 324 words,
+// one pricing page that hid the whole compare table — 26 values, 324 words,
 // a third of the page's prose — and the gate reported a clean page.
 test('reads prose out of human-readable attributes, and only those', () => {
   const runs = attrTextRuns(
@@ -950,8 +950,8 @@ test('a rule fires on prose that exists only in an attribute', () => {
   assert.ok(rules.includes('meta-label-opener'), `expected meta-label-opener, got: ${rules.join(', ')}`);
 });
 
-// ── a page is judged on the CSS it applies (lessly-hub/lessly-landing#390) ──
-// One stylesheet serves every page that links it. lessly.com's home page failed
+// ── a page is judged on the CSS it applies ──
+// One stylesheet serves every page that links it. One home page failed
 // the level-1 gate on `.font-mono`, which styles code blocks in blog posts, and
 // on `.fig-mono`, which sets numerals inside diagrams. Neither class appears in
 // its markup. Nobody could have fixed that from the home page.
@@ -971,7 +971,7 @@ test('mono on a class the page does use still fails', () => {
   assert.ok(rules.includes('mono-noncode'), `expected mono-noncode, got: ${rules.join(', ')}`);
 });
 
-// ── mono is judged by what the selector lands on (lessly-landing#405) ──
+// ── mono is judged by what the selector lands on ──
 // The rule used to read the selector's spelling: any selector with `code`,
 // `pre`, `kbd`, `samp` or `tt` in its text was exempt, every other one failed.
 // So `.font-mono`, which lands on nothing but <code> spans, failed on three
@@ -980,7 +980,7 @@ test('mono on a class the page does use still fails', () => {
 test('a mono class that lands only on <code> is clean', () => {
   const page =
     '<html><body><style>.font-mono { font-family: Fira Mono, monospace }</style>' +
-    '<p>Set <code class="font-mono">lessly_consent</code> to opt out.</p></body></html>';
+    '<p>Set <code class="font-mono">acme_consent</code> to opt out.</p></body></html>';
   const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
   assert.ok(!rules.includes('mono-noncode'), `expected silence, got: ${rules.join(', ')}`);
 });
@@ -996,7 +996,7 @@ test('the same mono class on a <span> still fails', () => {
 test('mono on an element nested inside <code> is clean — font-family inherits', () => {
   const page =
     '<html><body><style>.token { font-family: SF Mono, monospace }</style>' +
-    '<code><input class="token" value="lessly_consent"></code></body></html>';
+    '<code><input class="token" value="acme_consent"></code></body></html>';
   const rules = detect(page, { level: 1, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
   assert.ok(!rules.includes('mono-noncode'), `expected silence, got: ${rules.join(', ')}`);
 });
@@ -1127,11 +1127,11 @@ test('selectorApplies is conservative — unknown means applied', () => {
   assert.strictEqual(selectorApplies('.anything', null), true);
 });
 
-// ── a kicker is where it sits, not what the sheet declares (apliteni#73) ──
+// ── a kicker is where it sits, not what the sheet declares ──
 // The rule read declaration blocks alone, so it reported a CSS signature for any
 // uppercase rule in the sheet. Both pages below are the ones it got wrong.
 
-// status.lessly.com. The page's one uppercase rule styles a status badge that
+// A status page. Its one uppercase rule styles a status badge that
 // sits beside its <h3>, never above it. An audit followed the finding to the
 // point of writing the fix, which deletes the status from the status page.
 const STATUS_PAGE =
@@ -1143,7 +1143,7 @@ const STATUS_PAGE =
   '<div class="component-head"><h3>Dashboard</h3><span class="pill">Operational</span></div>' +
   '</body></html>';
 
-// lessly.com. Five kickers sharing one class, each directly above its <h2>,
+// A marketing page. Five kickers sharing one class, each directly above its <h2>,
 // plus Tailwind's `.uppercase` utility on a button that sits above nothing.
 const KICKER_PAGE =
   '<html><head><style>' +
@@ -1194,7 +1194,7 @@ test('a finding quotes the page, never a CSS signature', () => {
 });
 
 // The phrase in this rule's own `why` ships at .04em on a real hero, and
-// status.lessly.com's badge tracks .02em. Any threshold between them hides the
+// a status page's badge tracks .02em. Any threshold between them hides the
 // shape the rule is named after, so tracking is evidence and never a gate.
 test('a kicker tracked as tight as a badge is still a kicker', () => {
   const page =
@@ -1272,7 +1272,7 @@ test('level filtering is monotonic and level-1 is errors-only', () => {
   assert.ok(l1.findings.length > 0, 'level 1 should still catch hard bans');
   for (const f of l1.findings) {
     assert.strictEqual(f.level, 1, `${f.rule} leaked into level 1`);
-    assert.strictEqual(f.severity, 'error', `${f.rule} is not an error`);
+    if (f.rule !== 'mono-noncode') assert.strictEqual(f.severity, 'error', `${f.rule} is not an error`);
   }
   assert.strictEqual(l1.verdict, 'fail');
 
@@ -1563,7 +1563,7 @@ test('a real URI scheme quoted as code is not a fake URI', () => {
 });
 
 test('a decorative URI in prose is still a fake URI', () => {
-  const doc = 'See lessly://c4/goal for the goal model.';
+  const doc = 'See acme://goal for the goal model.';
   const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
   assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['fake-uri']);
 });
@@ -1597,17 +1597,102 @@ test('a wrapped line beginning "here is" is not a sycophancy opener', () => {
   assert.deepStrictEqual(rep.findings.map((f) => f.rule), []);
 });
 
-test('a real opener is still caught wherever a sentence or paragraph starts', () => {
+test('a "!" opener is caught at any sentence start and a comma opener at a paragraph start', () => {
   const cases = [
     "Certainly! Here's what I found.",
+    'We shipped. Certainly! The change is in.',
+    'Thanks for the report. Great question! The cache was cold.',
     'Sure, here is the summary you asked for.',
     "The run is green.\n\nHere's what I found in the logs.",
-    'It failed twice. Certainly, here is why.',
+    'It failed twice.\n\nCertainly, here is why.',
   ];
   for (const doc of cases) {
     const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
     assert.deepStrictEqual([...new Set(rep.findings.map((f) => f.rule))], ['sycophancy-opener'], doc);
   }
+});
+
+test('sycophancy-opener leaves a mid-paragraph "Of course," alone', { timeout: 1000 }, () => {
+  const doc = 'The flag is optional. Of course, a missing file still fails.';
+  const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), []);
+  const opener = detect('Of course, the flag is optional.', { level: 1, kind: 'artifact', ext: 'md' });
+  assert.deepStrictEqual(opener.findings.map((f) => f.rule), ['sycophancy-opener']);
+});
+
+test('scope-template reads a range mid-sentence as a range and a sentence opener as the cliché', { timeout: 1000 }, () => {
+  const ids = (doc) => detect(doc, { level: 2, kind: 'artifact', ext: 'md' }).findings.map((f) => f.rule);
+  assert.deepStrictEqual(ids('It copies the data from src to dest, then it closes the stream.'), []);
+  assert.deepStrictEqual(ids('The loop reads from right to left, so the last item comes first.'), []);
+  assert.deepStrictEqual(ids('From startups to enterprises, teams rely on it.'), ['scope-template']);
+  assert.deepStrictEqual(ids('# Ship faster\n\nFrom startups to enterprises, teams rely on it.'), ['scope-template']);
+  const html = (doc) => detect(doc, { level: 2, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.deepStrictEqual(html('<h1>Ship faster</h1><p>From startups to enterprises, teams rely on it.</p>'), ['scope-template']);
+});
+
+test('decor-numbering leaves clock times alone and still flags an eyebrow number', { timeout: 1000 }, () => {
+  const has = (html) => detect(html, { level: 2, kind: 'artifact', ext: 'html' }).findings.some((f) => f.rule === 'decor-numbering');
+  assert.equal(has('<p>09:30 Standup</p>'), false);
+  assert.equal(has('<p>00:00</p>'), false);
+  assert.equal(has('<p>01 — Overview</p>'), true);
+  assert.equal(has('<p>02: Pricing</p>'), true);
+});
+
+test('middot-chain skips quoted examples and still flags real UI copy', { timeout: 1000 }, () => {
+  const has = (html) => detect(html, { level: 2, kind: 'artifact', ext: 'html' }).findings.some((f) => f.rule === 'middot-chain');
+  assert.equal(has('<p>Flag labels such as “Release · Active · Beta” and "Build · Done · Slow".</p>'), false);
+  assert.equal(has('<span>Release · Active · Beta</span>'), true);
+});
+
+test('two rules that flag one element report one finding and name the other rule', { timeout: 1000 }, () => {
+  const rep = run('slop-ui-overlap.html', 4);
+  const byRule = Object.fromEntries(rep.findings.map((f) => [f.rule, f]));
+  assert.deepStrictEqual(byRule['gradient-text'].alsoFlaggedBy, ['purple-blue-hero']);
+  assert.match(byRule['gradient-text'].span, /hero-title/);
+  assert.equal(byRule['gradient-text'].fix, 'Use type size or weight for emphasis.');
+  assert.deepStrictEqual(byRule['eyebrow-kicker'].alsoFlaggedBy, ['mono-uppercase-label']);
+  assert.equal(byRule['purple-blue-hero'], undefined);
+  assert.equal(byRule['mono-uppercase-label'], undefined);
+  for (const f of rep.findings) for (const field of ['rule', 'level', 'severity', 'span', 'why', 'fix']) assert.ok(field in f, field);
+  assert.equal(rep.stats.warnings, 3);
+});
+
+test('mono-noncode is a level-1 warning and alone never fails a run', { timeout: 1000 }, () => {
+  const r = detect('<style>.t{font-family:monospace}</style><span class="t">Next steps</span>', { level: 1, kind: 'artifact', ext: 'html' });
+  assert.deepStrictEqual(r.findings.map((f) => [f.rule, f.level, f.severity]), [['mono-noncode', 1, 'warning']]);
+  assert.equal(r.verdict, 'warn');
+});
+
+test('a hero background and a gradient title that share a class stay two findings', { timeout: 1000 }, () => {
+  const html = '<style>.hero{background:linear-gradient(90deg,#7c3aed,#2563eb)}.hero .title{background:linear-gradient(90deg,#ff0000,#00ff00);-webkit-background-clip:text}</style><section class="hero"><h1 class="title">x</h1></section>';
+  const found = detect(html, { level: 2, kind: 'artifact', ext: 'html' }).findings;
+  assert.deepStrictEqual(found.map((f) => f.rule).sort(), ['gradient-text', 'purple-blue-hero']);
+  assert.ok(found.every((f) => !f.alsoFlaggedBy));
+});
+
+test('one gradient string in a hero background and a clipped title keeps both results', { timeout: 1000 }, () => {
+  const g = 'linear-gradient(90deg,#7c3aed,#2563eb)';
+  const html = `<style>.hero{background:${g}}.hero .title{background:${g};-webkit-background-clip:text}</style><section class="hero"><h1 class="title">x</h1></section>`;
+  const found = detect(html, { level: 2, kind: 'artifact', ext: 'html' }).findings;
+  assert.deepStrictEqual(found.map((f) => f.rule).sort(), ['gradient-text', 'purple-blue-hero']);
+  assert.match(found.find((f) => f.rule === 'gradient-text').span, /hero \.title/);
+  assert.deepStrictEqual(found.find((f) => f.rule === 'gradient-text').alsoFlaggedBy, ['purple-blue-hero']);
+  assert.equal(found.filter((f) => f.rule === 'purple-blue-hero').length, 1);
+});
+
+test('a hero section and a footer brand text with one gradient keep both results', { timeout: 1000 }, () => {
+  const g = 'linear-gradient(90deg,#7c3aed,#2563eb)';
+  const html = `<style>.hero{background:${g}}.brand-text{background:${g};-webkit-background-clip:text}</style><section class="hero">x</section><footer><span class="brand-text">Acme</span></footer>`;
+  const found = detect(html, { level: 2, kind: 'artifact', ext: 'html' }).findings;
+  assert.deepStrictEqual(found.map((f) => f.rule).sort(), ['gradient-text', 'purple-blue-hero']);
+  assert.match(found.find((f) => f.rule === 'gradient-text').span, /brand-text/);
+  assert.equal(found.filter((f) => f.rule === 'purple-blue-hero').length, 1);
+});
+
+test('rules that flag different elements are not folded', { timeout: 1000 }, () => {
+  const html = '<style>.a{background:linear-gradient(90deg,#7c3aed,#3b82f6)}.b{background:linear-gradient(90deg,red,orange);-webkit-background-clip:text}</style><p class="a">x</p><p class="b">y</p>';
+  const rules = detect(html, { level: 2, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(rules.includes('purple-blue-hero') && rules.includes('gradient-text'));
 });
 
 // ── issue #78 · the code-span exemption reached only part of the file ────
@@ -1622,7 +1707,7 @@ test('a code span does not reach across a blank line to swallow prose', () => {
   const doc = [
     'A stray backtick ` here.',
     '',
-    'See lessly://c4/goal for the goal model.',
+    'See acme://goal for the goal model.',
     '',
     'Another stray ` there.',
   ].join('\n');
@@ -1637,7 +1722,7 @@ test('a double-backtick span holds a backtick, and closes only on its own length
 });
 
 test('an unclosed fence hides the block that follows it, not the prose before', () => {
-  const doc = ['See lessly://c4/goal first.', '', '```js', 'const u = "app://x";'].join('\n');
+  const doc = ['See acme://goal first.', '', '```js', 'const u = "app://x";'].join('\n');
   const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
   assert.deepStrictEqual(rep.findings.map((f) => f.rule), ['fake-uri']);
 });
@@ -1724,7 +1809,7 @@ test('a document of unpaired backticks does not blow up the code-span scan', () 
   assert.ok(ms < 5000, `3.1MB of unpaired backticks took ${ms}ms — the scan is not linear`);
 });
 
-// ── apliteni#79 · what CodeQL found, and what it cost somebody ───────────
+// ── what CodeQL found, and what it cost somebody ───────────
 //
 // Four alerts on main, all high: three `js/incomplete-multi-character-sanitization`
 // in rules/visual.js and one `js/polynomial-redos` in lib/html.js. The fifth the

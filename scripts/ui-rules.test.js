@@ -1481,3 +1481,76 @@ describe('UI scan bounds', { timeout: 3000 }, () => {
     assert.deepEqual(scan(source).findings.filter((finding) => finding.rule === 'restated-table-count'), []);
   });
 });
+
+describe('table-footnote and emoji-icon boundaries', { timeout: 1000 }, () => {
+  const table = '<table><tr><th>Item</th><th>Cost</th></tr><tr><td>A</td><td>10</td></tr></table>';
+  it('leaves an ordinary sentence with "values in" in a list after a table alone', { timeout: 1000 }, () => {
+    lacks(`<div>${table}</div><ul><li>Whether the numeric values in the returned object are bigints. Default: false.</li></ul>`, 'table-footnote');
+  });
+  it('still flags a basis line that opens with the noun', { timeout: 1000 }, () => {
+    has(`${table}<p>Amounts in EUR, VAT excluded.</p>`, 'table-footnote');
+    has(`${table}<p>All amounts in EUR, VAT excluded.</p>`, 'table-footnote');
+    has(`${table}<p class="note">USD = US dollars; M = million; B = billion.</p>`, 'table-footnote');
+  });
+  it('skips the dingbat check mark in a table cell and flags it elsewhere', { timeout: 1000 }, () => {
+    lacks('<table><tr><th>Feature</th><th>Supported</th></tr><tr><td>Export</td><td>✔</td></tr></table>', 'emoji-icon');
+    has('<table><tr><td>Export</td><td>\u{1F680}</td></tr></table>', 'emoji-icon');
+    has('<div><span>✔</span> Done</div>', 'emoji-icon');
+  });
+});
+
+describe('mono-noncode type labels', { timeout: 1000 }, () => {
+  const css = '<style>.ref{font-family:SFMono-Regular,Menlo,monospace}</style>';
+  it('treats an angle-bracket type label and a type or code class as code', { timeout: 1000 }, () => {
+    lacks(`${css}<a class="ref">&lt;Object&gt;</a>`, 'mono-noncode');
+    lacks(`${css}<a class="ref">&lt;string[]&gt;</a>`, 'mono-noncode');
+    lacks(`${css}<span class="ref type">Object</span>`, 'mono-noncode');
+    lacks(`${css}<span class="ref code-ref">x</span>`, 'mono-noncode');
+  });
+  it('still flags monospace on a metadata line', { timeout: 1000 }, () => {
+    has(`${css}<p class="ref">Updated 3 days ago by the team</p>`, 'mono-noncode');
+    has(`${css}<span class="ref typewriter">Hello there</span>`, 'mono-noncode');
+  });
+});
+
+describe('implied end tags', { timeout: 1000 }, () => {
+  const { markupElements } = require('./lib/html');
+  const css = '<style>li{border:1px solid #ccc;border-radius:8px;background:#fff}</style>';
+  const parentTags = (html) => markupElements(html).map((el) => [el.tag, el.parent < 0 ? null : markupElements(html)[el.parent].tag]);
+  it('does not nest an unclosed list item in the one before it', { timeout: 1000 }, () => {
+    lacks(`${css}<ul><li>a<li>b<li>c</ul>`, 'nested-cards');
+    lacks(`${css}<ul><li>a</li><li>b</li><li>c</li></ul>`, 'nested-cards');
+    assert.deepEqual(parentTags('<ul><li>a<li>b<li>c</ul>').filter(([tag]) => tag === 'li'), [['li', 'ul'], ['li', 'ul'], ['li', 'ul']]);
+  });
+  it('closes p, dt, dd, tr, td, th and option the way a browser does', { timeout: 1000 }, () => {
+    const sibling = (html, tag, parent) => assert.deepEqual(
+      parentTags(html).filter(([name]) => name === tag).map(([, up]) => up), parent, html);
+    sibling('<div><p>a<p>b</div>', 'p', ['div', 'div']);
+    sibling('<dl><dt>a<dd>b<dt>c<dd>d</dl>', 'dd', ['dl', 'dl']);
+    sibling('<table><tr><td>a<td>b<tr><td>c</table>', 'td', ['tr', 'tr', 'tr']);
+    sibling('<table><tr><th>a<th>b<tr><td>c</table>', 'th', ['tr', 'tr']);
+    sibling('<select><option>a<option>b</select>', 'option', ['select', 'select']);
+    sibling('<select><option>a<optgroup><option>b</optgroup></select>', 'optgroup', ['select']);
+    sibling('<select><optgroup><option>a<optgroup><option>b</select>', 'optgroup', ['select', 'select']);
+  });
+  it('closes an open p at a block start tag', { timeout: 1000 }, () => {
+    const sibling = (html, tag) => assert.deepEqual(
+      parentTags(html).filter(([name]) => name === tag).map(([, up]) => up), ['x-wrap'], html);
+    for (const tag of ['address', 'article', 'aside', 'blockquote', 'details', 'div', 'dl', 'fieldset', 'figcaption',
+      'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hr', 'main', 'menu', 'nav', 'ol',
+      'pre', 'section', 'table', 'ul']) sibling(`<x-wrap><p>a<${tag}>b</${tag}></x-wrap>`, tag);
+    sibling('<x-wrap><p>a <b>b<div>c</div></x-wrap>', 'div');
+    assert.deepEqual(parentTags('<div><p><span>a</span></p></div>').filter(([name]) => name === 'span'), [['span', 'p']]);
+  });
+  it('sees the table after an unclosed p', { timeout: 1000 }, () => {
+    const html = '<section><p>3 of the 214 payouts this year<table><thead><tr><th>Payout</th></tr></thead><tbody><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></tbody></table></section>';
+    const rule = RULES.find((r) => r.id === 'restated-table-count');
+    assert.equal(rule.test(parse(html, { ext: 'html' })).length, 1);
+  });
+  it('keeps a list inside a list item nested', { timeout: 1000 }, () => {
+    const found = parentTags('<ul><li>a<ul><li>b<li>c</ul><li>d</ul>').filter(([tag]) => tag === 'li');
+    assert.deepEqual(found, [['li', 'ul'], ['li', 'ul'], ['li', 'ul'], ['li', 'ul']]);
+    const els = markupElements('<ul><li>a<ul><li>b<li>c</ul><li>d</ul>');
+    assert.equal(els[3].parent, 2);
+  });
+});

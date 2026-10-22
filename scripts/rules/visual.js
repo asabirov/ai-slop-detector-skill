@@ -19,9 +19,8 @@ const {
   selectorApplies,
   selectorTargets,
   labelsAboveHeadings,
-  blocksUnderData,
-  blocksBesideHeading,
 } = require('../lib/html');
+const { blocksUnderData, blocksBesideHeading } = require('../lib/table-position');
 
 const countOcc = (s, sub) => s.split(sub).length - 1;
 
@@ -37,7 +36,7 @@ const fakeUri = {
   id: 'fake-uri',
   level: 1,
   severity: 'error',
-  why: 'Fake protocol URI (e.g. lessly://c4/goal) — decorative tech-cosplay pretending to be a real address. It links to nothing.',
+  why: 'Fake protocol URI (e.g. acme://goal) — decorative tech-cosplay pretending to be a real address. It links to nothing.',
   fix:
     'Use plain words, or a real https:// link. A real scheme being quoted as a technical value (neo4j://, postgres://, s3://) belongs in a code span or a fenced block, where this rule does not read it.',
   // Reads ctx.codeless, not ctx.runs: the tell is a URI used as ornament in
@@ -59,19 +58,24 @@ const fakeUri = {
 // fallback and not the rule: a guess is only better than going quiet.
 const SPELLED_FOR_CODE = /\b(code|pre|kbd|samp|tt)\b/i;
 
-const monoAllowed = (el) => el.inCode || (el.inTable && el.numericData && el.hasDigit);
+// A type label (`<Object>`, `<string[]>`) is code, and so is a class that says
+// it names a type or code.
+const TYPE_CLASS = /(?:^|[-_])(?:type|code)(?:$|[-_])/i;
+const isTypeLabel = (el) => /^<[A-Za-z_][\w.$\[\]|,\s?:*<>-]*>$/.test((el.text || '').trim()) ||
+  [...(el.classes || [])].some((c) => TYPE_CLASS.test(c));
+
+const monoAllowed = (el) => el.inCode || isTypeLabel(el) || (el.inTable && el.numericData && el.hasDigit);
 
 const monoNoncode = {
   id: 'mono-noncode',
   level: 1,
-  severity: 'error',
+  severity: 'warning',
   why: 'Monospace font on an element that is not code — fake-terminal decoration. Real code gets mono; a metadata line does not.',
   fix: 'Use a readable proportional font, or put the content in a <code>/<pre> if it really is code. If you want a label to stand out, weight or size it — do not costume it as code. Numeric table data may use monospace or font-variant-numeric: tabular-nums.',
   // Judged by what the selector lands on, not how it is spelled. The old
   // spelling check exempted anything with `code`/`pre`/`kbd`/`samp`/`tt` in its
   // text, so `.font-mono` — which lands on nothing but <code> spans — failed on
-  // three shipped pages while `.al-pre` on a <div> passed
-  // (lessly-hub/lessly-landing).
+  // three shipped pages while `.al-pre` on a <div> passed.
   test(ctx) {
     const hits = [];
     // The lookbehind is the left edge of a CSS ident. Without it the *name*
@@ -94,8 +98,8 @@ const monoNoncode = {
         const sel = part.trim();
         if (!sel) continue;
         // A shared stylesheet carries rules for pages this is not. Judging one
-        // page on another's code blocks is how lessly.com's home page failed on
-        // `.font-mono` it never applies (lessly-hub/lessly-landing#390). Asked
+        // page on another's code blocks is how a home page failed on
+        // `.font-mono` it never applies. Asked
         // per selector, so one absent class cannot excuse its neighbours.
         if (!selectorApplies(sel, ctx.markup)) continue;
 
@@ -146,7 +150,9 @@ const isFootnoteMarker = (e) => FOOTNOTE_TAG.test(e.tag) ||
 // tight around the numbers, because a bare `source` or `based on` read ordinary
 // article prose after a table as a basis line.
 const BASIS = [
-  /\b(?:amounts?|values?|figures?|totals?|numbers?|prices?|balances?|rates?)\b[^.;]{0,40}?\b(?:in|at|rate|rounded|converted|exclude[sd]?|excluding|include[sd]?|including)\b/i,
+  // The noun sits in the first three words: "All amounts in EUR" is a basis line,
+  // "Whether the numeric values in the object" is a sentence about something else.
+  /^\W*(?:\w+\W+){0,2}?(?:amounts?|values?|figures?|totals?|numbers?|prices?|balances?|rates?)\b[^.;]{0,40}?\b(?:in|at|rate|rounded|converted|exclude[sd]?|excluding|include[sd]?|including)\b/i,
   /\bas of\b/i,
   /\brounded (?:to|up|down)\b/i,
   /\bexcluded from\b/i,
@@ -172,9 +178,9 @@ const tableFootnote = {
     'An explanatory line under a table or a chart — what the numbers are counted in, what they exclude, where they came from, when they were taken. Nobody reading the table reads under it, so the fact is unread and load-bearing at once. A local design rule asking for the line does not make anyone read it.',
   fix:
     'Cut the line. If the fact changes what a number means, put it where the number is: the column header, the unit on the value, or the label of the control that chose it. Policy belongs on the page that sets the policy, linked from the heading.',
-  // Position is the definition, so position is the test — finance2 shipped a
-  // basis line under every money table and passed four review rounds at strict
-  // (#40), because nothing here was looking at where a line sat. What the
+  // Position is the definition, so position is the test — a finance app shipped a
+  // basis line under every money table and passed four review rounds at strict,
+  // because nothing here was looking at where a line sat. What the
   // candidate holds then separates a footnote from the next thing on the page: a
   // heading or a table of its own means it is a section, not an annotation.
   test(ctx) {
@@ -205,15 +211,15 @@ const tableFootnote = {
 
 // Two tiers, because one marker set cannot carry both halves of this. A class or
 // tag that names an annotation — basis, note, footnote, disclaimer — says the line
-// is about the data, so any wording is enough: `<Basis>charge month</Basis>` is the
-// line #52 was filed on and `<Basis>non-cash</Basis>` is one word. `<small>` is deliberately not here: it is how a kit sets
+// is about the data, so any wording is enough: `<Basis>charge month</Basis>` is a
+// real subtitle and `<Basis>non-cash</Basis>` is one word. `<small>` is deliberately not here: it is how a kit sets
 // a unit (`<small>EUR</small>`, `<small>ms, p95</small>`), and the README allows a
 // unit beside a heading.
 const ANNOTATION_TAG = /(?:^|-)(?:basis|notes?|footnotes?|disclaimer)$/i;
 const ANNOTATION_CLASS = /(?:^|[-_])(?:basis|notes?|footnotes?|disclaimer|fineprint)(?:$|[-_\d])/i;
 
 // The other tier is everything a design calls a line it has merely set below the
-// heading: a subtitle, a lede, a `<small>`. finance2 ships `fin-small` and
+// heading: a subtitle, a lede, a `<small>`. One app ships `fin-small` and
 // `ui-app__sub`; a kit ships `card-description`.
 //
 // `caption` and `meta` are deliberately out. A caption above the figure it names is
@@ -301,8 +307,7 @@ const externalLinkArrow = {
   fix: 'Drop the glyph. Plain directional →←↑↓ (flows, deltas) are fine.',
   // Reads ctx.codeless for the same reason fake-uri does: inside a code span the
   // glyph is the value under discussion, not ornament on a link. Reading ctx.runs
-  // failed this skill's own reference on the row that documents this rule
-  // (apliteni#78).
+  // failed this skill's own reference on the row that documents this rule.
   test(ctx) {
     const hits = [];
     const re = new RegExp(DECOR_ARROWS.source, 'g');
@@ -323,8 +328,13 @@ const middotChain = {
   why: 'Middot metadata chain (a · b · c) — templated polish that packs unrelated facts into one dotted line.',
   fix: 'Write a sentence, or split into real elements.',
   test(ctx) {
+    // Text inside quotation marks is a mention of a string, not UI copy.
+    const unquoted = (t) => t.replace(/"[^"]*"|“[^”]*”/g, ' ');
     return ctx.runs
-      .filter((t) => countOcc(t, ' · ') >= 2 || countOcc(t, ' • ') >= 2)
+      .filter((t) => {
+        const u = unquoted(t);
+        return countOcc(u, ' · ') >= 2 || countOcc(u, ' • ') >= 2;
+      })
       .map((t) => t.slice(0, 70));
   },
 };
@@ -336,7 +346,7 @@ const decorNumbering = {
   why: 'Decorative "01 — label" eyebrow where the number indexes nothing.',
   fix: 'Drop the number, or use it only where it encodes a real sequence.',
   test(ctx) {
-    return ctx.runs.filter((t) => /^0\d\s*[·•—:.\-]\s*\S/.test(t)).map((t) => t.slice(0, 50));
+    return ctx.runs.filter((t) => /^0\d(?![:.]\d\d)\s*[·•—:.\-]\s*\S/.test(t)).map((t) => t.slice(0, 50));
   },
 };
 
@@ -375,10 +385,10 @@ const eyebrowKicker = {
   fix: 'Drop the kicker; let the heading lead. Use sentence case for labels.',
   // Position is the definition, so position is the test: the element renders
   // uppercase AND the next thing after it is a heading. Nothing here reads
-  // tracking as a gate. .02em looked like the line between status.lessly.com's
-  // badges and lessly.com's kickers, but the phrase in this rule's own `why`
+  // tracking as a gate. .02em looked like the line between one site's
+  // status badges and another's kickers, but the phrase in this rule's own `why`
   // ships at .04em on a real hero — any threshold between them hides the shape
-  // the rule is named after (apliteni#73).
+  // the rule is named after.
   //
   // Matching elements also does what `selectorApplies` does for mono-noncode,
   // and more strictly: a class no element carries reaches no element here.
@@ -391,10 +401,12 @@ const eyebrowKicker = {
       const inline = /text-transform\s*:\s*uppercase/i.test(el.style);
       if (!styled && !inline && !isLiteralCaps(el.text)) continue;
       const tracking = styled ? upper.get(styled) : null;
-      hits.push(
-        `"${el.text}" above "${el.heading}"` +
-          (styled ? ` (.${styled}${tracking ? `, tracked ${tracking}` : ''})` : '')
-      );
+      hits.push({
+        span:
+          `"${el.text}" above "${el.heading}"` +
+          (styled ? ` (.${styled}${tracking ? `, tracked ${tracking}` : ''})` : ''),
+        keys: styled ? [`class:.${styled.toLowerCase()}`] : [],
+      });
     }
     return hits;
   },
@@ -425,15 +437,21 @@ const purpleBlueHero = {
   why: 'The default purple→blue gradient hero — the single most common AI-generated look.',
   fix: 'Use brand gradient tokens.',
   test(ctx) {
+    const gradients = (text) => (text.match(/linear-gradient\([^)]*\)/gi) || [])
+      .map((g) => g.toLowerCase())
+      .filter((g) => {
+        const purple = /#[89ab][0-9a-f]{2}[cf][0-9a-f]|purple|violet|indigo|#7c3aed|#6d28d9|#9333ea|#a855f7|#8b5cf6|#6366f1/.test(g);
+        const blue = /blue|#[0-6][0-9a-f]{2}[ef][0-9a-f]|#2563eb|#3b82f6/.test(g);
+        return purple && blue;
+      });
     const hits = [];
-    const re = /linear-gradient\([^)]*\)/gi;
-    let m;
-    while ((m = re.exec(ctx.css)) !== null) {
-      const g = m[0].toLowerCase();
-      const purple = /#[89ab][0-9a-f]{2}[cf][0-9a-f]|purple|violet|indigo|#7c3aed|#6d28d9|#9333ea|#a855f7|#8b5cf6|#6366f1/.test(g);
-      const blue = /blue|#[0-6][0-9a-f]{2}[ef][0-9a-f]|#2563eb|#3b82f6/.test(g);
-      if (purple && blue) hits.push(g.slice(0, 50));
+    for (const [selector, body] of ctx.cssRules || []) {
+      const keys = selector.toLowerCase().split(',').map((part) => part.trim());
+      for (const g of gradients(body)) hits.push({ span: g.slice(0, 50), keys });
     }
+    // A gradient in no closed rule still counts, and keys on nothing.
+    const all = gradients(ctx.css);
+    for (let i = hits.length; i < all.length; i++) hits.push({ span: all[i].slice(0, 50), keys: [] });
     return hits;
   },
 };
@@ -565,9 +583,8 @@ const radiusMonotony = {
 
 // A page that links CSS the linter could not open is a page whose CSS rules did
 // not run. Seven visual rules read ctx.css, so on a bundled page that silence
-// prints as a clean pass — lessly.com scored pass at every level, including
-// paranoid, while shipping 8 mono-noncode errors in a stylesheet nobody opened
-// (lessly-hub/lessly#732). Medium: the linter is certain it could not see the
+// prints as a clean pass — one site scored pass at every level, including
+// paranoid, while shipping 8 mono-noncode errors in a stylesheet nobody opened. Medium: the linter is certain it could not see the
 // file, and being unable to look is not the page's defect to fail on.
 const cssUnreadable = {
   id: 'css-unreadable',

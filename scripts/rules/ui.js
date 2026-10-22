@@ -1,6 +1,6 @@
 'use strict';
 
-const { subtreeEnds, boundaryText: rawBoundaryText, CHART_CLASS } = require('../lib/html');
+const { subtreeEnds, boundaryText: rawBoundaryText, CHART_CLASS } = require('../lib/table-position');
 
 // A cached declaration pass keeps each rule from reparsing the same stylesheet.
 const cache = new WeakMap();
@@ -237,8 +237,21 @@ function targets(ctx, row) {
   return (row.targets = [...out]);
 }
 function rule(id, level, why, fix, test) { return { id, level, severity: 'warning', why, fix, test }; }
-function cssRule(id, level, why, fix, predicate) {
-  return rule(id, level, why, fix, (ctx) => data(ctx).rows.filter((r) => predicate(r.props, r, ctx)).map((r) => r.selector.slice(0, 100)));
+function cssRule(id, level, why, fix, predicate, keyed) {
+  return rule(id, level, why, fix, (ctx) => data(ctx).rows.filter((r) => predicate(r.props, r, ctx)).map((r) => {
+    const span = r.selector.slice(0, 100);
+    return keyed ? { span, keys: selectorKeys(r.selector) } : span;
+  }));
+}
+// What a selector names: each comma part, and each class in it as `class:.name`. Two rules that
+// flag the same part or class flag the same element for detect() to fold.
+function selectorKeys(selector) {
+  const keys = new Set();
+  for (const part of selector.toLowerCase().split(',')) {
+    keys.add(part.trim());
+    for (const cls of part.match(/\.[-_a-z0-9]+/g) || []) keys.add(`class:${cls}`);
+  }
+  return [...keys];
 }
 const background = (p) => p.background || p['background-image'] || p['background-color'] || '';
 const bordered = (p) => /^1px\s+solid\b/.test(p.border || '');
@@ -581,7 +594,7 @@ module.exports = [
       return redundantContextNoun(label, info.contextNoun[i]) ? [label] : [];
     });
   }),
-  cssRule('gradient-text', 2, 'Gradient clipped into text is decorative emphasis.', 'Use type size or weight for emphasis.', (p) => /gradient\(/.test(background(p)) && (p['background-clip'] === 'text' || p['-webkit-background-clip'] === 'text')),
+  cssRule('gradient-text', 2, 'Gradient clipped into text is decorative emphasis.', 'Use type size or weight for emphasis.', (p) => /gradient\(/.test(background(p)) && (p['background-clip'] === 'text' || p['-webkit-background-clip'] === 'text'), true),
   cssRule('ai-gradient', 2, 'Pink, violet and purple gradient combinations are a common generated UI default.', 'Choose colors from the subject or an established palette.', (p) => {
     const g = background(p);
     if (!/gradient\(/.test(g)) return false;
@@ -653,13 +666,13 @@ module.exports = [
     }
     return [...found];
   }),
-  rule('emoji-icon', 2, 'An isolated emoji stands in for a designed icon.', 'Use a consistent icon set when an icon helps explain the action.', (ctx) => data(ctx).elements.filter((el) => !el.inCode && !data(ctx).inHeading.has(el) && /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\uFE0F|\u200D|\s){1,12}$/u.test((el.text || '').trim()) && /\p{Extended_Pictographic}/u.test(el.text || '')).map((el) => `<${el.tag}> ${(el.text || '').trim()}`)),
+  rule('emoji-icon', 2, 'An isolated emoji stands in for a designed icon.', 'Use a consistent icon set when an icon helps explain the action.', (ctx) => data(ctx).elements.filter((el) => !el.inCode && !data(ctx).inHeading.has(el) && !(el.inTable && /^[\u2714\uFE0F\s]+$/.test(el.text || '')) && /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\uFE0F|\u200D|\s){1,12}$/u.test((el.text || '').trim()) && /\p{Extended_Pictographic}/u.test(el.text || '')).map((el) => `<${el.tag}> ${(el.text || '').trim()}`)),
   rule('family-ceiling', 4, 'More than three primary font families can fragment a type system.', 'Keep only families with distinct roles.', (ctx) => {
     const families = new Set(data(ctx).rows.map((r) => (r.props['font-family'] || '').split(',')[0].trim().replace(/['"]/g, '')).filter((f) => f && !/^(?:inherit|initial|unset|var\()/.test(f)));
     return families.size > 3 ? [`${families.size} primary font families: ${[...families].slice(0, 8).join(', ')}`] : [];
   }),
   cssRule('stock-display-face', 4, 'Inter or Space Grotesk as a display face is a common default worth reviewing.', 'Keep the face if it was chosen for this subject.', (p, r) => /^(?:['"]?inter['"]?|['"]?space grotesk['"]?)(?:,|$)/.test(p['font-family'] || '') && (pixels(p['font-size']) >= 48 || /(?:^|[\s,>])h[12]\b/.test(r.selector))),
-  cssRule('mono-uppercase-label', 3, 'Tracked uppercase monospace labels imitate terminal chrome.', 'Use the interface typeface and sentence case for ordinary labels.', (p, r, ctx) => MONO.test(p['font-family'] || '') && p['text-transform'] === 'uppercase' && pixels(p['letter-spacing']) > 0 && !/\b(?:code|pre|kbd|samp)\b/.test(r.selector) && !targets(ctx, r).some((el) => el.inCode)),
+  cssRule('mono-uppercase-label', 3, 'Tracked uppercase monospace labels imitate terminal chrome.', 'Use the interface typeface and sentence case for ordinary labels.', (p, r, ctx) => MONO.test(p['font-family'] || '') && p['text-transform'] === 'uppercase' && pixels(p['letter-spacing']) > 0 && !/\b(?:code|pre|kbd|samp)\b/.test(r.selector) && !targets(ctx, r).some((el) => el.inCode), true),
   rule('accent-budget', 4, 'Several unrelated accent colors can obscure emphasis.', 'Reserve accents for clear roles and keep the remaining colors neutral.', (ctx) => {
     const accents = [];
     for (const row of data(ctx).rows) {
