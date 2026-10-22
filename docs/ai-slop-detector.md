@@ -29,7 +29,7 @@ surface matters.
 
 | Level | Name | What it adds | Use for |
 |-------|------|--------------|---------|
-| 1 | `ban` | Existing blocking rules. All `error`. | Required CI gates. |
+| 1 | `ban` | Blocking rules. All `error`, except `mono-noncode`, which is a `warning`. | Required CI gates. |
 | 2 | `recommended` | + strong, high-precision structural and phrase tells (`medium`, `warning`). | Default for a requested CLI scan. |
 | 3 | `strict` | + opinionated stylistic tells and density-gated vocabulary. | Landing, launch post, hero surfaces. |
 | 4 | `paranoid` | + statistical rules that may false-positive. | Deep pre-launch audit. |
@@ -249,7 +249,7 @@ values are stable — reference them in allowlists and PR notes.
 | id | Level | Severity | Tell |
 |----|-------|----------|------|
 | `fake-uri` | 1 | error | Fake protocol URI (`acme://goal`) — links to nothing. Skips code. |
-| `mono-noncode` | 1 | error | Monospace font on prose or a label — fake-terminal decoration. |
+| `mono-noncode` | 1 | warning | Monospace font on prose or a label — fake-terminal decoration. |
 | `external-link-arrow` | 1 | error | Diagonal `↗` open-in-new-tab arrow on a link — decorative cosplay. Skips code. |
 | `table-footnote` | 1 | error | An explanatory line under a table or a chart — basis, source, exclusion or an “as of” date. |
 | `table-aside` | 1 | error | A lede, subtitle or basis line set beside the heading that names a table or a chart. |

@@ -70,7 +70,7 @@ const monoAllowed = (el) => el.inCode || isTypeLabel(el) || (el.inTable && el.nu
 const monoNoncode = {
   id: 'mono-noncode',
   level: 1,
-  severity: 'error',
+  severity: 'warning',
   why: 'Monospace font on an element that is not code — fake-terminal decoration. Real code gets mono; a metadata line does not.',
   fix: 'Use a readable proportional font, or put the content in a <code>/<pre> if it really is code. If you want a label to stand out, weight or size it — do not costume it as code. Numeric table data may use monospace or font-variant-numeric: tabular-nums.',
   // Judged by what the selector lands on, not how it is spelled. The old

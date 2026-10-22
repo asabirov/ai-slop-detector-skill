@@ -1272,7 +1272,7 @@ test('level filtering is monotonic and level-1 is errors-only', () => {
   assert.ok(l1.findings.length > 0, 'level 1 should still catch hard bans');
   for (const f of l1.findings) {
     assert.strictEqual(f.level, 1, `${f.rule} leaked into level 1`);
-    assert.strictEqual(f.severity, 'error', `${f.rule} is not an error`);
+    if (f.rule !== 'mono-noncode') assert.strictEqual(f.severity, 'error', `${f.rule} is not an error`);
   }
   assert.strictEqual(l1.verdict, 'fail');
 
@@ -1647,7 +1647,13 @@ test('two rules that flag one element report one finding and name the other rule
   assert.equal(byRule['gradient-text'], undefined);
   assert.equal(byRule['mono-uppercase-label'], undefined);
   for (const f of rep.findings) for (const field of ['rule', 'level', 'severity', 'span', 'why', 'fix']) assert.ok(field in f, field);
-  assert.equal(rep.stats.warnings, 2);
+  assert.equal(rep.stats.warnings, 3);
+});
+
+test('mono-noncode is a level-1 warning and alone never fails a run', { timeout: 1000 }, () => {
+  const r = detect('<style>.t{font-family:monospace}</style><span class="t">Next steps</span>', { level: 1, kind: 'artifact', ext: 'html' });
+  assert.deepStrictEqual(r.findings.map((f) => [f.rule, f.level, f.severity]), [['mono-noncode', 1, 'warning']]);
+  assert.equal(r.verdict, 'warn');
 });
 
 test('rules that flag different elements are not folded', { timeout: 1000 }, () => {
