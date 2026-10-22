@@ -146,7 +146,9 @@ const isFootnoteMarker = (e) => FOOTNOTE_TAG.test(e.tag) ||
 // tight around the numbers, because a bare `source` or `based on` read ordinary
 // article prose after a table as a basis line.
 const BASIS = [
-  /\b(?:amounts?|values?|figures?|totals?|numbers?|prices?|balances?|rates?)\b[^.;]{0,40}?\b(?:in|at|rate|rounded|converted|exclude[sd]?|excluding|include[sd]?|including)\b/i,
+  // The noun sits in the first three words: "All amounts in EUR" is a basis line,
+  // "Whether the numeric values in the object" is a sentence about something else.
+  /^\W*(?:\w+\W+){0,2}?(?:amounts?|values?|figures?|totals?|numbers?|prices?|balances?|rates?)\b[^.;]{0,40}?\b(?:in|at|rate|rounded|converted|exclude[sd]?|excluding|include[sd]?|including)\b/i,
   /\bas of\b/i,
   /\brounded (?:to|up|down)\b/i,
   /\bexcluded from\b/i,
@@ -323,8 +325,13 @@ const middotChain = {
   why: 'Middot metadata chain (a · b · c) — templated polish that packs unrelated facts into one dotted line.',
   fix: 'Write a sentence, or split into real elements.',
   test(ctx) {
+    // Text inside quotation marks is a mention of a string, not UI copy.
+    const unquoted = (t) => t.replace(/"[^"]*"|“[^”]*”/g, ' ');
     return ctx.runs
-      .filter((t) => countOcc(t, ' · ') >= 2 || countOcc(t, ' • ') >= 2)
+      .filter((t) => {
+        const u = unquoted(t);
+        return countOcc(u, ' · ') >= 2 || countOcc(u, ' • ') >= 2;
+      })
       .map((t) => t.slice(0, 70));
   },
 };
@@ -336,7 +343,7 @@ const decorNumbering = {
   why: 'Decorative "01 — label" eyebrow where the number indexes nothing.',
   fix: 'Drop the number, or use it only where it encodes a real sequence.',
   test(ctx) {
-    return ctx.runs.filter((t) => /^0\d\s*[·•—:.\-]\s*\S/.test(t)).map((t) => t.slice(0, 50));
+    return ctx.runs.filter((t) => /^0\d(?![:.]\d\d)\s*[·•—:.\-]\s*\S/.test(t)).map((t) => t.slice(0, 50));
   },
 };
 
@@ -391,10 +398,12 @@ const eyebrowKicker = {
       const inline = /text-transform\s*:\s*uppercase/i.test(el.style);
       if (!styled && !inline && !isLiteralCaps(el.text)) continue;
       const tracking = styled ? upper.get(styled) : null;
-      hits.push(
-        `"${el.text}" above "${el.heading}"` +
-          (styled ? ` (.${styled}${tracking ? `, tracked ${tracking}` : ''})` : '')
-      );
+      hits.push({
+        span:
+          `"${el.text}" above "${el.heading}"` +
+          (styled ? ` (.${styled}${tracking ? `, tracked ${tracking}` : ''})` : ''),
+        keys: styled ? [`.${styled.toLowerCase()}`] : [],
+      });
     }
     return hits;
   },
@@ -432,7 +441,12 @@ const purpleBlueHero = {
       const g = m[0].toLowerCase();
       const purple = /#[89ab][0-9a-f]{2}[cf][0-9a-f]|purple|violet|indigo|#7c3aed|#6d28d9|#9333ea|#a855f7|#8b5cf6|#6366f1/.test(g);
       const blue = /blue|#[0-6][0-9a-f]{2}[ef][0-9a-f]|#2563eb|#3b82f6/.test(g);
-      if (purple && blue) hits.push(g.slice(0, 50));
+      if (!(purple && blue)) continue;
+      const keys = [];
+      for (const [selector, body] of ctx.cssRules || []) {
+        if (body.toLowerCase().includes(g)) keys.push(...selector.toLowerCase().split(',').map((part) => part.trim()));
+      }
+      hits.push({ span: g.slice(0, 50), keys });
     }
     return hits;
   },

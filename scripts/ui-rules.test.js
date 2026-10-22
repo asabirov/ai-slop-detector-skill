@@ -1481,3 +1481,20 @@ describe('UI scan bounds', { timeout: 3000 }, () => {
     assert.deepEqual(scan(source).findings.filter((finding) => finding.rule === 'restated-table-count'), []);
   });
 });
+
+describe('table-footnote and emoji-icon boundaries', { timeout: 1000 }, () => {
+  const table = '<table><tr><th>Item</th><th>Cost</th></tr><tr><td>A</td><td>10</td></tr></table>';
+  it('leaves an ordinary sentence with "values in" in a list after a table alone', { timeout: 1000 }, () => {
+    lacks(`<div>${table}</div><ul><li>Whether the numeric values in the returned object are bigints. Default: false.</li></ul>`, 'table-footnote');
+  });
+  it('still flags a basis line that opens with the noun', { timeout: 1000 }, () => {
+    has(`${table}<p>Amounts in EUR, VAT excluded.</p>`, 'table-footnote');
+    has(`${table}<p>All amounts in EUR, VAT excluded.</p>`, 'table-footnote');
+    has(`${table}<p class="note">USD = US dollars; M = million; B = billion.</p>`, 'table-footnote');
+  });
+  it('skips the dingbat check mark in a table cell and flags it elsewhere', { timeout: 1000 }, () => {
+    lacks('<table><tr><th>Feature</th><th>Supported</th></tr><tr><td>Export</td><td>✔</td></tr></table>', 'emoji-icon');
+    has('<table><tr><td>Export</td><td>\u{1F680}</td></tr></table>', 'emoji-icon');
+    has('<div><span>✔</span> Done</div>', 'emoji-icon');
+  });
+});

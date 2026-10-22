@@ -32,7 +32,8 @@ const sycophancyOpener = {
   why: 'RLHF chat residue ("Certainly!", "Great question!", "I’d be happy to…") that survived from a chatbot into published copy. Near-diagnostic.',
   fix: 'Delete the opener. Start with the point.',
   test: phraseRule([
-    /(?:^|[.!?]\s+|\n)\s*(certainly|great question|excellent question|absolutely|sure thing|of course)\s*[!,]/gi,
+    // Opens the reply or a paragraph. After a full stop "Of course," is ordinary prose.
+    /(?:^|\n\s*\n)\s*(certainly|great question|excellent question|absolutely|sure thing|of course)\s*[!,]/gi,
     /\bI['’]d be happy to\b/gi,
     // "Sure, here is…" is chat residue wherever a sentence opens. Only `sure`
     // takes the sentence-end position; `certainly` there is pattern 1's, and
@@ -144,7 +145,8 @@ const scopeTemplate = {
   fix: 'Name the actual audience or range.',
   test: phraseRule([
     /\bwhether you['’]re\s+an?\b[^.?!]{1,50}?\bor\b/gi,
-    /\bfrom\s+[a-z][a-z\s]{1,25}?\s+to\s+[a-z][a-z\s]{1,25}?,\s/gi,
+    // Only the sentence-opening form: "from src to dest, then" mid-sentence is a range.
+    /(?:^|[.!?]['’"”)\]]?\s+|\n\s*\n)from\s+[a-z][a-z\s]{1,25}?\s+to\s+[a-z][a-z\s]{1,25}?,\s/gi,
   ]),
 };
 

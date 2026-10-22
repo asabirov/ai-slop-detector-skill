@@ -1602,12 +1602,58 @@ test('a real opener is still caught wherever a sentence or paragraph starts', ()
     "Certainly! Here's what I found.",
     'Sure, here is the summary you asked for.',
     "The run is green.\n\nHere's what I found in the logs.",
-    'It failed twice. Certainly, here is why.',
+    'It failed twice.\n\nCertainly, here is why.',
   ];
   for (const doc of cases) {
     const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
     assert.deepStrictEqual([...new Set(rep.findings.map((f) => f.rule))], ['sycophancy-opener'], doc);
   }
+});
+
+test('sycophancy-opener leaves a mid-paragraph "Of course," alone', { timeout: 1000 }, () => {
+  const doc = 'The flag is optional. Of course, a missing file still fails.';
+  const rep = detect(doc, { level: 1, kind: 'artifact', ext: 'md' });
+  assert.deepStrictEqual(rep.findings.map((f) => f.rule), []);
+  const opener = detect('Of course, the flag is optional.', { level: 1, kind: 'artifact', ext: 'md' });
+  assert.deepStrictEqual(opener.findings.map((f) => f.rule), ['sycophancy-opener']);
+});
+
+test('scope-template reads a range mid-sentence as a range and a sentence opener as the cliché', { timeout: 1000 }, () => {
+  const ids = (doc) => detect(doc, { level: 2, kind: 'artifact', ext: 'md' }).findings.map((f) => f.rule);
+  assert.deepStrictEqual(ids('It copies the data from src to dest, then it closes the stream.'), []);
+  assert.deepStrictEqual(ids('The loop reads from right to left, so the last item comes first.'), []);
+  assert.deepStrictEqual(ids('From startups to enterprises, teams rely on it.'), ['scope-template']);
+});
+
+test('decor-numbering leaves clock times alone and still flags an eyebrow number', { timeout: 1000 }, () => {
+  const has = (html) => detect(html, { level: 2, kind: 'artifact', ext: 'html' }).findings.some((f) => f.rule === 'decor-numbering');
+  assert.equal(has('<p>09:30 Standup</p>'), false);
+  assert.equal(has('<p>00:00</p>'), false);
+  assert.equal(has('<p>01 — Overview</p>'), true);
+  assert.equal(has('<p>02: Pricing</p>'), true);
+});
+
+test('middot-chain skips quoted examples and still flags real UI copy', { timeout: 1000 }, () => {
+  const has = (html) => detect(html, { level: 2, kind: 'artifact', ext: 'html' }).findings.some((f) => f.rule === 'middot-chain');
+  assert.equal(has('<p>Flag labels such as “Release · Active · Beta” and "Build · Done · Slow".</p>'), false);
+  assert.equal(has('<span>Release · Active · Beta</span>'), true);
+});
+
+test('two rules that flag one element report one finding and name the other rule', { timeout: 1000 }, () => {
+  const rep = run('slop-ui-overlap.html', 4);
+  const byRule = Object.fromEntries(rep.findings.map((f) => [f.rule, f]));
+  assert.deepStrictEqual(byRule['purple-blue-hero'].alsoFlaggedBy, ['gradient-text']);
+  assert.deepStrictEqual(byRule['eyebrow-kicker'].alsoFlaggedBy, ['mono-uppercase-label']);
+  assert.equal(byRule['gradient-text'], undefined);
+  assert.equal(byRule['mono-uppercase-label'], undefined);
+  for (const f of rep.findings) for (const field of ['rule', 'level', 'severity', 'span', 'why', 'fix']) assert.ok(field in f, field);
+  assert.equal(rep.stats.warnings, 2);
+});
+
+test('rules that flag different elements are not folded', { timeout: 1000 }, () => {
+  const html = '<style>.a{background:linear-gradient(90deg,#7c3aed,#3b82f6)}.b{background:linear-gradient(90deg,red,orange);-webkit-background-clip:text}</style><p class="a">x</p><p class="b">y</p>';
+  const rules = detect(html, { level: 2, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.ok(rules.includes('purple-blue-hero') && rules.includes('gradient-text'));
 });
 
 // ── issue #78 · the code-span exemption reached only part of the file ────

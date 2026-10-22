@@ -38,6 +38,7 @@ function detect(source, { level = DEFAULT_LEVEL, kind = 'artifact', ext = 'js', 
   const ctx = kind === 'source' ? parseSource(source, { ext }) : parse(source, { filePath, root, ext });
   const uiCtx = visualOnly && kind === 'source' ? parse(source, { filePath, root, ext }) : ctx;
   const findings = [];
+  const elementKeys = new Map();
   for (const rule of RULES) {
     if (rule.level > level) continue;
     const visual = rule.pack === 'visual';
@@ -49,21 +50,46 @@ function detect(source, { level = DEFAULT_LEVEL, kind = 'artifact', ext = 'js', 
     } catch (err) {
       hits = [`rule crashed: ${err.message}`];
     }
-    for (const span of hits) {
-      findings.push({
+    for (const hit of hits) {
+      const finding = {
         rule: rule.id,
         level: rule.level,
         severity: rule.severity,
-        span: String(span).slice(0, 120),
+        span: String(typeof hit === 'object' ? hit.span : hit).slice(0, 120),
         why: rule.why,
         fix: rule.fix,
-      });
+      };
+      if (typeof hit === 'object' && hit.keys?.length) elementKeys.set(finding, hit.keys);
+      findings.push(finding);
     }
   }
+  const kept = foldDuplicates(findings, elementKeys);
   return {
-    verdict: verdictFor(findings), level: LEVELS[level - 1], findings, stats: tally(findings),
+    verdict: verdictFor(kept), level: LEVELS[level - 1], findings: kept, stats: tally(kept),
     visualRulesSkipped: kind === 'source' && ['js', 'mjs', 'cjs', 'ts', 'mts', 'cts'].includes(ext),
   };
+}
+
+// Two rules that name the same element for the same reason report one finding.
+// The first rule of a pair keeps it and lists the second in `alsoFlaggedBy`,
+// so both rule IDs stay in use and no existing field changes.
+const FOLDS = [['purple-blue-hero', 'gradient-text'], ['eyebrow-kicker', 'mono-uppercase-label']];
+
+function foldDuplicates(findings, elementKeys) {
+  if (!elementKeys.size) return findings;
+  const dropped = new Set();
+  for (const [primary, secondary] of FOLDS) {
+    for (const second of findings) {
+      if (second.rule !== secondary || !elementKeys.has(second)) continue;
+      const keys = elementKeys.get(second);
+      const first = findings.find((f) => f.rule === primary && !dropped.has(f) &&
+        (elementKeys.get(f) || []).some((k) => keys.includes(k)));
+      if (!first) continue;
+      first.alsoFlaggedBy = [...new Set([...(first.alsoFlaggedBy || []), secondary])];
+      dropped.add(second);
+    }
+  }
+  return dropped.size ? findings.filter((f) => !dropped.has(f)) : findings;
 }
 
 // Three severities, two outcomes. `error` fails the run; `medium` and `warning`
@@ -107,6 +133,7 @@ function report(rep) {
   for (const f of rep.findings) {
     const mark = SEVERITY[f.severity].mark;
     lines.push(`  ${mark} [${f.rule}] ${f.span}`);
+    if (f.alsoFlaggedBy) lines.push(`      also flagged by: ${f.alsoFlaggedBy.join(', ')}`);
     lines.push(`      ${f.why}`);
     lines.push(`      fix: ${f.fix}`);
     lines.push('');
