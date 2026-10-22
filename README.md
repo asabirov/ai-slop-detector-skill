@@ -118,7 +118,18 @@ parser rules, the visible-run boundaries and the known limits are in
   as a table: `<DataTable/>` and `<LineChart/>` are what a screen actually ships.
   Native font stacks, numeric table data, a count line, a chart legend, a caption
   naming its figure, and a total, unit, byline or control beside a heading are
-  allowed.
+  allowed. A live status line can report an action or its result, even when
+  styled small or muted. Outside a live region, only the action pairs in the
+  [CLI reference](docs/ai-slop-detector.md) count as feedback. The action must
+  match a nearby visible button or submit input. Move booking can produce
+  Saving feedback. Inline elements share a prose line, and
+  a line break starts another. Hidden controls, selected options, and textarea
+  data are not action labels. Completion feedback can name a number, a quoted
+  label, or a longer group of bookings. Words such as "counts" and "reports"
+  can be nouns in that group. A clause describing records is a data note, even
+  when it ends in "completed." A separate note still counts. Its complete
+  visible sentence includes values inside nested live spans. Any basis also
+  counts. An unrelated control does not hide a note.
 - **Text** reads visible prose plus the attributes a person actually reads
   (`title`, `alt`, `placeholder`, `aria-label`, `data-tip`, the meta
   description). Catches "not just X, but Y", hedge openers, sycophancy residue,
