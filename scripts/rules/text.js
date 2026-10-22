@@ -25,11 +25,14 @@ function phraseRule(patterns) {
 
 // ── level 1 · ban (chat residue leaked into prose → error) ───────────────
 
-// Opens the reply or a paragraph. After a full stop "Of course," is ordinary prose.
-const OPENER = /^\s*(?:certainly|great question|excellent question|absolutely|sure thing|of course)\s*[!,]/i;
-const openers = (ctx) => ctx.paragraphs.map((p) => OPENER.exec(p)).filter(Boolean).map((m) => m[0].trim());
+// "Certainly!" is chat residue at any sentence start. The comma form needs the
+// start of a reply or a paragraph, because after a full stop "Of course," is ordinary prose.
+const BANG_OPENER = /(?:^|[.!?]['’"”)\]]?\s+|\n)\s*(?:certainly|great question|excellent question|absolutely|sure thing|of course)\s*!/gi;
+const COMMA_OPENER = /^\s*(?:certainly|great question|excellent question|absolutely|sure thing|of course)\s*,/i;
+const commaOpeners = (ctx) => ctx.paragraphs.map((p) => COMMA_OPENER.exec(p)).filter(Boolean).map((m) => m[0].trim());
 
 const REST = [
+  BANG_OPENER,
   /\bI['’]d be happy to\b/gi,
   // "Sure, here is…" is chat residue wherever a sentence opens. Only `sure`
   // takes the sentence-end position; `certainly` there is the opener check's, and
@@ -49,7 +52,7 @@ const sycophancyOpener = {
   severity: 'error',
   why: 'RLHF chat residue ("Certainly!", "Great question!", "I’d be happy to…") that survived from a chatbot into published copy. Near-diagnostic.',
   fix: 'Delete the opener. Start with the point.',
-  test: (ctx) => [...new Set([...openers(ctx), ...phraseRule(REST)(ctx)])],
+  test: (ctx) => [...new Set([...commaOpeners(ctx), ...phraseRule(REST)(ctx)])],
 };
 
 // A single reply cannot show what the other person said. Compare only explicit
@@ -141,17 +144,19 @@ const formulaicCloser = {
   },
 };
 
+const WHETHER = /\bwhether you['’]re\s+an?\b[^.?!]{1,50}?\bor\b/gi;
+// Only the sentence-opening form: "from src to dest, then" mid-sentence is a range.
+// A paragraph start counts as a sentence start, so a line under a heading is seen.
+const FROM_TO = /(?:^\s*|[.!?]['’"”)\]]?\s+)from\s+[a-z][a-z\s]{1,25}?\s+to\s+[a-z][a-z\s]{1,25}?,\s/gi;
+const fromTo = (paragraph) => (paragraph.match(FROM_TO) || []).map((m) => m.trim().slice(0, 70));
+
 const scopeTemplate = {
   id: 'scope-template',
   level: 2,
   severity: 'warning',
   why: '"Whether you’re a X or a Y" / "from X to Y" enumerating-scope cliché that fakes inclusiveness.',
   fix: 'Name the actual audience or range.',
-  test: phraseRule([
-    /\bwhether you['’]re\s+an?\b[^.?!]{1,50}?\bor\b/gi,
-    // Only the sentence-opening form: "from src to dest, then" mid-sentence is a range.
-    /(?:^|[.!?]['’"”)\]]?\s+|\n\s*\n)from\s+[a-z][a-z\s]{1,25}?\s+to\s+[a-z][a-z\s]{1,25}?,\s/gi,
-  ]),
+  test: (ctx) => [...new Set([...phraseRule([WHETHER])(ctx), ...ctx.paragraphs.flatMap(fromTo)])],
 };
 
 // ── level 3 · strict (density-gated & structural → warning) ──────────────

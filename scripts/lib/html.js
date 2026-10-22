@@ -85,7 +85,6 @@ function stripTags(html) {
 // name is a spelling and the reader is shown a glyph. The table is the standard's
 // own, in `./entities`.
 const { NAMED } = require('./entities');
-const { blocksUnderData, blocksBesideHeading, subtreeEnds, boundaryText, CHART_CLASS } = require('./table-position');
 
 // Case matters: `&Aacute;` and `&aacute;` are different letters, so the name is
 // looked up exactly as written. The hex digits of a numeric reference do not,
@@ -282,19 +281,10 @@ const VOID_TAGS = new Set([
   'link', 'meta', 'param', 'source', 'track', 'wbr',
 ]);
 
-// Every element the page carries, each with the tag chain above it. This is
-// not a DOM, but a stack of tokenized tags is enough to answer the one
-// question the mono rule needs: what does this selector land on, and does that
-// element sit inside a <code>. `inCode` is true for the code elements
-// themselves and for everything nested in one, because font-family inherits:
-// <code><input></code> puts mono on the input, legitimately.
-//
-// Mis-nested markup (an unclosed <code>) inflates the chain. That errs toward
-// calling something code, which is the quiet direction; a page whose <code>
-// never closes has a bigger problem than this rule.
 // A start tag that ends an open element without a closing tag, as a browser
 // does. Each entry names the open tags it closes and the tags the search must
-// not cross, so a list inside a list item stays nested.
+// not cross, so a list inside a list item stays nested. `again` keeps closing
+// after the first match, so an optgroup ends its last option and then itself.
 const P_PHRASING = new Set(['a', 'abbr', 'b', 'code', 'em', 'i', 'kbd', 'label', 'mark', 'small',
   'span', 'strong', 'sub', 'sup', 'u']);
 const IMPLIED_END = {
@@ -306,8 +296,19 @@ const IMPLIED_END = {
   td: { closes: ['td', 'th'], stop: ['tr', 'table'] },
   th: { closes: ['td', 'th'], stop: ['tr', 'table'] },
   option: { closes: ['option'], stop: ['select', 'datalist', 'optgroup'] },
+  optgroup: { closes: ['option', 'optgroup'], stop: ['select'], again: true },
 };
 
+// Every element the page carries, each with the tag chain above it. This is
+// not a DOM, but a stack of tokenized tags is enough to answer the one
+// question the mono rule needs: what does this selector land on, and does that
+// element sit inside a <code>. `inCode` is true for the code elements
+// themselves and for everything nested in one, because font-family inherits:
+// <code><input></code> puts mono on the input, legitimately.
+//
+// Mis-nested markup (an unclosed <code>) inflates the chain. That errs toward
+// calling something code, which is the quiet direction; a page whose <code>
+// never closes has a bigger problem than this rule.
 function markupElements(html) {
   const body = stripBetween(stripBetween(html, 'style'), 'script');
   const out = [];
@@ -348,7 +349,8 @@ function markupElements(html) {
             out[closed].end = token.index;
             openDepths.get(out[closed].tag).pop();
           }
-          break;
+          if (!implied.again) break;
+          continue;
         }
         if (implied.within ? !implied.within.has(open) : implied.stop.includes(open)) break;
       }
@@ -1817,6 +1819,7 @@ function parseSource(source, { filePath, root, ext } = {}) {
 }
 
 module.exports = {
+  forgetPages,
   stripBetween,
   stripTags,
   decodeEntities,
@@ -1827,11 +1830,6 @@ module.exports = {
   selectorApplies,
   labelsAboveHeadings,
   selectorTargets,
-  blocksUnderData,
-  blocksBesideHeading,
-  subtreeEnds,
-  boundaryText,
-  CHART_CLASS,
   CODE_TAGS,
   cssBlocks,
   stylesheetLinks,

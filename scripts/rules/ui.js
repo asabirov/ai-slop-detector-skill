@@ -1,6 +1,6 @@
 'use strict';
 
-const { subtreeEnds, boundaryText: rawBoundaryText, CHART_CLASS } = require('../lib/html');
+const { subtreeEnds, boundaryText: rawBoundaryText, CHART_CLASS } = require('../lib/table-position');
 
 // A cached declaration pass keeps each rule from reparsing the same stylesheet.
 const cache = new WeakMap();
@@ -243,13 +243,13 @@ function cssRule(id, level, why, fix, predicate, keyed) {
     return keyed ? { span, keys: selectorKeys(r.selector) } : span;
   }));
 }
-// What a selector names: each comma part, and each class in it. Two rules that
+// What a selector names: each comma part, and each class in it as `class:.name`. Two rules that
 // flag the same part or class flag the same element for detect() to fold.
 function selectorKeys(selector) {
   const keys = new Set();
   for (const part of selector.toLowerCase().split(',')) {
     keys.add(part.trim());
-    for (const cls of part.match(/\.[-_a-z0-9]+/g) || []) keys.add(cls);
+    for (const cls of part.match(/\.[-_a-z0-9]+/g) || []) keys.add(`class:${cls}`);
   }
   return [...keys];
 }

@@ -19,9 +19,8 @@ const {
   selectorApplies,
   selectorTargets,
   labelsAboveHeadings,
-  blocksUnderData,
-  blocksBesideHeading,
 } = require('../lib/html');
+const { blocksUnderData, blocksBesideHeading } = require('../lib/table-position');
 
 const countOcc = (s, sub) => s.split(sub).length - 1;
 
@@ -406,7 +405,7 @@ const eyebrowKicker = {
         span:
           `"${el.text}" above "${el.heading}"` +
           (styled ? ` (.${styled}${tracking ? `, tracked ${tracking}` : ''})` : ''),
-        keys: styled ? [`.${styled.toLowerCase()}`] : [],
+        keys: styled ? [`class:.${styled.toLowerCase()}`] : [],
       });
     }
     return hits;

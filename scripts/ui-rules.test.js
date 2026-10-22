@@ -1530,6 +1530,8 @@ describe('implied end tags', { timeout: 1000 }, () => {
     sibling('<table><tr><td>a<td>b<tr><td>c</table>', 'td', ['tr', 'tr', 'tr']);
     sibling('<table><tr><th>a<th>b<tr><td>c</table>', 'th', ['tr', 'tr']);
     sibling('<select><option>a<option>b</select>', 'option', ['select', 'select']);
+    sibling('<select><option>a<optgroup><option>b</optgroup></select>', 'optgroup', ['select']);
+    sibling('<select><optgroup><option>a<optgroup><option>b</select>', 'optgroup', ['select', 'select']);
   });
   it('keeps a list inside a list item nested', { timeout: 1000 }, () => {
     const found = parentTags('<ul><li>a<ul><li>b<li>c</ul><li>d</ul>').filter(([tag]) => tag === 'li');

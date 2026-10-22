@@ -1597,9 +1597,11 @@ test('a wrapped line beginning "here is" is not a sycophancy opener', () => {
   assert.deepStrictEqual(rep.findings.map((f) => f.rule), []);
 });
 
-test('a real opener is still caught wherever a sentence or paragraph starts', () => {
+test('a "!" opener is caught at any sentence start and a comma opener at a paragraph start', () => {
   const cases = [
     "Certainly! Here's what I found.",
+    'We shipped. Certainly! The change is in.',
+    'Thanks for the report. Great question! The cache was cold.',
     'Sure, here is the summary you asked for.',
     "The run is green.\n\nHere's what I found in the logs.",
     'It failed twice.\n\nCertainly, here is why.',
@@ -1623,6 +1625,9 @@ test('scope-template reads a range mid-sentence as a range and a sentence opener
   assert.deepStrictEqual(ids('It copies the data from src to dest, then it closes the stream.'), []);
   assert.deepStrictEqual(ids('The loop reads from right to left, so the last item comes first.'), []);
   assert.deepStrictEqual(ids('From startups to enterprises, teams rely on it.'), ['scope-template']);
+  assert.deepStrictEqual(ids('# Ship faster\n\nFrom startups to enterprises, teams rely on it.'), ['scope-template']);
+  const html = (doc) => detect(doc, { level: 2, kind: 'artifact', ext: 'html' }).findings.map((f) => f.rule);
+  assert.deepStrictEqual(html('<h1>Ship faster</h1><p>From startups to enterprises, teams rely on it.</p>'), ['scope-template']);
 });
 
 test('decor-numbering leaves clock times alone and still flags an eyebrow number', { timeout: 1000 }, () => {
@@ -1642,9 +1647,11 @@ test('middot-chain skips quoted examples and still flags real UI copy', { timeou
 test('two rules that flag one element report one finding and name the other rule', { timeout: 1000 }, () => {
   const rep = run('slop-ui-overlap.html', 4);
   const byRule = Object.fromEntries(rep.findings.map((f) => [f.rule, f]));
-  assert.deepStrictEqual(byRule['purple-blue-hero'].alsoFlaggedBy, ['gradient-text']);
+  assert.deepStrictEqual(byRule['gradient-text'].alsoFlaggedBy, ['purple-blue-hero']);
+  assert.match(byRule['gradient-text'].span, /hero-title/);
+  assert.equal(byRule['gradient-text'].fix, 'Use type size or weight for emphasis.');
   assert.deepStrictEqual(byRule['eyebrow-kicker'].alsoFlaggedBy, ['mono-uppercase-label']);
-  assert.equal(byRule['gradient-text'], undefined);
+  assert.equal(byRule['purple-blue-hero'], undefined);
   assert.equal(byRule['mono-uppercase-label'], undefined);
   for (const f of rep.findings) for (const field of ['rule', 'level', 'severity', 'span', 'why', 'fix']) assert.ok(field in f, field);
   assert.equal(rep.stats.warnings, 3);
@@ -1654,6 +1661,13 @@ test('mono-noncode is a level-1 warning and alone never fails a run', { timeout:
   const r = detect('<style>.t{font-family:monospace}</style><span class="t">Next steps</span>', { level: 1, kind: 'artifact', ext: 'html' });
   assert.deepStrictEqual(r.findings.map((f) => [f.rule, f.level, f.severity]), [['mono-noncode', 1, 'warning']]);
   assert.equal(r.verdict, 'warn');
+});
+
+test('a hero background and a gradient title that share a class stay two findings', { timeout: 1000 }, () => {
+  const html = '<style>.hero{background:linear-gradient(90deg,#7c3aed,#2563eb)}.hero .title{background:linear-gradient(90deg,#ff0000,#00ff00);-webkit-background-clip:text}</style><section class="hero"><h1 class="title">x</h1></section>';
+  const found = detect(html, { level: 2, kind: 'artifact', ext: 'html' }).findings;
+  assert.deepStrictEqual(found.map((f) => f.rule).sort(), ['gradient-text', 'purple-blue-hero']);
+  assert.ok(found.every((f) => !f.alsoFlaggedBy));
 });
 
 test('rules that flag different elements are not folded', { timeout: 1000 }, () => {

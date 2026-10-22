@@ -6,7 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { parse } = require('./lib/html');
+const { parse, forgetPages } = require('./lib/html');
 const { parseSource, syntaxFor } = require('./lib/source');
 const { RULES, SEVERITIES } = require('./rules');
 
@@ -63,6 +63,7 @@ function detect(source, { level = DEFAULT_LEVEL, kind = 'artifact', ext = 'js', 
       findings.push(finding);
     }
   }
+  forgetPages();
   const kept = foldDuplicates(findings, elementKeys);
   return {
     verdict: verdictFor(kept), level: LEVELS[level - 1], findings: kept, stats: tally(kept),
@@ -72,8 +73,10 @@ function detect(source, { level = DEFAULT_LEVEL, kind = 'artifact', ext = 'js', 
 
 // Two rules that name the same element for the same reason report one finding.
 // The first rule of a pair keeps it and lists the second in `alsoFlaggedBy`,
-// so both rule IDs stay in use and no existing field changes.
-const FOLDS = [['purple-blue-hero', 'gradient-text'], ['eyebrow-kicker', 'mono-uppercase-label']];
+// so both rule IDs stay in use and no existing field changes. A key is a whole
+// selector part, or a class written `class:.name` for a rule that knows only the class.
+// gradient-text keeps the pair with purple-blue-hero because it names the element and the fix.
+const FOLDS = [['gradient-text', 'purple-blue-hero'], ['eyebrow-kicker', 'mono-uppercase-label']];
 
 function foldDuplicates(findings, elementKeys) {
   if (!elementKeys.size) return findings;
