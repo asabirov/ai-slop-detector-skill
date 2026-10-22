@@ -1,6 +1,6 @@
 'use strict';
 
-const { describe, it } = require('./lib/budget');
+const { describe, it, before } = require('./lib/budget');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -115,9 +115,71 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
     const html = `<section><button aria-pressed="true">1Y</button>${'<p>Change against the previous 12 months</p>'.repeat(2400)}</section>`;
     assert.equal(hits(html, 'restated-control-period').length, 2400);
   });
-  it('scans many count lines and tables', { timeout: 1000 }, () => {
-    const section = '<section><p>3 of the 214 payouts this year</p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>';
-    assert.equal(hits(section.repeat(1000), 'restated-table-count').length, 1000);
+  it('ignores hidden text, including display:none and case-insensitive aria-hidden', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<button>Close<span hidden> dialog</span></button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<button>Close<span style="display:none"> dialog</span></button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<button>Close<span aria-hidden="TRUE"> dialog</span></button>', 'multiword-control'), []);
+  });
+  it('counts only words with a letter and leaves kbd text out of a control label', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<button>Inbox <span class="count">12</span></button>', 'multiword-control'), []);
+    assert.deepEqual(hits('<button>Save <kbd>⌘S</kbd></button>', 'multiword-control'), []);
+  });
+  it('skips a live validation message as a repeated field caption', { timeout: 1000 }, () => {
+    const alerts = '<form>' + '<label>Amount <input><span class="error" role="alert">This field is required</span></label>'.repeat(3) + '</form>';
+    assert.deepEqual(hits(alerts, 'repeated-field-caption'), []);
+    const smalls = '<form>' + '<label>Amount <input><small role="alert">Required</small></label>'.repeat(3) + '</form>';
+    assert.deepEqual(hits(smalls, 'repeated-field-caption'), []);
+  });
+  it('scopes a badge to its own section', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<nav><span class="cart-badge">1</span></nav><main><input type="number" value="1"></main>', 'restated-status-badge'), []);
+    assert.deepEqual(hits('<nav><a class="pill active">Settings</a></nav><main><h1>Settings</h1></main>', 'restated-status-badge'), []);
+    assert.deepEqual(hits('<section><select><option selected>Paid</option></select><table><tbody><tr><td><span class="badge">Paid</span></td></tr></tbody></table></section>', 'restated-status-badge'), []);
+    assert.equal(hits('<section><input value="Needs review"><span class="status-badge">Needs review</span></section>', 'restated-status-badge').length, 1);
+  });
+  it('requires a letter in the badge label', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<section><input type="number" value="1"><span class="cart-badge">1</span></section>', 'restated-status-badge'), []);
+  });
+  it('requires the border or outline itself, not only the stripe, to carry an accent color', { timeout: 1000 }, () => {
+    const nav = (style) => `<style>.nav-item.active { ${style} }</style><div class="nav-item active">Dashboard</div>`;
+    assert.deepEqual(hits(nav('border: 1px solid #e5e7eb; box-shadow: inset 3px 0 0 #2563eb'), 'inset-accent-marker'), []);
+    assert.equal(hits(nav('border: 1px solid #2563eb; box-shadow: inset 3px 0 0 #2563eb'), 'inset-accent-marker').length, 1);
+  });
+  it('matches a plural selection-marker sentence and reads a nested subtree', { timeout: 1000 }, () => {
+    assert.equal(hits('<p>The accent bars mark fields that changed.</p>', 'marker-explainer').length, 1);
+    assert.equal(hits('<p>An <strong>accent bar</strong> marks the selected option.</p>', 'marker-explainer').length, 1);
+  });
+  it('finds the first table inside a wrapper sibling, or beside its own heading row', { timeout: 1000 }, () => {
+    assert.equal(hits('<section><p>3 of the 214 payouts this year</p><div class="wrap"><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></div></section>', 'restated-table-count').length, 1);
+    assert.equal(hits('<section><header><h2>Totals</h2><p>3 of the 214 payouts this year</p></header><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>', 'restated-table-count').length, 1);
+  });
+  describe('restated-table-count stress', { timeout: 3000 }, () => {
+    let ctx;
+    before(() => {
+      const section = '<section><p>3 of the 214 payouts this year</p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>';
+      ctx = parse(section.repeat(1800), { ext: 'html' });
+    });
+    it('times only the rule call, with the page already parsed', { timeout: 300 }, () => {
+      const rule = RULES.find((r) => r.id === 'restated-table-count');
+      assert.equal(rule.test(ctx).length, 1800);
+    });
+  });
+  describe('nested-depth performance', { timeout: 10000 }, () => {
+    it('reads a deeply nested role=button control without quadratic cost', { timeout: 2000 }, () => {
+      const html = '<div role="button">'.repeat(6000) + 'Save' + '</div>'.repeat(6000);
+      assert.deepEqual(hits(html, 'multiword-control'), []);
+    });
+    it('reads a deeply nested btn anchor without quadratic cost', { timeout: 2000 }, () => {
+      const html = '<a class="btn">'.repeat(6000) + 'Save' + '</a>'.repeat(6000);
+      assert.deepEqual(hits(html, 'multiword-control'), []);
+    });
+    it('reads deeply nested headings without quadratic cost', { timeout: 2000 }, () => {
+      const html = '<h2>'.repeat(6000) + 'Title' + '</h2>'.repeat(6000);
+      assert.deepEqual(hits(html, 'restated-status-badge'), []);
+    });
+    it('reads deeply nested selected options without quadratic cost', { timeout: 2000 }, () => {
+      const html = '<select>' + '<option selected>'.repeat(6000) + 'Approved' + '</option>'.repeat(6000) + '</select>';
+      assert.deepEqual(hits(html, 'restated-status-badge'), []);
+    });
   });
 });
 

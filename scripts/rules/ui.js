@@ -81,6 +81,11 @@ function data(ctx) {
     return { selector, props, element };
   });
   const inHeading = new Set();
+  // The nearest ancestor that scopes a badge to a part of the page, so a
+  // title or field far away in a different nav/section/row never counts as
+  // "the same state" just because it sits somewhere on the same document.
+  const BADGE_SCOPE_TAGS = /^(?:section|nav|article|aside|main|header|footer|form|tr)$/;
+  const sectionOf = new Int32Array(elements.length).fill(-1);
   for (const el of elements) if (/^h[1-6]$/.test(el.tag) || inHeading.has(elements[el.parent])) inHeading.add(el);
   const ends = subtreeEnds(elements);
   const hidden = new Uint8Array(elements.length);
@@ -93,7 +98,7 @@ function data(ctx) {
   const inThead = new Uint8Array(elements.length);
   for (let i = 0; i < elements.length; i++) {
     const el = elements[i], parent = el.parent;
-    hidden[i] = (parent >= 0 && hidden[parent]) || el.attributes['aria-hidden'] === 'true' ||
+    hidden[i] = (parent >= 0 && hidden[parent]) || el.hidden ||
       [...el.classes].some((c) => /^(?:sr-only|visually-hidden)$/.test(c)) ? 1 : 0;
     fieldId[i] = /^(?:input|select|textarea)$/.test(el.tag) ? i : -1;
     selectedPeriod[i] = selectedPeriodMonths(el);
@@ -101,14 +106,20 @@ function data(ctx) {
     tableOf[i] = el.tag === 'table' ? i : parent >= 0 ? tableOf[parent] : -1;
     inThead[i] = el.tag === 'table' ? 0 : el.tag === 'thead' || (parent >= 0 && inThead[parent]) ? 1 : 0;
     if (el.tag === 'tr' && tableOf[i] >= 0 && !inThead[i]) bodyRows[tableOf[i]]++;
+    sectionOf[i] = parent >= 0 ? (BADGE_SCOPE_TAGS.test(elements[parent].tag) ? parent : sectionOf[parent]) : -1;
   }
   const nextTable = new Int32Array(elements.length).fill(-1);
   const latestTable = new Int32Array(elements.length).fill(-1);
+  // The first <table> inside each element's own subtree, so a table wrapped
+  // for layout (a responsive `.wrap` div) still counts as the sibling's table.
+  const firstTable = new Int32Array(elements.length).fill(elements.length);
   for (let i = elements.length - 1; i >= 0; i--) {
-    const parent = elements[i].parent;
+    const el = elements[i], parent = el.parent;
+    if (el.tag === 'table') firstTable[i] = i;
     if (parent < 0) continue;
+    if (firstTable[i] < firstTable[parent]) firstTable[parent] = firstTable[i];
     nextTable[i] = latestTable[parent];
-    if (elements[i].tag === 'table') latestTable[parent] = i;
+    if (firstTable[i] !== elements.length) latestTable[parent] = firstTable[i];
     if (fieldId[i] >= 0) {
       if (fieldId[parent] < 0) fieldId[parent] = fieldId[i];
       else if (fieldId[parent] !== fieldId[i]) manyFields[parent] = 1;
@@ -120,8 +131,16 @@ function data(ctx) {
       else if (selectedPeriod[parent] !== selectedPeriod[i]) selectedPeriod[parent] = -1;
     }
   }
+  // One level of climb: a count line nested beside its own heading (for
+  // example inside a <header>, next to its <h2>) reaches the table beside
+  // that wrapper, not only a table that is the line's own sibling.
+  const nextTableOrAbove = new Int32Array(elements.length).fill(-1);
+  for (let i = 0; i < elements.length; i++) {
+    const parent = elements[i].parent;
+    nextTableOrAbove[i] = nextTable[i] >= 0 ? nextTable[i] : (parent >= 0 ? nextTable[parent] : -1);
+  }
   const result = { rows, elements, index, inHeading, ends, hidden, fieldId, manyFields,
-    selectedPeriod, contextNoun, bodyRows, nextTable };
+    selectedPeriod, contextNoun, bodyRows, nextTable: nextTableOrAbove, sectionOf };
   cache.set(ctx, result);
   return result;
 }
@@ -215,6 +234,27 @@ const LABEL_SUBTREE_CAP = 40;
 function boundedText(info, index) {
   return info.ends[index] - index > LABEL_SUBTREE_CAP ? '' : visibleText(info, index);
 }
+// A control's own label, read without re-reading a nested control's text:
+// the walk stops at the first nested element `isBoundary` names, instead of
+// descending into its subtree. That keeps a label read linear even when
+// controls are nested inside each other (`<div role="button">` wrapping the
+// next one, 6,000 deep), while still reading the complete label of a single
+// control however many plain wrapper elements sit around its text.
+function boundaryText(info, index, isBoundary, excludeCode = false) {
+  const { elements, ends, hidden } = info;
+  const chunks = [];
+  for (let k = index; k < ends[index];) {
+    if (k !== index && isBoundary(elements[k])) { k = ends[k]; continue; }
+    if (!hidden[k] && !(excludeCode && elements[k].inCode)) chunks.push(...elements[k].chunks);
+    k++;
+  }
+  return chunks.sort((a, b) => a[0] - b[0]).map((c) => c[1]).join(' ')
+    .replace(/\{[^{}]*\}/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function liveAncestor(elements, i) {
+  for (let p = i; p >= 0; p = elements[p].parent) if (elements[p].live) return true;
+  return false;
+}
 function selectedPeriodMonths(el) {
   if (!/^(?:button|option)$/.test(el.tag)) return 0;
   const value = el.tag === 'option' ? el.attributes.value || el.text.trim() : el.text.trim();
@@ -257,17 +297,22 @@ module.exports = [
     const info = data(ctx), { elements } = info;
     return elements.flatMap((el, i) => {
       if (!control(el) || el.inCode) return [];
-      const label = visibleText(info, i) || el.attributes['aria-label'] || (el.tag === 'input' ? el.attributes.value : '') || '';
-      if (!label || !/\p{L}/u.test(label) || normalized(label).split(/\s+/).length < 2) return [];
-      if (VERB_ALL_ONLY.test(normalized(label))) return [];
+      const label = boundaryText(info, i, control, true) || el.attributes['aria-label'] || (el.tag === 'input' ? el.attributes.value : '') || '';
+      if (!label) return [];
+      const normalizedLabel = normalized(label);
+      const words = normalizedLabel.split(/\s+/).filter((w) => /\p{L}/u.test(w));
+      if (words.length < 2) return [];
+      if (VERB_ALL_ONLY.test(normalizedLabel)) return [];
       if (redundantContextNoun(label, info.contextNoun[i])) return [];
       return [`<${el.tag}> ${label.slice(0, 80)}`];
     });
   }),
-  cssRule('inset-accent-marker', 2, 'An inset accent stripe repeats an existing selection border.', 'Keep one selection marker.', (p) =>
-    /\binset\s+[1-9]\d*(?:px|rem|em)\s+0\b|\binset\s+0\s+0\s+0\s+[1-9]\d*(?:px|rem|em)/.test(p['box-shadow'] || '') &&
-    /(?:solid|outline)/.test([p.border, p['border-left'], p['border-right'], p.outline].join(' ')) &&
-    chromatic([p['box-shadow'], p.border, p['border-left'], p['border-right'], p.outline].join(' '))),
+  cssRule('inset-accent-marker', 2, 'An inset accent stripe repeats an existing selection border.', 'Keep one selection marker.', (p) => {
+    const borderValue = [p.border, p['border-left'], p['border-right'], p.outline].join(' ');
+    return /\binset\s+[1-9]\d*(?:px|rem|em)\s+0\b|\binset\s+0\s+0\s+0\s+[1-9]\d*(?:px|rem|em)/.test(p['box-shadow'] || '') &&
+      /(?:solid|outline)/.test(borderValue) &&
+      chromatic(borderValue);
+  }),
   rule('repeated-field-caption', 2, 'The same caption under each field adds no field-specific information.', 'Keep only a caption that explains its own field.', (ctx) => {
     const info = data(ctx), { elements, fieldId, manyFields } = info;
     const groups = new Map(), seenFields = new Set();
@@ -285,6 +330,9 @@ module.exports = [
     for (let i = elements.length - 1; i >= 0; i--) {
       const el = elements[i];
       if (!/^(?:small|p|span)$/.test(el.tag)) continue;
+      // A validation message or other live-region caption tells its own field
+      // something nothing else on the screen shows; it is not a repeat.
+      if (liveAncestor(elements, i)) continue;
       const field = el.parent >= 0 ? fieldId[el.parent] : -1;
       if (field < 0 || manyFields[el.parent] || seenFields.has(field) || words[i] > 5) continue;
       const key = normalized(visibleText(info, i));
@@ -296,31 +344,55 @@ module.exports = [
     return [...groups].filter(([, parents]) => parents.size >= 3).map(([caption, parents]) => `${caption} under ${parents.size} fields`);
   }),
   rule('restated-status-badge', 2, 'A status badge repeats the page title or a field state.', 'Remove the repeated badge.', (ctx) => {
-    const info = data(ctx), { elements } = info;
-    const titles = new Set(elements.flatMap((el, i) => /^h[1-6]$/.test(el.tag) ? [normalized(visibleText(info, i))] : []));
-    const fieldStates = new Set(elements.flatMap((el, i) => {
-      if (el.tag === 'option') return Object.hasOwn(el.attributes, 'selected') ? [normalized(el.attributes.value || visibleText(info, i))] : [];
-      if (el.tag === 'select') return el.attributes.value ? [normalized(el.attributes.value)] : [];
-      if (el.tag !== 'input') return [];
-      // A field's visible state is what a reader sees: a checked radio or
-      // checkbox, or a text-like value. An unchecked option shows nothing, and
-      // `type="hidden"` shows nothing by definition — reading either reports a
-      // badge as repeating a state the page never actually renders.
-      const type = (el.attributes.type || 'text').toLowerCase();
-      if (type === 'hidden') return [];
-      if (/^(?:radio|checkbox)$/.test(type) && !Object.hasOwn(el.attributes, 'checked')) return [];
-      return el.attributes.value ? [normalized(el.attributes.value)] : [];
-    }));
+    const info = data(ctx), { elements, sectionOf } = info;
+    const addTo = (map, key, value) => {
+      if (!map.has(key)) map.set(key, new Set());
+      map.get(key).add(value);
+    };
+    const titlesBySection = new Map();
+    for (let i = 0; i < elements.length; i++) {
+      if (/^h[1-6]$/.test(elements[i].tag)) addTo(titlesBySection, sectionOf[i], normalized(boundedText(info, i)));
+    }
+    const fieldStatesBySection = new Map();
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i];
+      let value = '';
+      if (el.tag === 'option') value = Object.hasOwn(el.attributes, 'selected') ? el.attributes.value || boundedText(info, i) : '';
+      else if (el.tag === 'select') value = el.attributes.value || '';
+      else if (el.tag === 'input') {
+        // A field's visible state is what a reader sees: a checked radio or
+        // checkbox, or a text-like value. An unchecked option shows nothing, and
+        // `type="hidden"` shows nothing by definition — reading either reports a
+        // badge as repeating a state the page never actually renders.
+        const type = (el.attributes.type || 'text').toLowerCase();
+        if (type === 'hidden') value = '';
+        else if (/^(?:radio|checkbox)$/.test(type) && !Object.hasOwn(el.attributes, 'checked')) value = '';
+        else value = el.attributes.value || '';
+      }
+      if (value) addTo(fieldStatesBySection, sectionOf[i], normalized(value));
+    }
     return elements.flatMap((el, i) => {
       if (![...el.classes].some((c) => /(?:^|[-_])(?:status|badge|pill)(?:$|[-_])/.test(c))) return [];
       const label = normalized(boundedText(info, i));
-      return label && (titles.has(label) || fieldStates.has(label)) ? [`${label} badge repeats a title or field state`] : [];
+      if (!label || !/\p{L}/u.test(label)) return [];
+      // Compared only with the heading and fields in the badge's own section
+      // (its nearest <section>/<nav>/<tr>/… ancestor): a cart badge, a nav
+      // pill, or a table row's own badge must not read a title or field from
+      // a different part of the page as its own state.
+      const section = sectionOf[i];
+      const titles = titlesBySection.get(section);
+      const fields = fieldStatesBySection.get(section);
+      return (titles?.has(label) || fields?.has(label)) ? [`${label} badge repeats a title or field state`] : [];
     });
   }),
-  rule('marker-explainer', 2, 'A sentence explains a visible marker without adding information.', 'Remove the sentence and keep the marker clear.', (ctx) =>
-    data(ctx).elements.filter((el) => /^(?:p|small)$/.test(el.tag) && !el.inCode &&
-      /\b(?:accent|inset) (?:bar|stripe) (?:marks?|shows?|indicates?|means?)\b/i.test(el.text))
-      .map((el) => el.text.trim().slice(0, 90))),
+  rule('marker-explainer', 2, 'A sentence explains a visible marker without adding information.', 'Remove the sentence and keep the marker clear.', (ctx) => {
+    const info = data(ctx);
+    return info.elements.flatMap((el, i) => {
+      if (!/^(?:p|small)$/.test(el.tag) || el.inCode) return [];
+      const text = boundedText(info, i);
+      return /\b(?:accent|inset) (?:bars?|stripes?) (?:marks?|shows?|indicates?|means?)\b/i.test(text) ? [text.slice(0, 90)] : [];
+    });
+  }),
   rule('restated-control-period', 2, 'A caption repeats the selected period.', 'Remove the repeated caption.', (ctx) => {
     const { elements, selectedPeriod } = data(ctx), hits = [];
     for (let i = 0; i < elements.length; i++) {
@@ -350,7 +422,7 @@ module.exports = [
     const info = data(ctx), { elements } = info;
     return elements.flatMap((el, i) => {
       if (!control(el)) return [];
-      const label = visibleText(info, i);
+      const label = boundaryText(info, i, control);
       return redundantContextNoun(label, info.contextNoun[i]) ? [label] : [];
     });
   }),
