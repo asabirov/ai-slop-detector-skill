@@ -879,6 +879,16 @@ test('keeps boundary-prefix custom elements inside a visible run', { timeout: 10
     finding.rule === 'middot-chain' && finding.span === 'alpha · custom · omega'));
 });
 
+test('decodes every reference in slop-entities.html', { timeout: 1000 }, () => {
+  const findings = run('slop-entities.html', 4).findings;
+  assert.strictEqual(findings.length, 11);
+  const spans = (rule) => findings.filter((finding) => finding.rule === rule).map((finding) => finding.span);
+  assert.ok(spans('middot-chain').includes('beta · internal · preview'));
+  assert.ok(spans('middot-chain').includes('Status • 2026 • Active'));
+  assert.deepStrictEqual(spans('heading-period'), ['Release notes.']);
+  assert.deepStrictEqual(spans('hedge-opener'), ['It’s important to note', 'It’s crucial to remember']);
+});
+
 test('keeps inline SVG and label text in a visible chain', { timeout: 1000 }, () => {
   for (const page of [
     '<p>draft · <svg><use href="#icon"/></svg>2026 · brainstorm</p>',
