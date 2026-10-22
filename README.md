@@ -102,7 +102,10 @@ judgment does not waive an existing CI gate.
 
 ## What it does today
 
-Three rule packs over one engine.
+Three rule packs over one engine. Text rules read character references decoded, so `&middot;`
+and a typed dot are the same line. The text parser approximates what a browser displays. The
+parser rules, the visible-run boundaries and the known limits are in
+[docs/ai-slop-detector.md](docs/ai-slop-detector.md#text-parser-and-decoding).
 
 - **Visual** reads markup and the CSS a page applies, including stylesheets it
   links from disk. Catches fake protocol URIs, monospace used as decoration,
