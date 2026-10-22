@@ -1413,6 +1413,11 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     has('<p><span>14 · 1 lost</span></p>', 'middot-two-facts');
     has('<p><span>1 h · 30 min</span></p>', 'middot-two-facts');
   });
+  it('flags two different counts and a rating joined with its review count', { timeout: 1000 }, () => {
+    has('<p><span>11 services · 5 regions</span></p>', 'middot-two-facts');
+    has('<p><span>14 open · 3 closed</span></p>', 'middot-two-facts');
+    has('<p><span>4.5 · 2,310 reviews</span></p>', 'middot-two-facts');
+  });
   it('reads colored side-border utilities', { timeout: 1000 }, () => {
     has('<section class="border-l-4 border-purple-500">Notes</section>', 'accent-bar');
   });
