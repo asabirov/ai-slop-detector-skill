@@ -46,6 +46,9 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
   it('reads the input type case-insensitively, through the one decoded attribute dict', { timeout: 1000 }, () => {
     assert.equal(hits('<input type="Submit" value="Send answer">', 'multiword-control').length, 1);
   });
+  it('splits a class attribute on a decoded entity space, through the same decoded attribute dict', { timeout: 1000 }, () => {
+    assert.equal(hits('<a class="btn&nbsp;primary">Save record</a>', 'multiword-control').length, 1);
+  });
   it('silences a verb followed only by "all" but keeps every other multi-word label flagged', { timeout: 1000 }, () => {
     assert.deepEqual(hits('<button>Clear all</button>', 'multiword-control'), []);
     assert.deepEqual(hits('<div class="filter-bar"><button>Clear all</button></div>', 'multiword-control'), []);
@@ -69,6 +72,14 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
     assert.deepEqual(hits('<div><button aria-pressed="false">1Y</button><button aria-pressed="true">6M</button><p>Change against the previous 12 months</p></div>', 'restated-control-period'), []);
     assert.equal(hits('<div><button aria-pressed="true">6M</button><p>Change against the previous 6 months</p></div>', 'restated-control-period').length, 1);
     assert.equal(hits('<div><button aria-pressed="true">1Y</button><p>Compared with the last 12 months</p></div>', 'restated-control-period').length, 1);
+  });
+  it('accepts a day-count control and "past", "prior" or "trailing" beside "previous"/"last"', { timeout: 1000 }, () => {
+    assert.equal(hits('<div><button aria-pressed="true">30D</button><p>Change against the previous 30 days</p></div>', 'restated-control-period').length, 1);
+    assert.equal(hits('<div><button aria-pressed="true">1Y</button><p>Change against the past 12 months</p></div>', 'restated-control-period').length, 1);
+    assert.equal(hits('<div><button aria-pressed="true">7D</button><p>Change against the prior 7 days</p></div>', 'restated-control-period').length, 1);
+    assert.equal(hits('<div><button aria-pressed="true">90D</button><p>Change against the trailing 90 days</p></div>', 'restated-control-period').length, 1);
+    // A day count and a month count of the same number never match each other.
+    assert.deepEqual(hits('<div><button aria-pressed="true">30D</button><p>Change against the previous 30 months</p></div>', 'restated-control-period'), []);
   });
   it('keeps a count line that adds an approval deadline', { timeout: 1000 }, () => {
     const html = '<section><p>3 of the 214 payouts this year need approval by Friday.</p><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></section>';
@@ -155,6 +166,15 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
     // A field state keeps the narrower, same-section comparison, even across header/main.
     assert.deepEqual(hits('<header><input value="Draft"></header><main><span class="status-badge">Draft</span></main>', 'restated-status-badge'), []);
   });
+  it('warns on a badge nested one section/article/form deeper than main, not only a direct child', { timeout: 1000 }, () => {
+    for (const wrapper of ['section', 'article', 'form']) {
+      assert.equal(hits(`<header><h1>Needs review</h1></header><main><${wrapper}><span class="status-badge">Needs review</span></${wrapper}></main>`, 'restated-status-badge').length, 1, wrapper);
+    }
+    // The nav pill, the table-row badge and the cross-landmark field state stay silent.
+    assert.deepEqual(hits('<nav><a class="pill active">Settings</a></nav><main><h1>Settings</h1></main>', 'restated-status-badge'), []);
+    assert.deepEqual(hits('<section><h2>Paid</h2><table><tbody><tr><td><span class="badge">Paid</span></td></tr></tbody></table></section>', 'restated-status-badge'), []);
+    assert.deepEqual(hits('<header><input value="Draft"></header><main><section><span class="status-badge">Draft</span></section></main>', 'restated-status-badge'), []);
+  });
   it('requires the border or outline itself, not only the stripe, to carry an accent color', { timeout: 1000 }, () => {
     const nav = (style) => `<style>.nav-item.active { ${style} }</style><div class="nav-item active">Dashboard</div>`;
     assert.deepEqual(hits(nav('border: 1px solid #e5e7eb; box-shadow: inset 3px 0 0 #2563eb'), 'inset-accent-marker'), []);
@@ -169,6 +189,13 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
   it('matches a plural selection-marker sentence and reads a nested subtree', { timeout: 1000 }, () => {
     assert.equal(hits('<p>The accent bars mark fields that changed.</p>', 'marker-explainer').length, 1);
     assert.equal(hits('<p>An <strong>accent bar</strong> marks the selected option.</p>', 'marker-explainer').length, 1);
+  });
+  it('stays silent on a chart legend, inside a figure or a chart-class container, but still warns outside one', { timeout: 1000 }, () => {
+    const legend = 'Blue bars show revenue and grey bars show cost.';
+    assert.equal(hits(`<p>${legend}</p>`, 'marker-explainer').length, 1);
+    assert.deepEqual(hits(`<figure><p>${legend}</p></figure>`, 'marker-explainer'), []);
+    assert.deepEqual(hits(`<div class="chart"><p>${legend}</p></div>`, 'marker-explainer'), []);
+    assert.deepEqual(hits('<div class="chart"><p>Green bars show months above target.</p></div>', 'marker-explainer'), []);
   });
   it('finds the first table inside a wrapper sibling, or beside its own heading row', { timeout: 1000 }, () => {
     assert.equal(hits('<section><p>3 of the 214 payouts this year</p><div class="wrap"><table><tr><td>A</td></tr><tr><td>B</td></tr><tr><td>C</td></tr></table></div></section>', 'restated-table-count').length, 1);
@@ -206,6 +233,11 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
     it('reads deeply nested selected options without quadratic cost', { timeout: 2000 }, () => {
       const html = '<select>' + '<option selected>'.repeat(6000) + 'Approved' + '</option>'.repeat(6000) + '</select>';
       assert.deepEqual(hits(html, 'restated-status-badge'), []);
+    });
+    it('reads a caption candidate at each nesting depth without quadratic cost', { timeout: 3000 }, () => {
+      const depth = 40000;
+      const html = '<p>'.repeat(depth) + 'text' + '</p>'.repeat(depth);
+      assert.deepEqual(hits(html, 'repeated-field-caption'), []);
     });
   });
 });

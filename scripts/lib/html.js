@@ -278,20 +278,19 @@ function markupElements(html) {
       continue;
     }
     const attrs = tagAttributes(token.text);
-    const attribute = (name) => attrs.find(([key]) => key === name)?.[1] || '';
-    // The one decoded dict: `live`, `hidden`, `inputType` and `inputValue`
-    // below all derive from it, so a rule reading `el.attributes` or these
-    // four fields sees the same decoded value, decoded once.
+    // The one decoded dict: `classes`, `id`, `live`, `hidden`, `inputType`
+    // and `inputValue` below all derive from it, so a rule reading
+    // `el.attributes` or these fields sees the same decoded value, decoded once.
     const attributes = Object.create(null);
     for (const [key, value] of attrs) attributes[key] = decodeEntities(value ?? '');
-    const classValue = attribute('class') || attribute('classname');
+    const classValue = attributes.class || attributes.classname || '';
     const parent = stack.length ? stack[stack.length - 1] : -1;
     const el = {
       tag,
       start: token.index,
       end: token.end,
       classes: new Set(classValue.trim().split(/\s+/).filter(Boolean)),
-      id: attribute('id').trim() || null,
+      id: (attributes.id || '').trim() || null,
       parent,
       attributes,
       text: '',
@@ -1033,6 +1032,22 @@ function orderedText(chunks) {
     .replace(/\{[^{}]*\}/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+// A control's own label, read without re-reading a nested control's text:
+// the walk stops at the first nested element `isBoundary` names, instead of
+// descending into its subtree. That keeps a label read linear even when
+// controls are nested inside each other (`<div role="button">` wrapping the
+// next one, 6,000 deep), while still reading the complete label of a single
+// control however many plain wrapper elements sit around its text.
+function boundaryText(elements, ends, hidden, index, isBoundary, excludeCode = false) {
+  const chunks = [];
+  for (let k = index; k < ends[index];) {
+    if (k !== index && isBoundary(elements[k])) { k = ends[k]; continue; }
+    if (!hidden[k] && !(excludeCode && elements[k].inCode)) chunks.push(...elements[k].chunks);
+    k++;
+  }
+  return orderedText(chunks);
 }
 
 // Inline tags do not insert a space between letters of one visible word.
@@ -2384,6 +2399,8 @@ module.exports = {
   blocksBesideHeading,
   subtreeEnds,
   subtreeText,
+  boundaryText,
+  CHART_CLASS,
   CODE_TAGS,
   cssBlocks,
   stylesheetLinks,

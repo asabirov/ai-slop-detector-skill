@@ -250,8 +250,8 @@ values are stable — reference them in allowlists and PR notes.
 | `inset-accent-marker` | 2 | warning | An inset stripe sits beside another selection marker, such as a border or a highlight. |
 | `repeated-field-caption` | 2 | warning | The same short caption appears under three or more distinct fields. |
 | `restated-status-badge` | 2 | warning | A badge repeats a title or a current field value. |
-| `marker-explainer` | 2 | warning | A sentence only explains an accent marker. |
-| `restated-control-period` | 2 | warning | A period caption repeats an explicitly selected `nM` or `nY` control. |
+| `marker-explainer` | 2 | warning | A sentence only explains an accent marker. Silent inside a figure or a chart-class container. |
+| `restated-control-period` | 2 | warning | A period caption repeats an explicitly selected `nM`, `nY` or `nD` control. |
 | `restated-table-count` | 2 | warning | A simple count line repeats the number of body rows in the next table. |
 | `context-noun-control` | 2 | warning | A `Clear all` label repeats the noun in its `noun-bar` or `noun-toolbar` container class. |
 | `gradient-text` | 2 | warning | Gradient clipped into text is decorative emphasis. |
@@ -275,9 +275,10 @@ values are stable — reference them in allowlists and PR notes.
 | `stock-palette` | 4 | warning | Near-black with acid green, or cream with terracotta and serif type, are common generated palettes. |
 
 `restated-control-period` reads numeric period tokens and their explicit selected
-state. It compares `nM` or `nY` with a caption naming the previous or last
-number of months or years. `context-noun-control` reads `Clear all <plural>`
-labels inside a matching `noun-bar` or `noun-toolbar` class.
+state. It compares `nM`, `nY` or `nD` with a caption naming the previous, last,
+past, prior or trailing number of months, years or days. `context-noun-control`
+reads `Clear all <plural>` labels inside a matching `noun-bar` or `noun-toolbar`
+class.
 `repeated-field-caption` only matches a caption of five words or fewer. The
 count rule accepts only a short count and scope line; it leaves extra
 instructions such as an approval deadline alone.

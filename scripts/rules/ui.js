@@ -1,6 +1,6 @@
 'use strict';
 
-const { subtreeEnds, subtreeText } = require('../lib/html');
+const { subtreeEnds, boundaryText: rawBoundaryText, CHART_CLASS } = require('../lib/html');
 
 // A cached declaration pass keeps each rule from reparsing the same stylesheet.
 const cache = new WeakMap();
@@ -90,18 +90,30 @@ function data(ctx) {
   // title or field far away in a different nav/section/row never counts as
   // "the same state" just because it sits somewhere on the same document.
   const BADGE_SCOPE_TAGS = /^(?:section|nav|article|aside|main|header|footer|form|tr)$/;
-  // Header, main and footer are the page's own top-level landmarks — usually
-  // siblings of one another, not one another's ancestor — so a page title in
-  // <header><h1> and a badge in <main> are the same part of the page even
-  // though neither nests inside the other. Transparent for a heading
-  // comparison only, and the walk still stops at a <tr>; a field state keeps
-  // the narrower, same-section `sectionOf` below.
-  const HEADING_TRANSPARENT = /^(?:header|main|footer)$/;
+  // A heading comparison walks all the way to the document root, because a
+  // page title and a badge under it are the same part of the page whatever
+  // landmark separates them — `<header><h1>` and a badge nested in
+  // `<main><section>`, `<main><article>` or `<main><form>` must still match.
+  // The walk stops only at `tr` and `nav`, which keep their own scope: a
+  // table row's own badge, and a nav pill naming the current page, must not
+  // read a heading from outside their own row or nav as the page title. A
+  // field state keeps the narrower, same-section `sectionOf` below.
+  const HEADING_SCOPE_STOP = /^(?:tr|nav)$/;
   const sectionOf = new Int32Array(elements.length).fill(-1);
   const headingScopeOf = new Int32Array(elements.length).fill(-1);
   for (const el of elements) if (/^h[1-6]$/.test(el.tag) || inHeading.has(elements[el.parent])) inHeading.add(el);
   const ends = subtreeEnds(elements);
   const hidden = new Uint8Array(elements.length);
+  // Whether a live region (or a descendant of one) owns the element, computed
+  // the same way `hidden` is: a prefix array set once per element, read in
+  // the rule instead of climbing the parent chain for every candidate, which
+  // made `repeated-field-caption` quadratic on deeply nested captions.
+  const live = new Uint8Array(elements.length);
+  // Whether a figure or a chart-class container owns the element, computed
+  // the same way: a caption inside a chart names what the chart already
+  // shows, so a sentence explaining its marker there carries no information
+  // a reader does not already have from the chart itself.
+  const chart = new Uint8Array(elements.length);
   const fieldId = new Int32Array(elements.length).fill(-1);
   const manyFields = new Uint8Array(elements.length);
   const selectedPeriod = new Int32Array(elements.length);
@@ -113,6 +125,9 @@ function data(ctx) {
     const el = elements[i], parent = el.parent;
     hidden[i] = (parent >= 0 && hidden[parent]) || el.hidden ||
       [...el.classes].some((c) => /^(?:sr-only|visually-hidden)$/.test(c)) ? 1 : 0;
+    live[i] = (parent >= 0 && live[parent]) || el.live ? 1 : 0;
+    chart[i] = (parent >= 0 && chart[parent]) || el.tag === 'figure' ||
+      [...el.classes].some((c) => CHART_CLASS.test(c)) ? 1 : 0;
     fieldId[i] = /^(?:input|select|textarea)$/.test(el.tag) ? i : -1;
     selectedPeriod[i] = selectedPeriodMonths(el);
     contextNoun[i] = nounFromClasses(el.classes) || (parent >= 0 ? contextNoun[parent] : '');
@@ -121,8 +136,7 @@ function data(ctx) {
     if (el.tag === 'tr' && tableOf[i] >= 0 && !inThead[i]) bodyRows[tableOf[i]]++;
     sectionOf[i] = parent >= 0 ? (BADGE_SCOPE_TAGS.test(elements[parent].tag) ? parent : sectionOf[parent]) : -1;
     headingScopeOf[i] = parent >= 0 ?
-      (BADGE_SCOPE_TAGS.test(elements[parent].tag) && !HEADING_TRANSPARENT.test(elements[parent].tag)
-        ? parent : headingScopeOf[parent]) : -1;
+      (HEADING_SCOPE_STOP.test(elements[parent].tag) ? parent : headingScopeOf[parent]) : -1;
   }
   const nextTable = new Int32Array(elements.length).fill(-1);
   const latestTable = new Int32Array(elements.length).fill(-1);
@@ -155,7 +169,7 @@ function data(ctx) {
     const parent = elements[i].parent;
     nextTableOrAbove[i] = nextTable[i] >= 0 ? nextTable[i] : (parent >= 0 ? nextTable[parent] : -1);
   }
-  const result = { rows, elements, index, inHeading, ends, hidden, fieldId, manyFields,
+  const result = { rows, elements, index, inHeading, ends, hidden, live, chart, fieldId, manyFields,
     selectedPeriod, contextNoun, bodyRows, nextTable: nextTableOrAbove, sectionOf, headingScopeOf };
   cache.set(ctx, result);
   return result;
@@ -239,25 +253,9 @@ function paintedShadow(v) {
 const buttonish = (s) => /(?:^|[\s,.#>])(?:button|btn|cta)(?:$|[\s,.#:_-])/.test(s);
 const cardish = (s) => /(?:^|[\s,.#>])(?:card|panel|tile|callout|alert)(?:$|[\s,.#:_-])/.test(s);
 
-function visibleText(info, index) {
-  return subtreeText(info.elements, info.ends, index, (_el, i) => !info.hidden[i]);
-}
-// A control's own label, read without re-reading a nested control's text:
-// the walk stops at the first nested element `isBoundary` names, instead of
-// descending into its subtree. That keeps a label read linear even when
-// controls are nested inside each other (`<div role="button">` wrapping the
-// next one, 6,000 deep), while still reading the complete label of a single
-// control however many plain wrapper elements sit around its text.
+// The parser's own primitive, read with this rule file's `info` shape.
 function boundaryText(info, index, isBoundary, excludeCode = false) {
-  const { elements, ends, hidden } = info;
-  const chunks = [];
-  for (let k = index; k < ends[index];) {
-    if (k !== index && isBoundary(elements[k])) { k = ends[k]; continue; }
-    if (!hidden[k] && !(excludeCode && elements[k].inCode)) chunks.push(...elements[k].chunks);
-    k++;
-  }
-  return chunks.sort((a, b) => a[0] - b[0]).map((c) => c[1]).join(' ')
-    .replace(/\{[^{}]*\}/g, ' ').replace(/\s+/g, ' ').trim();
+  return rawBoundaryText(info.elements, info.ends, info.hidden, index, isBoundary, excludeCode);
 }
 // Same-kind boundaries for `boundaryText`, one per label shape: a heading
 // stops at a nested heading, a badge at a nested badge, an option at a
@@ -269,20 +267,22 @@ const isHeading = (el) => /^h[1-6]$/.test(el.tag);
 const isBadge = (el) => [...el.classes].some((c) => /(?:^|[-_])(?:status|badge|pill)(?:$|[-_])/.test(c));
 const isOption = (el) => el.tag === 'option';
 const isCaption = (el) => /^(?:p|small)$/.test(el.tag);
-function liveAncestor(elements, i) {
-  for (let p = i; p >= 0; p = elements[p].parent) if (elements[p].live) return true;
-  return false;
-}
+// A period as a single comparable number: a day count and a month-or-year
+// count (years normalized to months) never collide, because every day count
+// carries the low decimal digit 1 and every month/year count carries 0.
+const periodCode = (count, unit) => unit === 'days' ? count * 10 + 1 : count * (unit === 'years' ? 12 : 1) * 10;
 function selectedPeriodMonths(el) {
   if (!/^(?:button|option)$/.test(el.tag)) return 0;
   const value = el.tag === 'option' ? el.attributes.value || el.text.trim() : el.text.trim();
-  const match = /^(\d+)([MY])$/i.exec(value);
+  const match = /^(\d+)([MYD])$/i.exec(value);
   if (!match) return 0;
   const selected = el.tag === 'option' ? Object.hasOwn(el.attributes, 'selected') :
     el.attributes['aria-pressed'] === 'true' || el.attributes['aria-selected'] === 'true' ||
     el.attributes['aria-current'] === 'true' || el.attributes['data-state'] === 'active' ||
     [...el.classes].some((c) => /^(?:active|selected|current)$/.test(c));
-  return selected ? Number(match[1]) * (match[2].toUpperCase() === 'Y' ? 12 : 1) : 0;
+  if (!selected) return 0;
+  const unit = { M: 'months', Y: 'years', D: 'days' }[match[2].toUpperCase()];
+  return periodCode(Number(match[1]), unit);
 }
 function nounFromClasses(classes) {
   for (const name of classes) {
@@ -350,10 +350,10 @@ module.exports = [
       if (!/^(?:small|p|span)$/.test(el.tag)) continue;
       // A validation message or other live-region caption tells its own field
       // something nothing else on the screen shows; it is not a repeat.
-      if (liveAncestor(elements, i)) continue;
+      if (info.live[i]) continue;
       const field = el.parent >= 0 ? fieldId[el.parent] : -1;
       if (field < 0 || manyFields[el.parent] || seenFields.has(field) || words[i] > 5) continue;
-      const key = normalized(visibleText(info, i));
+      const key = normalized(boundaryText(info, i, isCaption));
       if (!key || key.split(' ').length > 5) continue;
       seenFields.add(field);
       if (!groups.has(key)) groups.set(key, new Set());
@@ -407,10 +407,12 @@ module.exports = [
   rule('marker-explainer', 2, 'A sentence explains a visible marker without adding information.', 'Remove the sentence and keep the marker clear.', (ctx) => {
     const info = data(ctx);
     return info.elements.flatMap((el, i) => {
-      if (!isCaption(el) || el.inCode) return [];
+      if (!isCaption(el) || el.inCode || info.chart[i]) return [];
       const text = boundaryText(info, i, isCaption);
       // Page copy names a marker by its colour as often as by "accent"/"inset";
       // a chart legend saying "line" instead of "bar"/"stripe" stays silent.
+      // A caption inside a figure or a chart-class container names what the
+      // chart already shows, so it carries no information the chart lacks.
       return MARKER_BAR.test(text) && MARKER_EXPLAINS.test(text) ? [text.slice(0, 90)] : [];
     });
   }),
@@ -418,11 +420,12 @@ module.exports = [
     const { elements, selectedPeriod } = data(ctx), hits = [];
     for (let i = 0; i < elements.length; i++) {
       if (!/^(?:p|small|span)$/.test(elements[i].tag)) continue;
-      const period = /\b(?:previous|last)\s+(\d+)\s+(months?|years?)\b/i.exec(elements[i].text);
+      const period = /\b(?:previous|last|past|prior|trailing)\s+(\d+)\s+(months?|years?|days?)\b/i.exec(elements[i].text);
       if (!period) continue;
-      const months = Number(period[1]) * (period[2].toLowerCase().startsWith('year') ? 12 : 1);
+      const unit = /^day/i.test(period[2]) ? 'days' : /^year/i.test(period[2]) ? 'years' : 'months';
+      const code = periodCode(Number(period[1]), unit);
       const p = elements[i].parent;
-      if (p >= 0 && selectedPeriod[p] === months) hits.push(elements[i].text.trim().slice(0, 90));
+      if (p >= 0 && selectedPeriod[p] === code) hits.push(elements[i].text.trim().slice(0, 90));
     }
     return hits;
   }),
