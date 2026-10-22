@@ -4,7 +4,8 @@ Reference for the optional deterministic CLI in `asabirov/ai-slop-detector-skill
 For editorial review, follow `SKILL.md`. The CLI retains opinionated rules and
 severities for compatibility with existing CI gates; its findings are not universal
 judgments about good writing or design. The workflow advice below applies when
-using that CLI, not to every editorial pass.
+using that CLI, not to every editorial pass. The one exception is the fresh-reader
+check for marketing copy, which `SKILL.md` points to.
 
 ## What it does
 
@@ -35,8 +36,8 @@ surface matters.
 | 4 | `paranoid` | + statistical rules that may false-positive. | Deep pre-launch audit. |
 
 There are three severities and two outcomes. `error` findings fail the run (exit `1`);
-`medium` and `warning` findings never do (exit `0`). Level 1 is all errors, so it is the
-block; levels 2–4 add the rest, so they are the polish.
+`medium` and `warning` findings never do (exit `0`). Level 1 is errors, except `mono-noncode`,
+which is a warning, so level 1 is the block; levels 2–4 add the rest, so they are the polish.
 
 `medium` and `warning` findings need contextual review. A pattern match establishes
 what the rule detected, not whether its suggested edit helps the reader. Keep
@@ -186,6 +187,12 @@ block inside a blockquote stays code.
 
 `--level` accepts a number (`1`–`4`) or a name (`ban`, `recommended`, `strict`,
 `paranoid`). `--json` emits `{ verdict, level, files[], stats }` for chaining.
+
+Two pairs of rules can name the same element for the same reason: `gradient-text` with
+`purple-blue-hero`, and `eyebrow-kicker` with `mono-uppercase-label`. The CLI then reports one
+finding. The first rule of the pair keeps it and the finding gets an `alsoFlaggedBy` array with
+the ID of the second rule. Both rule IDs stay valid. A script that counts findings by the second
+rule ID finds fewer, and an allowlist for the first ID also hides the folded finding.
 
 ### Static UI coverage
 

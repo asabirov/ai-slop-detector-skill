@@ -52,7 +52,7 @@ Apply these checks to rendered pages and copy files, using labels and surroundin
 
 ## Fresh-reader check
 
-When asked to test marketing lines, read “Fresh-reader check for marketing copy” in [the reference](docs/ai-slop-detector.md).
+When asked to test marketing lines, or when a line's problem or product promise seems unclear, read “Fresh-reader check for marketing copy” in [the reference](docs/ai-slop-detector.md).
 
 ## Optional CLI
 
