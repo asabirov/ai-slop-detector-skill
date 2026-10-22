@@ -84,10 +84,11 @@ is the same engine over many.
 Text reaches a rule decoded. The table is the standard's own, in `scripts/lib/entities.js`. So `&middot;`,
 `&nbsp;` and `&#8599;` reach a rule as the characters a browser shows.
 
-Two places outside the text streams also decode. The `style` attribute decodes before the visual
-rules read it as CSS. The heading markup that `emoji-heading` and `heading-period` read in
-`scripts/rules/visual.js` decodes too, as does a MathML `annotation-xml` encoding value. Standalone CSS
-keeps references literal.
+Four places outside the text streams also decode. The `style` attribute decodes before the visual
+rules read it as CSS. A MathML `annotation-xml` encoding value decodes before the parser compares it with
+`text/html`. The heading markup that `emoji-heading` and `heading-period` read in `scripts/rules/visual.js`
+decodes. So do the label and heading text that `labelsAboveHeadings` in `scripts/lib/html.js` reads.
+Standalone CSS keeps references literal.
 
 One pass resolves an entity, and it runs last, after the tags or the markdown syntax are
 gone, so nothing reads what it produced: `&#38;middot;` is the text `&middot;` on the page
