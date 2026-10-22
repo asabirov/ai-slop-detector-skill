@@ -319,7 +319,7 @@ module.exports = [
   }),
   rule('marker-explainer', 2, 'A sentence explains a visible marker without adding information.', 'Remove the sentence and keep the marker clear.', (ctx) =>
     data(ctx).elements.filter((el) => /^(?:p|small)$/.test(el.tag) && !el.inCode &&
-      /\b(?:accent|inset|colored|colour|color) (?:bar|stripe|line) (?:marks?|shows?|indicates?|means?)\b/i.test(el.text))
+      /\b(?:accent|inset) (?:bar|stripe) (?:marks?|shows?|indicates?|means?)\b/i.test(el.text))
       .map((el) => el.text.trim().slice(0, 90))),
   rule('restated-control-period', 2, 'A caption repeats the selected period.', 'Remove the repeated caption.', (ctx) => {
     const { elements, selectedPeriod } = data(ctx), hits = [];

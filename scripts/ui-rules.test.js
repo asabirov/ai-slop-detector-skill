@@ -87,6 +87,11 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
   it('ignores a hidden input value as a field state', { timeout: 1000 }, () => {
     assert.deepEqual(hits('<input type="hidden" value="Draft"><span class="badge">Draft</span>', 'restated-status-badge'), []);
   });
+  it('limits the explainer sentence to a selection marker, not any colored line', { timeout: 1000 }, () => {
+    assert.equal(hits('<p>An accent bar marks the selected option.</p>', 'marker-explainer').length, 1);
+    assert.deepEqual(hits('<p>The dashed color line shows the target.</p>', 'marker-explainer'), []);
+    assert.deepEqual(hits('<p>The red line shows the legal limit.</p>', 'marker-explainer'), []);
+  });
   it('counts one field through deeply nested caption spans', { timeout: 1000 }, () => {
     const html = '<div>' + '<span>'.repeat(1600) + '<input>As parsed' + '</span>'.repeat(1600) + '</div>';
     assert.deepEqual(hits(html, 'repeated-field-caption'), []);
