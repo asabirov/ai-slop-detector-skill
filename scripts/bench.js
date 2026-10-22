@@ -56,7 +56,7 @@ function measure({ fixture, mb, runs }) {
 }
 
 function hostNote() {
-  return { host: os.hostname(), node: process.version, cores: os.cpus().length, load: Number(os.loadavg()[0].toFixed(1)) };
+  return { node: process.version, cores: os.cpus().length, load: Number(os.loadavg()[0].toFixed(1)) };
 }
 
 function main(argv) {
@@ -70,7 +70,7 @@ function main(argv) {
   console.log(`parse  ${figures.parse.toFixed(1)} ms/MB`);
   console.log(`detect ${figures.detect.toFixed(1)} ms/MB, parse included`);
   const where = hostNote();
-  console.log(`host ${where.host}, node ${where.node}, load ${where.load} on ${where.cores} cores`);
+  console.log(`node ${where.node}, load ${where.load} on ${where.cores} cores`);
   if (where.load > where.cores) console.log('load is above the core count, so treat these figures as slow');
 
   const stored = fs.existsSync(BASELINE) ? JSON.parse(fs.readFileSync(BASELINE, 'utf8')) : {};
