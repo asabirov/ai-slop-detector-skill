@@ -79,6 +79,14 @@ describe('redundant UI copy', { timeout: 1000 }, () => {
     assert.deepEqual(hits(select + '<span class="badge">Approved</span>', 'restated-status-badge'), []);
     assert.equal(hits(select + '<span class="badge">Draft</span>', 'restated-status-badge').length, 1);
   });
+  it('ignores an unchecked radio or checkbox value as a field state', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<input type="radio" value="Approved"><span class="badge">Approved</span>', 'restated-status-badge'), []);
+    assert.deepEqual(hits('<input type="checkbox" value="Approved"><span class="badge">Approved</span>', 'restated-status-badge'), []);
+    assert.equal(hits('<input type="radio" value="Approved" checked><span class="badge">Approved</span>', 'restated-status-badge').length, 1);
+  });
+  it('ignores a hidden input value as a field state', { timeout: 1000 }, () => {
+    assert.deepEqual(hits('<input type="hidden" value="Draft"><span class="badge">Draft</span>', 'restated-status-badge'), []);
+  });
   it('counts one field through deeply nested caption spans', { timeout: 1000 }, () => {
     const html = '<div>' + '<span>'.repeat(1600) + '<input>As parsed' + '</span>'.repeat(1600) + '</div>';
     assert.deepEqual(hits(html, 'repeated-field-caption'), []);
@@ -362,5 +370,13 @@ describe('UI scan bounds', { timeout: 3000 }, () => {
   it('scans a deeply nested button within the budget', { timeout: 2500 }, () => {
     const source = '<button>' + '<div>'.repeat(30000) + 'Open settings' + '</div>'.repeat(30000) + '</button>';
     assert.equal(scan(source).findings.filter((finding) => finding.rule === 'multiword-control').length, 1);
+  });
+  it('scans deeply nested status badges within the budget', { timeout: 1500 }, () => {
+    const source = '<main>' + '<div class="status-badge">'.repeat(6000) + 'Active' + '</div>'.repeat(6000) + '</main>';
+    assert.deepEqual(scan(source).findings.filter((finding) => finding.rule === 'restated-status-badge'), []);
+  });
+  it('scans deeply nested count paragraphs within the budget', { timeout: 1500 }, () => {
+    const source = '<main>' + '<p>'.repeat(6000) + '25 of 214 results' + '</p>'.repeat(6000) + '</main>';
+    assert.deepEqual(scan(source).findings.filter((finding) => finding.rule === 'restated-table-count'), []);
   });
 });

@@ -207,6 +207,14 @@ const cardish = (s) => /(?:^|[\s,.#>])(?:card|panel|tile|callout|alert)(?:$|[\s,
 function visibleText(info, index) {
   return subtreeText(info.elements, info.ends, index, (_el, i) => !info.hidden[i]);
 }
+// A short label's subtree is a handful of nodes. Past this bound an element is
+// a container, not a label, so its own match is read, not its whole subtree:
+// without the bound, nested label-shaped containers each re-walk their already
+// counted descendants, which is quadratic in nesting depth.
+const LABEL_SUBTREE_CAP = 40;
+function boundedText(info, index) {
+  return info.ends[index] - index > LABEL_SUBTREE_CAP ? '' : visibleText(info, index);
+}
 function selectedPeriodMonths(el) {
   if (!/^(?:button|option)$/.test(el.tag)) return 0;
   const value = el.tag === 'option' ? el.attributes.value || el.text.trim() : el.text.trim();
@@ -291,13 +299,21 @@ module.exports = [
     const info = data(ctx), { elements } = info;
     const titles = new Set(elements.flatMap((el, i) => /^h[1-6]$/.test(el.tag) ? [normalized(visibleText(info, i))] : []));
     const fieldStates = new Set(elements.flatMap((el, i) => {
-      if (el.tag !== 'input' && el.tag !== 'select' && !(el.tag === 'option' && Object.hasOwn(el.attributes, 'selected'))) return [];
-      const value = el.attributes.value || (el.tag === 'option' ? visibleText(info, i) : '');
-      return value ? [normalized(value)] : [];
+      if (el.tag === 'option') return Object.hasOwn(el.attributes, 'selected') ? [normalized(el.attributes.value || visibleText(info, i))] : [];
+      if (el.tag === 'select') return el.attributes.value ? [normalized(el.attributes.value)] : [];
+      if (el.tag !== 'input') return [];
+      // A field's visible state is what a reader sees: a checked radio or
+      // checkbox, or a text-like value. An unchecked option shows nothing, and
+      // `type="hidden"` shows nothing by definition — reading either reports a
+      // badge as repeating a state the page never actually renders.
+      const type = (el.attributes.type || 'text').toLowerCase();
+      if (type === 'hidden') return [];
+      if (/^(?:radio|checkbox)$/.test(type) && !Object.hasOwn(el.attributes, 'checked')) return [];
+      return el.attributes.value ? [normalized(el.attributes.value)] : [];
     }));
     return elements.flatMap((el, i) => {
       if (![...el.classes].some((c) => /(?:^|[-_])(?:status|badge|pill)(?:$|[-_])/.test(c))) return [];
-      const label = normalized(visibleText(info, i));
+      const label = normalized(boundedText(info, i));
       return label && (titles.has(label) || fieldStates.has(label)) ? [`${label} badge repeats a title or field state`] : [];
     });
   }),
@@ -322,7 +338,7 @@ module.exports = [
     for (let i = 0; i < elements.length; i++) {
       const el = elements[i];
       if (!/^(?:p|small)$/.test(el.tag)) continue;
-      const text = visibleText(info, i);
+      const text = boundedText(info, i);
       const match = /^(\d+)\s+of\s+(?:the\s+)?\d[\d,]*\s+[\p{L}-]+(?:\s+(?:this|last)\s+(?:year|month|week|quarter))?\.?$/iu.exec(text);
       if (!match) continue;
       const table = nextTable[i];
