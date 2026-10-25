@@ -28,7 +28,7 @@ AI-assisted drafts can keep chatbot greetings, vague claims, and comments that o
 Install the tagged skill for Claude Code and Codex:
 
 ```bash
-DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill/tree/v2.8.0 --skill ai-slop-detector --agent claude-code codex --global
+DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill/tree/v2.9.0 --skill ai-slop-detector --agent claude-code codex --global
 ```
 
 `DO_NOT_TRACK=1` stops the skills tool from sending telemetry. The installer needs Node.js, npm and Git. It puts the skill in `~/.agents/skills/ai-slop-detector` and links it into `~/.claude/skills`. The command-line tool is in the same folder:
@@ -43,7 +43,7 @@ To update or roll back, run the install command again with another release tag. 
 DO_NOT_TRACK=1 npx skills remove ai-slop-detector --agent claude-code codex --global
 ```
 
-Without `npx skills`, clone the repository at the `v2.8.0` release tag into your agent's skills folder as `ai-slop-detector`. To update or roll back, run `git fetch --tags` there and check out another tag. To remove it, delete the folder.
+Without `npx skills`, clone the repository at the `v2.9.0` release tag into your agent's skills folder as `ai-slop-detector`. To update or roll back, run `git fetch --tags` there and check out another tag. To remove it, delete the folder.
 
 After each release, a workflow opens a pull request that renames the tags in this file. Until that pull request merges, the tags here name the last release it covered.
 
@@ -69,8 +69,8 @@ Pin a release tag. An unpinned run follows `main`, and a rule that gets stricter
 
 ```bash
 REPO=github:asabirov/ai-slop-detector-skill
-npx -y "$REPO#v2.8.0" src scripts --level 1
-npx -y "$REPO#v2.8.0" 'src/**/*.js' --json
+npx -y "$REPO#v2.9.0" src scripts --level 1
+npx -y "$REPO#v2.9.0" 'src/**/*.js' --json
 ```
 
 There is no npm package. `npx` installs from this repository, so the runner needs network access to GitHub.
