@@ -82,3 +82,10 @@ agent given only the page and the rule text. Diff the two results.
 
 A fresh agent is not deterministic, so two runs may differ without any rule
 change. If a diff line moves for this reason, say so.
+
+## A release needs a conventional commit header
+
+A merge to `main` cuts a release only when its squash commit header starts
+with `feat:` or `fix:`. A plain title such as "Flag replies that echo the
+preceding message" cuts nothing, and the work waits unreleased. Name the
+squash commit with a conventional header when the change should ship.
