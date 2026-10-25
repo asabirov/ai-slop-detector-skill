@@ -19,6 +19,7 @@ Apply the relevant rules:
 4. **Keep useful comments.** Explain constraints, reasons, and surprising behavior. Remove narration of obvious code. Keep safety and maintenance context beside the code that needs it; length or dividers alone do not justify moving it.
 5. **Preserve what works.** Keep facts, qualifications, terminology, quotations, technical values, and voice. Make the smallest helpful edit and leave effective passages unchanged.
 6. **Do not echo a message.** When reviewing a reply, compare it with the preceding message. Flag a clause that repeats what the other person just reported. Remove that clause even if the reply also gives a next action. A brief acknowledgement, such as “Thanks, got it” or “Спасибо, принято”, is acceptable. If the preceding message is unavailable, do not claim that the reply repeats it.
+7. **Keep guard tests in proportion.** Flag a test that guards a document or a rule and that checks prose by text match. Also flag one that has more code than the file it guards, or one that passes on one machine only. Ask whether the test should exist, not only whether it works. Propose a smaller check or its deletion. Keep a test that checks a behaviour, a format a program reads, or a value that a person set.
 
 Example: given only that a product exports CSV in three steps, replace “Unlock a seamless export experience” with “Export CSV in three steps.”
 
