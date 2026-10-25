@@ -29,7 +29,7 @@ const rules = [
 describe('redundant UI copy', { timeout: 1000 }, () => {
   const names = ['multiword-control', 'inset-accent-marker', 'repeated-field-caption',
     'restated-status-badge', 'marker-explainer', 'restated-control-period',
-    'restated-table-count', 'context-noun-control'];
+    'restated-table-count', 'context-noun-control', 'restated-title-subline'];
   const hits = (html, name) => RULES.find((rule) => rule.id === name).test(parse(html, { ext: 'html' }));
   for (const name of names) {
     it(`${name} flags its positive fixture and leaves its negative fixture silent`, { timeout: 1000 }, () => {

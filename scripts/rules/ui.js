@@ -325,6 +325,9 @@ const isHeading = (el) => /^h[1-6]$/.test(el.tag);
 const isBadge = (el) => [...el.classes].some((c) => /(?:^|[-_])(?:status|badge|pill)(?:$|[-_])/.test(c));
 const isOption = (el) => el.tag === 'option';
 const isCaption = (el) => /^(?:p|small)$/.test(el.tag);
+// Words that make a sub-line state a fact: a verb, the reader, or a time
+// or condition. `restated-title-subline` stays silent on a line with one.
+const INFORMATIVE_WORD = /^(?:is|are|was|were|be|been|has|have|had|can|will|may|must|should|do|does|did|need|needs|show|shows|arrive|arrives|you|your|until|after|before|since|when|unless|if|by|on)$/i;
 // A period as a single comparable number: a day count and a month-or-year
 // count (years normalized to months) never collide, because every day count
 // carries the low decimal digit 1 and every month/year count carries 0.
@@ -583,6 +586,24 @@ module.exports = [
       if (!match) continue;
       const table = nextTable[i];
       if (table >= 0 && bodyRows[table] === Number(match[1])) hits.push(text.slice(0, 90));
+    }
+    return hits;
+  }),
+  rule('restated-title-subline', 2, 'The line under a title only restates the title.', 'Remove the line, or replace it with a fact the title does not give.', (ctx) => {
+    const info = data(ctx), { elements } = info, hits = [], lastChild = new Map();
+    const stem = (w) => w.toLowerCase().replace(/(?:es|s)$/, '');
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i], prev = lastChild.get(el.parent);
+      lastChild.set(el.parent, i);
+      if (!isCaption(el) || prev === undefined || !isHeading(elements[prev])) continue;
+      const nouns = new Set((boundaryText(info, prev, isHeading).match(/\p{L}{3,}/gu) || []).map(stem));
+      const text = boundaryText(info, i, isCaption), words = text.match(/[\p{L}\d'’-]+/gu) || [];
+      // A digit, a verb, a later proper noun or a time or condition word
+      // gives the reader a fact, so only a verbless, short noun phrase
+      // that names the title noun again counts as a restatement.
+      if (!words.length || words.length > 14 || /\d/.test(text)) continue;
+      if (words.some((w, k) => (k > 0 && /^\p{Lu}/u.test(w)) || /ed$/i.test(w) || INFORMATIVE_WORD.test(w))) continue;
+      if (words.some((w) => nouns.has(stem(w)))) hits.push(text.slice(0, 90));
     }
     return hits;
   }),
