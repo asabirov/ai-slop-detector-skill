@@ -328,6 +328,7 @@ const isCaption = (el) => /^(?:p|small)$/.test(el.tag);
 // Words that make a sub-line state a fact: a verb, the reader, or a time
 // or condition. `restated-title-subline` stays silent on a line with one.
 const INFORMATIVE_WORD = /^(?:is|are|was|were|be|been|has|have|had|can|will|may|must|should|do|does|did|need|needs|show|shows|arrive|arrives|you|your|until|after|before|since|when|unless|if|by|on)$/i;
+const NOUN_JOIN = /^(?:and|or|plus|with|of)$/i;
 // A period as a single comparable number: a day count and a month-or-year
 // count (years normalized to months) never collide, because every day count
 // carries the low decimal digit 1 and every month/year count carries 0.
@@ -603,7 +604,12 @@ module.exports = [
       // that names the title noun again counts as a restatement.
       if (!words.length || words.length > 14 || /\d/.test(text)) continue;
       if (words.some((w, k) => (k > 0 && /^\p{Lu}/u.test(w)) || /ed$/i.test(w) || INFORMATIVE_WORD.test(w))) continue;
-      if (words.some((w) => nouns.has(stem(w)))) hits.push(text.slice(0, 90));
+      // The word list cannot find every verb ("Payouts settle weekly"), so
+      // the title noun must also sit in a noun phrase: after a quantifier,
+      // before a joining word, or at the end of the line.
+      const phrase = words.some((w, k) => nouns.has(stem(w)) &&
+        (/^(?:every|all|each)$/i.test(words[k - 1] || '') || k === words.length - 1 || NOUN_JOIN.test(words[k + 1])));
+      if (phrase) hits.push(text.slice(0, 90));
     }
     return hits;
   }),
