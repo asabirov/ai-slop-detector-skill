@@ -282,8 +282,8 @@ values are stable — reference them in allowlists and PR notes.
 | `context-noun-control` | 2 | warning | A `Clear all` label repeats the noun in its `noun-bar` or `noun-toolbar` container class. |
 | `restated-title-subline` | 2 | warning | A short `p` or `small` line right after a heading names the heading noun again and adds no digit, verb, proper noun, time or condition. |
 | `placeholder-names-entity` | 2 | warning | A `placeholder` or `aria-label` on a text `input` or `textarea` restates its nearest heading or `label` text. |
-| `prototype-explainer` | 2 | warning | Visible text explains the prototype, the build or the rendering (prototype, mockup, simulated, imitates, plain JS, React components, stub/fake/dummy data). |
-| `repeated-text-button` | 2 | warning | Three or more button-like controls with the same visible text in one list, table or run of sibling rows. Icon-only controls do not count. |
+| `prototype-explainer` | 2 | warning | Visible text explains the page's own prototype or build (prototype, simulated, imitates, plain/vanilla JS). |
+| `repeated-text-button` | 2 | warning | Three or more button-like controls with the same visible text in one `ul`, `ol`, `table`, `tbody` or a run of sibling `li`/`tr` rows. Icon-only controls do not count. |
 | `gradient-text` | 2 | warning | Gradient clipped into text is decorative emphasis. |
 | `ai-gradient` | 2 | warning | Pink, violet and purple gradient combinations are a common generated UI default. |
 | `glow-shadow` | 2 | warning | A colored zero-offset shadow creates a decorative halo. |

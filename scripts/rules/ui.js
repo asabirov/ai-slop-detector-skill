@@ -331,8 +331,12 @@ const INFORMATIVE_WORD = /^(?:is|are|was|were|be|been|has|have|had|can|will|may|
 const NOUN_JOIN = /^(?:and|or|plus|with|of)$/i;
 // Terms a page shows while explaining its own build or prototype rather than
 // the reader's task. `prototype-explainer` reads visible text for these.
-const PROTOTYPE_TERMS = /\b(?:prototypes?|mockups?|mock-ups?|wireframes?|imitate(?:s|d)?|imitating|simulated)\b/gi;
-const PROTOTYPE_COMPOUNDS = /(?:plain|vanilla)\s*(?:js|javascript)|\breact\s+components?\b|\b(?:stub|fake|dummy|mock|sample|placeholder)\s+data\b/gi;
+// A noun that names a design artifact the reader would make ("mockup",
+// "wireframe"), a framework ("React components") or a generic data label
+// ("sample data") names the reader's task or the product, not how this page
+// was built, so those stay out of the term list.
+const PROTOTYPE_TERMS = /\b(?:prototypes?|imitate(?:s|d)?|imitating|simulated)\b/gi;
+const PROTOTYPE_COMPOUNDS = /(?:plain|vanilla)\s*(?:js|javascript)\b/gi;
 // A period as a single comparable number: a day count and a month-or-year
 // count (years normalized to months) never collide, because every day count
 // carries the low decimal digit 1 and every month/year count carries 0.
@@ -618,7 +622,7 @@ module.exports = [
     return hits;
   }),
   rule('placeholder-names-entity', 2, 'A placeholder or aria-label restates the heading or label of its field.', 'Use a short general placeholder that names the task, not the entity.', (ctx) => {
-    const info = data(ctx), { elements } = info;
+    const info = data(ctx), { elements, sectionOf } = info;
     // Function words and common instruction verbs are never the entity a
     // placeholder names, so a heading like "Change the payout" does not match a
     // general "Describe the change" placeholder through its verb.
@@ -637,10 +641,17 @@ module.exports = [
     const nearest = (i) => {
       const id = elements[i].id;
       if (id && labelFor.has(id)) return labelFor.get(id);
+      // The field's own section bounds the search: a heading in a sibling
+      // section is not this field's heading. Walk all preceding siblings at
+      // each level, not only the immediate one, so an intervening paragraph
+      // does not hide the heading.
+      const scope = sectionOf[i];
       for (let child = i, p = elements[i].parent; p >= 0; child = p, p = elements[p].parent) {
+        if (child === scope) break;
         if (isHeading(elements[p]) || elements[p].tag === 'label') return p;
-        const prev = prevSibling[child];
-        if (prev >= 0 && (isHeading(elements[prev]) || elements[prev].tag === 'label')) return prev;
+        for (let s = prevSibling[child]; s >= 0; s = prevSibling[s]) {
+          if (isHeading(elements[s]) || elements[s].tag === 'label') return s;
+        }
       }
       return -1;
     };
@@ -702,16 +713,21 @@ module.exports = [
     for (let i = 0; i < elements.length; i++) {
       const el = elements[i];
       if (!control(el) || info.hidden[i]) continue;
-      const label = (boundaryText(info, i, control, true) || (el.tag === 'input' ? el.attributes.value : '')).trim();
+      // An `<input type="submit">` or `<input type="reset">` has no
+      // `value`, so its rendered text is browser-provided and the read is
+      // `undefined`; keep it empty instead of calling `.trim()` on it.
+      const label = (boundaryText(info, i, control, true) || (el.tag === 'input' ? el.attributes.value : '') || '').trim();
       const key = normalized(label);
       if (!key) continue;
       const list = listOf[i];
+      // Group only controls that share a real row structure: a list, or a
+      // sibling `li`/`tr` row. Grouping every control by its grandparent
+      // would fold unrelated sections (three settings sections each with a
+      // "Save" button) into one run.
       let groupKey;
       if (list >= 0) groupKey = list;
-      else {
-        const row = rowOf[i] >= 0 ? rowOf[i] : el.parent;
-        groupKey = row >= 0 ? elements[row].parent : -1;
-      }
+      else if (rowOf[i] >= 0) groupKey = elements[rowOf[i]].parent;
+      else continue;
       const mapKey = `${groupKey}\u0000${key}`;
       if (!groups.has(mapKey)) groups.set(mapKey, { label: label || key, n: 0 });
       groups.get(mapKey).n++;
