@@ -329,6 +329,10 @@ const isCaption = (el) => /^(?:p|small)$/.test(el.tag);
 // or condition. `restated-title-subline` stays silent on a line with one.
 const INFORMATIVE_WORD = /^(?:is|are|was|were|be|been|has|have|had|can|will|may|must|should|do|does|did|need|needs|show|shows|arrive|arrives|you|your|until|after|before|since|when|unless|if|by|on)$/i;
 const NOUN_JOIN = /^(?:and|or|plus|with|of)$/i;
+// Terms a page shows while explaining its own build or prototype rather than
+// the reader's task. `prototype-explainer` reads visible text for these.
+const PROTOTYPE_TERMS = /\b(?:prototypes?|mockups?|mock-ups?|wireframes?|imitate(?:s|d)?|imitating|simulated)\b/gi;
+const PROTOTYPE_COMPOUNDS = /(?:plain|vanilla)\s*(?:js|javascript)|\breact\s+components?\b|\b(?:stub|fake|dummy|mock|sample|placeholder)\s+data\b/gi;
 // A period as a single comparable number: a day count and a month-or-year
 // count (years normalized to months) never collide, because every day count
 // carries the low decimal digit 1 and every month/year count carries 0.
@@ -612,6 +616,107 @@ module.exports = [
       if (phrase) hits.push(text.slice(0, 90));
     }
     return hits;
+  }),
+  rule('placeholder-names-entity', 2, 'A placeholder or aria-label restates the heading or label of its field.', 'Use a short general placeholder that names the task, not the entity.', (ctx) => {
+    const info = data(ctx), { elements } = info;
+    // Function words and common instruction verbs are never the entity a
+    // placeholder names, so a heading like "Change the payout" does not match a
+    // general "Describe the change" placeholder through its verb.
+    const ENTITY_STOP = new Set(['the', 'and', 'for', 'not', 'but', 'you', 'your', 'all', 'any', 'can', 'may', 'our', 'his', 'her', 'its', 'was', 'are', 'has', 'had', 'have', 'this', 'that', 'these', 'those', 'they', 'them', 'who', 'whom', 'what', 'when', 'where', 'why', 'how', 'with', 'from', 'into', 'onto', 'over', 'under', 'about', 'between', 'before', 'after', 'then', 'than', 'there', 'here', 'some', 'such', 'each', 'every', 'more', 'most', 'less', 'few', 'many', 'much', 'other', 'another', 'own', 'same', 'both', 'either', 'neither', 'none', 'also', 'only', 'just', 'very', 'even', 'still', 'while', 'until', 'unless', 'because', 'though', 'add', 'edit', 'view', 'delete', 'remove', 'create', 'update', 'change', 'note', 'message', 'type', 'enter', 'write', 'describe', 'ask', 'send', 'set', 'get', 'use', 'make', 'take', 'give', 'show', 'read', 'open', 'close', 'save', 'submit', 'clear', 'search', 'filter', 'sort']);
+    const lastChild = new Int32Array(elements.length).fill(-1);
+    const prevSibling = new Int32Array(elements.length).fill(-1);
+    const labelFor = new Map();
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i], p = el.parent;
+      if (p >= 0) {
+        prevSibling[i] = lastChild[p];
+        lastChild[p] = i;
+      }
+      if (el.tag === 'label' && el.attributes.for) labelFor.set(el.attributes.for, i);
+    }
+    const nearest = (i) => {
+      const id = elements[i].id;
+      if (id && labelFor.has(id)) return labelFor.get(id);
+      for (let child = i, p = elements[i].parent; p >= 0; child = p, p = elements[p].parent) {
+        if (isHeading(elements[p]) || elements[p].tag === 'label') return p;
+        const prev = prevSibling[child];
+        if (prev >= 0 && (isHeading(elements[prev]) || elements[prev].tag === 'label')) return prev;
+      }
+      return -1;
+    };
+    const words = (text) => (text.toLowerCase().match(/[\p{L}\p{N}'-]+/gu) || []);
+    const hits = [];
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i];
+      if (!/^(?:input|textarea)$/.test(el.tag)) continue;
+      if (el.tag === 'input' && /^(?:button|submit|reset|hidden|file|image|checkbox|radio)$/.test(el.inputType)) continue;
+      const placeholders = [el.attributes.placeholder, el.attributes['aria-label']].filter(Boolean);
+      if (!placeholders.length) continue;
+      const near = nearest(i);
+      if (near < 0) continue;
+      const entity = words(boundaryText(info, near, isHeading))
+        .filter((w) => w.length >= 3 && !ENTITY_STOP.has(w)).map(singular);
+      if (!entity.length) continue;
+      for (const ph of placeholders) {
+        const set = new Set(words(ph).map(singular));
+        if (entity.some((w) => set.has(w))) hits.push(`<${el.tag}> ${ph.slice(0, 80)}`);
+      }
+    }
+    return hits;
+  }),
+  rule('prototype-explainer', 2, 'Visible text explains the prototype or build instead of the reader\'s task.', 'Remove the text, or replace it with copy about the task.', (ctx) => {
+    const info = data(ctx), { elements } = info;
+    const BLOCK = /^(?:p|small|span|div|li|td|th|dd|dt|figcaption|caption|blockquote|h[1-6]|summary|label|strong|em|b|i|u)$/;
+    const hits = [];
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i];
+      if (el.inCode || info.hidden[i] || !BLOCK.test(el.tag)) continue;
+      const p = el.parent;
+      if (p >= 0 && BLOCK.test(elements[p].tag)) continue;
+      const text = boundaryText(info, i, () => false, true);
+      let match = null;
+      for (const re of [PROTOTYPE_TERMS, PROTOTYPE_COMPOUNDS]) {
+        re.lastIndex = 0;
+        match = re.exec(text);
+        if (match) break;
+      }
+      if (!match) continue;
+      const start = Math.max(0, match.index - 24);
+      hits.push(text.slice(start, match.index + match[0].length + 40).trim());
+    }
+    return hits;
+  }),
+  rule('repeated-text-button', 2, 'Three or more controls in one list repeat the same visible text.', 'Make the row itself the action, or use one icon button with an accessible name.', (ctx) => {
+    const info = data(ctx), { elements } = info;
+    const LIST_TAGS = /^(?:ul|ol|table|tbody)$/;
+    const ROW_TAGS = /^(?:li|tr)$/;
+    const listOf = new Int32Array(elements.length).fill(-1);
+    const rowOf = new Int32Array(elements.length).fill(-1);
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i], p = el.parent;
+      listOf[i] = LIST_TAGS.test(el.tag) ? i : (p >= 0 ? listOf[p] : -1);
+      if (ROW_TAGS.test(el.tag)) rowOf[i] = i;
+      else rowOf[i] = p >= 0 ? (ROW_TAGS.test(elements[p].tag) ? p : rowOf[p]) : -1;
+    }
+    const groups = new Map();
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i];
+      if (!control(el) || info.hidden[i]) continue;
+      const label = (boundaryText(info, i, control, true) || (el.tag === 'input' ? el.attributes.value : '')).trim();
+      const key = normalized(label);
+      if (!key) continue;
+      const list = listOf[i];
+      let groupKey;
+      if (list >= 0) groupKey = list;
+      else {
+        const row = rowOf[i] >= 0 ? rowOf[i] : el.parent;
+        groupKey = row >= 0 ? elements[row].parent : -1;
+      }
+      const mapKey = `${groupKey}\u0000${key}`;
+      if (!groups.has(mapKey)) groups.set(mapKey, { label: label || key, n: 0 });
+      groups.get(mapKey).n++;
+    }
+    return [...groups.values()].filter((g) => g.n >= 3).map((g) => `${g.label} on ${g.n} controls`);
   }),
   rule('context-noun-control', 2, 'The control repeats the noun given by its surrounding bar.', 'Use “Clear all” when the bar names the objects.', (ctx) => {
     const info = data(ctx), { elements } = info;
