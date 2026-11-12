@@ -76,6 +76,15 @@ function pixels(value) {
   const m = /^([\d.]+)(px|rem|em)$/.exec(value || '');
   return m ? Number(m[1]) * (m[2] === 'px' ? 1 : 16) : 0;
 }
+// Replace each `var(--name)` or `var(--name, fallback)` with the declared
+// value, or with the fallback when the name is not declared. A value that
+// refers to itself stops after a few passes.
+function resolveVars(value, customProps) {
+  for (let pass = 0; pass < 4 && value.includes('var('); pass++) {
+    value = value.replace(/var\(\s*(--[\w-]+)\s*(?:,([^()]*))?\)/g, (_, name, fallback) => customProps.get(name) ?? (fallback || '').trim());
+  }
+  return value;
+}
 function data(ctx) {
   if (cache.has(ctx)) return cache.get(ctx);
   const index = new Map();
@@ -86,13 +95,19 @@ function data(ctx) {
       index.get(key).push(el);
     }
   }
+  // Custom properties by name, the last declaration winning. A rule that
+  // reads colours resolves `var(--name)` through `resolveVars`.
+  const customProps = new Map();
   const rows = (ctx.cssRules || []).filter(([s]) => !s.trim().startsWith('@')).map(([selector, body, element]) => {
     const props = Object.create(null);
-    for (const part of splitOutsideFunctions(body, ';')) {
+    // A comment between declarations would join the next property name.
+    for (const part of splitOutsideFunctions(body.replace(/\/\*[\s\S]*?\*\//g, ''), ';')) {
       const colon = part.indexOf(':');
       if (colon < 0) continue;
       const name = part.slice(0, colon).trim().toLowerCase();
-      if (!name.startsWith('--')) props[name] = part.slice(colon + 1).trim().replace(/!important$/i, '').trim().toLowerCase();
+      const value = part.slice(colon + 1).trim().replace(/!important$/i, '').trim().toLowerCase();
+      if (name.startsWith('--')) customProps.set(name, value);
+      else props[name] = value;
     }
     return { selector, props, element };
   });
@@ -215,7 +230,7 @@ function data(ctx) {
   }
   const result = { rows, elements, index, inHeading, ends, hidden, live, chart, fieldId, manyFields,
     selectedPeriod, contextNoun, bodyRows, nextTable: nextTableOrAbove, sectionOf, headingScopeOf,
-    firstCanvas, containsBadge, inHeader, periodScope };
+    firstCanvas, containsBadge, inHeader, periodScope, customProps };
   cache.set(ctx, result);
   return result;
 }
@@ -866,21 +881,38 @@ module.exports = [
     for (const row of centred) for (const el of targets(ctx, row)) reached.add(el);
     return reached.size >= 4 && reached.size >= elements.length / 3 ? [`${reached.size} of ${elements.length} elements center text`] : [];
   }),
-  rule('stock-palette', 4, 'Near-black with acid green, or cream with terracotta and serif type, are common generated palettes.', 'Choose the palette for the subject or keep an intentional established system.', (ctx) => {
-    let dark = false, acid = false, cream = false, terra = false;
+  rule('stock-palette', 2, 'Near-black with acid green, or cream with earth accents such as terracotta, amber, brown or forest green, are common generated palettes.', 'Choose the palette for the subject or keep an intentional established system.', (ctx) => {
+    const { rows, customProps } = data(ctx);
+    let dark = false, acid = false, cream = false, creamBackground = false, terra = false, amber = false, green = false;
     const terracotta = [[193, 101, 63], [224, 122, 95], [184, 92, 56], [217, 119, 87], [204, 115, 81]];
-    for (const row of data(ctx).rows) for (const [name, value] of Object.entries(row.props)) {
+    // Only the page background counts as a cream page, not a pale badge or card.
+    const isPage = (row) => row.selector.split(',').some((part) => /^(?:html|body|:root)$/i.test(part.trim())) ||
+      targets(ctx, row).some((el) => el.tag === 'html' || el.tag === 'body');
+    for (const row of rows) for (const [name, value] of Object.entries(row.props)) {
       if (!/^(?:color|background|border)/.test(name)) continue;
-      for (const [r, g, b] of colours(value)) {
+      for (const [r, g, b] of colours(resolveVars(value, customProps))) {
         if (Math.max(r, g, b) <= 28 && Math.max(r, g, b) - Math.min(r, g, b) < 12) dark = true;
         if (g >= 220 && b <= 145 && (r >= 150 || r <= 75)) acid = true;
-        const c = [r, g, b], h = hue(c), light = (Math.max(...c) + Math.min(...c)) / 510;
-        if (saturation(c) >= 0.2 && h >= 24 && h <= 54 && light >= 0.81) cream = true;
+        const c = [r, g, b], h = hue(c), s = saturation(c), light = (Math.max(...c) + Math.min(...c)) / 510;
+        if (s >= 0.2 && h >= 24 && h <= 54 && light >= 0.81) {
+          cream = true;
+          if (name.startsWith('background') && isPage(row)) creamBackground = true;
+        }
         if (terracotta.some((t) => Math.hypot(...c.map((n, i) => n - t[i])) <= 45)) terra = true;
+        // Amber, ochre and brown: a saturated orange-yellow hue at low or middle lightness.
+        if (s >= 0.4 && h >= 28 && h <= 50 && light >= 0.12 && light <= 0.55) amber = true;
+        // Forest green and sage: a muted green hue at low or middle lightness.
+        if (s >= 0.15 && s <= 0.7 && h >= 85 && h <= 165 && light >= 0.15 && light <= 0.5) green = true;
       }
     }
-    const serif = data(ctx).rows.some((row) => /(?:^|[^\w-])(?:serif|georgia|times|playfair|lora|merriweather|garamond|spectral|newsreader|instrument serif|dm serif)\b/.test(row.props['font-family'] || ''));
+    const serif = rows.some((row) => /(?:^|[^\w-])(?:serif|georgia|times|playfair|lora|merriweather|garamond|spectral|newsreader|instrument serif|dm serif)\b/.test(row.props['font-family'] || ''));
     const existingCream = /#f4f1ea|#faf6f0|#f5f1e8/i.test(ctx.css || '') && /#e07a5f|#cc6b49|#d4744f|terracotta/i.test(ctx.css || '');
-    return [dark && acid ? 'near-black and acid-green palette' : '', cream && terra && serif && !existingCream ? 'cream, terracotta and serif palette' : ''].filter(Boolean);
+    const serifTerracotta = cream && terra && serif && !existingCream;
+    // Two earth accent families on a cream background, with any type.
+    const earth = creamBackground && [terra, amber, green].filter(Boolean).length >= 2;
+    return [
+      dark && acid ? 'near-black and acid-green palette' : '',
+      serifTerracotta ? 'cream, terracotta and serif palette' : earth ? `cream palette with ${[terra && 'terracotta', amber && 'amber', green && 'green'].filter(Boolean).join(', ').replace(/, ([^,]*)$/, ' and $1')} accents` : '',
+    ].filter(Boolean);
   }),
 ];

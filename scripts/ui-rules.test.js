@@ -1459,6 +1459,15 @@ describe('UI heuristics', { timeout: 1000 }, () => {
   it('reads the serif cream and terracotta palette', { timeout: 1000 }, () => {
     has('<body style="font-family:Georgia,serif;background:#faf7f0;color:#c1653f">Notes</body>', 'stock-palette');
   });
+  // Issue #111: a cream page with amber and forest-green accents and sans-serif
+  // type, all set through CSS custom properties.
+  it('reads the cream palette with amber and green accents through custom properties', { timeout: 1000 }, () => {
+    has(fs.readFileSync(path.join(fixtures, 'slop-ui-stock-palette-cream-earth.html'), 'utf8'), 'stock-palette');
+  });
+  it('reads a declaration that follows a comment', { timeout: 1000 }, () => {
+    has('<style>:root { --ink: #1d2a2a; /* text */ --paper: #f3efe3; /* page */ --amber: #8a5a14; /* late */ --leaf: #3f6f35; }' +
+      ' body { background: var(--paper); } .a { color: var(--amber); } .b { color: var(--leaf); }</style><p class="a">Late</p><p class="b">Done</p>', 'stock-palette');
+  });
   it('recognizes bounce and elastic animation names', { timeout: 1000 }, () => {
     for (const name of ['bounce', 'elastic', 'easeOutBack']) has(`<style>.item { animation: ${name} 1s; }</style><div class="item">Notes</div>`, 'bounce-easing');
   });
@@ -1490,6 +1499,10 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     ['everything-centred', '<p style="text-align:center">North station</p><p>Records</p>'],
     ['everything-centred', '<style>body { text-align:center } p { text-align:left }</style><p>Records</p>'],
     ['stock-palette', '<body style="background:white;color:#ccff00">Records</body>'],
+    ['stock-palette', '<style>:root { --bg: #ffffff; --accent: #25566b; } body { background: var(--bg); font-family: sans-serif; } a { color: var(--accent); }</style><a href="/r">Records</a>'],
+    ['stock-palette', '<style>:root { --bg: #ffffff; --warn: #875000; --ok: #2c6639; } body { background: var(--bg); } .a { color: var(--warn); } .b { color: var(--ok); }</style><p class="a">Late</p><p class="b">Done</p>'],
+    ['stock-palette', '<style>body { background: #fff; } .w { background: #fef3c7; color: #92400e; } .o { background: #dcfce7; color: #166534; } p { color: #a16207; }</style><span class="w">Late</span><span class="o">Done</span><p>Notes</p>'],
+    ['stock-palette', '<style>:root { --paper: #f4efe3; --warn: #875000; } body { background: var(--paper); color: #1d2a2a; } .a { color: var(--warn); }</style><p class="a">Late</p>'],
     ['middot-two-facts', '<p><span>28 March 09:40 · System</span></p>'],
     ['middot-two-facts', '<p><span>1920 px · 1080 px</span></p>'],
     ['middot-two-facts', '<p><span>3 · 4 = 12</span></p>'],
