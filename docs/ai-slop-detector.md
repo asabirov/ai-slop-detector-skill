@@ -302,7 +302,7 @@ values are stable — reference them in allowlists and PR notes.
 | `double-edge` | 4 | warning | Repeated boxes separate themselves with both a border and a fill. |
 | `button-drift` | 4 | warning | Several unrelated button sizes or radii weaken control consistency. |
 | `everything-centred` | 4 | warning | Centering most of a page weakens the alignment hierarchy. |
-| `stock-palette` | 4 | warning | Near-black with acid green, or cream with terracotta and serif type, are common generated palettes. |
+| `stock-palette` | 2 | warning | Near-black with acid green, or cream with earth accents such as terracotta, amber, brown or forest green, are common generated palettes. |
 
 `restated-control-period` reads numeric period tokens and their explicit selected
 state. It compares `nM`, `nY` or `nD` with a caption naming the previous, last,
