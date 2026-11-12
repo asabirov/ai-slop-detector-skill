@@ -1501,6 +1501,7 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     ['stock-palette', '<body style="background:white;color:#ccff00">Records</body>'],
     ['stock-palette', '<style>:root { --bg: #ffffff; --accent: #25566b; } body { background: var(--bg); font-family: sans-serif; } a { color: var(--accent); }</style><a href="/r">Records</a>'],
     ['stock-palette', '<style>:root { --bg: #ffffff; --warn: #875000; --ok: #2c6639; } body { background: var(--bg); } .a { color: var(--warn); } .b { color: var(--ok); }</style><p class="a">Late</p><p class="b">Done</p>'],
+    ['stock-palette', '<style>body { background: #fff; } .w { background: #fef3c7; color: #92400e; } .o { background: #dcfce7; color: #166534; } p { color: #a16207; }</style><span class="w">Late</span><span class="o">Done</span><p>Notes</p>'],
     ['stock-palette', '<style>:root { --paper: #f4efe3; --warn: #875000; } body { background: var(--paper); color: #1d2a2a; } .a { color: var(--warn); }</style><p class="a">Late</p>'],
     ['middot-two-facts', '<p><span>28 March 09:40 · System</span></p>'],
     ['middot-two-facts', '<p><span>1920 px · 1080 px</span></p>'],

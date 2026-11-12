@@ -885,6 +885,9 @@ module.exports = [
     const { rows, customProps } = data(ctx);
     let dark = false, acid = false, cream = false, creamBackground = false, terra = false, amber = false, green = false;
     const terracotta = [[193, 101, 63], [224, 122, 95], [184, 92, 56], [217, 119, 87], [204, 115, 81]];
+    // Only the page background counts as a cream page, not a pale badge or card.
+    const isPage = (row) => row.selector.split(',').some((part) => /^(?:html|body|:root)$/i.test(part.trim())) ||
+      targets(ctx, row).some((el) => el.tag === 'html' || el.tag === 'body');
     for (const row of rows) for (const [name, value] of Object.entries(row.props)) {
       if (!/^(?:color|background|border)/.test(name)) continue;
       for (const [r, g, b] of colours(resolveVars(value, customProps))) {
@@ -893,7 +896,7 @@ module.exports = [
         const c = [r, g, b], h = hue(c), s = saturation(c), light = (Math.max(...c) + Math.min(...c)) / 510;
         if (s >= 0.2 && h >= 24 && h <= 54 && light >= 0.81) {
           cream = true;
-          if (name.startsWith('background')) creamBackground = true;
+          if (name.startsWith('background') && isPage(row)) creamBackground = true;
         }
         if (terracotta.some((t) => Math.hypot(...c.map((n, i) => n - t[i])) <= 45)) terra = true;
         // Amber, ochre and brown: a saturated orange-yellow hue at low or middle lightness.
