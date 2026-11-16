@@ -45,8 +45,6 @@ DO_NOT_TRACK=1 npx skills remove ai-slop-detector --agent claude-code codex --gl
 
 Without `npx skills`, clone the repository at the `v2.11.1` release tag into your agent's skills folder as `ai-slop-detector`. To update or roll back, run `git fetch --tags` there and check out another tag. To remove it, delete the folder.
 
-After each release, a workflow opens a pull request that renames the tags in this file. Until that pull request merges, the tags here name the last release it covered.
-
 ## Using the skill
 
 The agent checks its work before it opens a pull request or sends other finished work. It does not check routine chat replies. You can also ask: "check this README for AI slop". The skill makes one focused pass. It reports the passage, the reader's problem and a specific correction. [SKILL.md](SKILL.md) holds the agent instructions, including the editorial checks for interface copy. The skill never runs a command or reviews untouched files on its own.

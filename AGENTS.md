@@ -89,3 +89,11 @@ A merge to `main` cuts a release only when its squash commit header starts
 with `feat:` or `fix:`. A plain title such as "Flag replies that echo the
 preceding message" cuts nothing, and the work waits unreleased. Name the
 squash commit with a conventional header when the change should ship.
+
+## A release renames the tags in the README
+
+After each release, the release workflow opens a pull request that renames
+the release tags in `README.md` (`.github/workflows/release.yml:59-107`,
+`scripts/release-readme-tag.js:45-52`). Until that pull request merges, the
+README tags name the last release that it covered. Its commit header starts
+with `docs:`, so its merge cuts no release.
