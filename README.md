@@ -8,16 +8,17 @@ This project combines editorial judgment with deterministic checks. It does not 
 
 ## Quick start
 
-You need Node.js 20 or newer and Git. The detector has no dependencies to install.
+You need Node.js 20 or newer and Git. `npx` gets the detector at a release tag and runs it:
 
 ```bash
-git clone https://github.com/asabirov/ai-slop-detector-skill.git
-cd ai-slop-detector-skill
-node bin/slop-detector.js fixtures/slop.md --level 1
-node bin/slop-detector.js fixtures/clean.md --level 1
+REPO=github:asabirov/ai-slop-detector-skill
+printf 'Great question! Here is the summary.\n' > slop.md
+printf 'The build takes four minutes.\n' > clean.md
+npx -y "$REPO#v2.11.1" slop.md --level 1
+npx -y "$REPO#v2.11.1" clean.md --level 1
 ```
 
-The first scan reports `sycophancy-opener` and exits **1**. That failure is expected, because the sample holds a chatbot greeting. The second scan reports `PASS` and exits **0**. Replace the fixture path with a file or directory to scan your own work.
+The first scan reports `sycophancy-opener` and exits **1**. That failure is expected, because the sample holds a chatbot greeting. The second scan reports `PASS` and exits **0**. Replace the sample path with a file or directory to scan your own work.
 
 ## Why it exists
 
@@ -42,8 +43,6 @@ To update or roll back, run the install command again with another release tag. 
 ```bash
 DO_NOT_TRACK=1 npx skills remove ai-slop-detector --agent claude-code codex --global
 ```
-
-Without `npx skills`, clone the repository at the `v2.11.1` release tag into your agent's skills folder as `ai-slop-detector`. To update or roll back, run `git fetch --tags` there and check out another tag. To remove it, delete the folder.
 
 ## Using the skill
 
