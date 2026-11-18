@@ -32,7 +32,7 @@ Install the tagged skill for Claude Code and Codex:
 DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill/tree/v2.12.0 --skill ai-slop-detector --agent claude-code codex --global
 ```
 
-`DO_NOT_TRACK=1` stops the skills tool from sending telemetry. The installer needs Node.js, npm and Git. It puts the skill in `~/.agents/skills/ai-slop-detector` and links it into `~/.claude/skills`. The command-line tool is in the same folder:
+`DO_NOT_TRACK=1` stops the skills tool from sending telemetry. The installer, `skills` 1.9.0, needs Node.js 22.20.0 or newer, npm and Git. The detector itself runs on Node.js 20. The installer puts the skill in `~/.agents/skills/ai-slop-detector` and links it into `~/.claude/skills`. The command-line tool is in the same folder:
 
 ```bash
 node ~/.agents/skills/ai-slop-detector/bin/slop-detector.js <path>
