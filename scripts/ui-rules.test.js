@@ -4,9 +4,9 @@ const { describe, it, before } = require('./lib/budget');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { performance } = require('node:perf_hooks');
 const { detect, kindForPath } = require('./detect');
 const { parse } = require('./lib/html');
+const { growthLimit } = require('./lib/timing');
 const { RULES } = require('./rules');
 
 const fixtures = path.join(__dirname, '..', 'fixtures');
@@ -1088,18 +1088,19 @@ describe('UI heuristics', { timeout: 1000 }, () => {
   it('scans repeated table notes with bounded growth', { timeout: 2500 }, () => {
     const table = '<table><tr><td>12</td></tr></table>';
     const group = '<small>Updated nightly, so yesterday stays open.</small> Extra. ';
-    const scanNotes = (count) => {
-      const html = table + '<div>' + group.repeat(count) + '</div>';
-      const start = performance.now();
-      const findings = detect(html, { level: 1, kind: 'artifact', ext: 'html' }).findings;
-      assert.ok(findings.some((finding) => finding.rule === 'table-footnote'));
-      return performance.now() - start;
-    };
-    scanNotes(100);
-    const sizes = [300, 600, 1200, 2400];
-    const durations = sizes.map(scanNotes);
-    assert.ok(durations.at(-1) <= durations[0] * 5 + 150,
-      `Repeated table notes grew too fast: ${JSON.stringify({ sizes, durations })}`);
+    const small = table + '<div>' + group.repeat(300) + '</div>';
+    const large = table + '<div>' + group.repeat(2400) + '</div>';
+    for (const source of [small, large]) {
+      assert.ok(detect(source, { level: 1, kind: 'artifact', ext: 'html' }).findings
+        .some((finding) => finding.rule === 'table-footnote'));
+    }
+    const result = growthLimit({
+      smallRun: () => detect(small, { level: 1, kind: 'artifact', ext: 'html' }),
+      largeRun: () => detect(large, { level: 1, kind: 'artifact', ext: 'html' }),
+      floor: 150,
+      ratio: 5,
+    });
+    assert.ok(result.ok, `Repeated table notes grew too fast: ${JSON.stringify(result)}`);
   });
   it('keeps a numeric sentence after Export completion', { timeout: 1000 }, () => {
     const table = '<table><tr><td>12</td></tr></table>';
@@ -1392,19 +1393,22 @@ describe('UI heuristics', { timeout: 1000 }, () => {
   it('scans repeated groups in one live sentence with bounded growth', { timeout: 2500 }, () => {
     const table = '<table><tr><td>12</td></tr></table>';
     const group = '<small>all bookings selected in this table every morning</small> and ';
-    const scanGroups = (count, live = true) => {
-      const wrapper = `<div${live ? ' role="status"' : ''}>Export for ${group.repeat(count)}records remain pending.<p>Ready.</p><button>Export</button></div>`;
-      const start = performance.now();
-      const findings = detect(table + wrapper, { level: 1, kind: 'artifact', ext: 'html' }).findings;
-      assert.ok(findings.some((finding) => finding.rule === 'table-footnote'));
-      return performance.now() - start;
-    };
-    scanGroups(100);
-    const sizes = [500, 1000, 2000, 4000];
-    const durations = sizes.map((size) => scanGroups(size));
-    scanGroups(4000, false);
-    assert.ok(durations.at(-1) <= durations[0] * 12 + 120,
-      `Repeated live groups grew too fast: ${JSON.stringify({ sizes, durations })}`);
+    const source = (count, live = true) => table +
+      `<div${live ? ' role="status"' : ''}>Export for ${group.repeat(count)}records remain pending.<p>Ready.</p><button>Export</button></div>`;
+    const small = source(500);
+    const large = source(4000);
+    for (const input of [small, large]) {
+      assert.ok(detect(input, { level: 1, kind: 'artifact', ext: 'html' }).findings
+        .some((finding) => finding.rule === 'table-footnote'));
+    }
+    const result = growthLimit({
+      smallRun: () => detect(small, { level: 1, kind: 'artifact', ext: 'html' }),
+      largeRun: () => detect(large, { level: 1, kind: 'artifact', ext: 'html' }),
+      floor: 120,
+      ratio: 12,
+    });
+    detect(source(4000, false), { level: 1, kind: 'artifact', ext: 'html' });
+    assert.ok(result.ok, `Repeated live groups grew too fast: ${JSON.stringify(result)}`);
   });
   it('reads one shape on both sides as one value and a changed word as a second fact', { timeout: 1000 }, () => {
     lacks('<p><span>1920 px · 1080 px</span></p>', 'middot-two-facts');
