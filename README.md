@@ -14,8 +14,8 @@ You need Node.js 20 or newer and Git. `npx` gets the detector at a release tag a
 REPO=github:asabirov/ai-slop-detector-skill
 printf 'Great question! Here is the summary.\n' > slop.md
 printf 'The build takes four minutes.\n' > clean.md
-npx -y "$REPO#v2.11.1" slop.md --level 1
-npx -y "$REPO#v2.11.1" clean.md --level 1
+npx -y "$REPO#v2.12.0" slop.md --level 1
+npx -y "$REPO#v2.12.0" clean.md --level 1
 ```
 
 The first scan reports `sycophancy-opener` and exits **1**. That failure is expected, because the sample holds a chatbot greeting. The second scan reports `PASS` and exits **0**. Replace the sample path with a file or directory to scan your own work.
@@ -29,7 +29,7 @@ AI-assisted drafts can keep chatbot greetings, vague claims, and comments that o
 Install the tagged skill for Claude Code and Codex:
 
 ```bash
-DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill/tree/v2.11.1 --skill ai-slop-detector --agent claude-code codex --global
+DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill/tree/v2.12.0 --skill ai-slop-detector --agent claude-code codex --global
 ```
 
 `DO_NOT_TRACK=1` stops the skills tool from sending telemetry. The installer needs Node.js, npm and Git. It puts the skill in `~/.agents/skills/ai-slop-detector` and links it into `~/.claude/skills`. The command-line tool is in the same folder:
@@ -66,8 +66,8 @@ Pin a release tag. An unpinned run follows `main`, and a rule that gets stricter
 
 ```bash
 REPO=github:asabirov/ai-slop-detector-skill
-npx -y "$REPO#v2.11.1" src scripts --level 1
-npx -y "$REPO#v2.11.1" 'src/**/*.js' --json
+npx -y "$REPO#v2.12.0" src scripts --level 1
+npx -y "$REPO#v2.12.0" 'src/**/*.js' --json
 ```
 
 There is no npm package. `npx` installs from this repository, so the runner needs network access to GitHub.
