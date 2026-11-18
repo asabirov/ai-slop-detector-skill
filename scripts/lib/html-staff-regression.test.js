@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { test } = require('./budget');
 const { parse } = require('./html');
+const { growthLimit } = require('./timing');
 const { detect } = require('../detect');
 
 const fixture = (name) => fs.readFileSync(path.join(__dirname, '../../fixtures', name), 'utf8');
@@ -113,23 +114,20 @@ test('component source keeps self-closing native tags and names', { timeout: 100
 
 for (const balanced of [false, true]) {
   test(`public parse bounds foreign closing tags: balanced=${balanced}`, { timeout: 4000 }, () => {
-    const median = (size) => {
-      const source = '<svg>'.repeat(size) + (balanced ? '<g></g>' : '</g>').repeat(size) +
-        (balanced ? '</svg>'.repeat(size) : '') + '<p>shown ↗</p>';
-      parse(source, { ext: 'html' });
-      const times = [];
-      for (let i = 0; i < 3; i++) {
-        const start = performance.now();
-        assert.ok(parse(source, { ext: 'html' }).codeless.includes('shown ↗'));
-        times.push(performance.now() - start);
-      }
-      return times.sort((a, b) => a - b)[1];
-    };
-    const small = median(250);
-    const large = median(1000);
-    assert.ok(large < 200, `Foreign closing tags took ${large} ms`);
-    assert.ok(large < 20 || large < small * 8,
-      `4x foreign depth and closes grew ${large / small} times`);
+    const source = (size) => '<svg>'.repeat(size) + (balanced ? '<g></g>' : '</g>').repeat(size) +
+      (balanced ? '</svg>'.repeat(size) : '') + '<p>shown ↗</p>';
+    const small = source(250);
+    const large = source(1000);
+    assert.ok(parse(small, { ext: 'html' }).codeless.includes('shown ↗'));
+    assert.ok(parse(large, { ext: 'html' }).codeless.includes('shown ↗'));
+    const result = growthLimit({
+      smallRun: () => parse(small, { ext: 'html' }),
+      largeRun: () => parse(large, { ext: 'html' }),
+      floor: 20,
+    });
+    assert.ok(result.large < 200, `Foreign closing tags took ${result.large} ms`);
+    assert.ok(result.ok,
+      `4x foreign depth and closes grew ${result.large / result.small} times`);
   });
 }
 

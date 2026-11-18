@@ -23,6 +23,7 @@ const {
   selectorApplies,
   selectorTargets,
 } = require('./lib/html');
+const { growthLimit } = require('./lib/timing');
 
 const FIX = path.join(__dirname, '..', 'fixtures');
 const read = (f) => fs.readFileSync(path.join(FIX, f), 'utf8');
@@ -347,25 +348,22 @@ test('commented CSS cannot style Markdown raw HTML', { timeout: 1000 }, () => {
 });
 
 test('full Markdown parse bounds unfinished tag growth', { timeout: 2000 }, () => {
-  const median = (source) => {
-    parse(source, { ext: 'md' });
-    const times = [];
-    for (let i = 0; i < 3; i++) {
-      const start = performance.now();
-      parse(source, { ext: 'md' });
-      times.push(performance.now() - start);
-    }
-    return times.sort((a, b) => a - b)[1];
-  };
   for (const source of [
     (count) => '<div>\n' + '<a title="'.repeat(count),
     (count) => '<style>' + '</style a="'.repeat(count),
     (count) => '<div>' + '<span>word</span>'.repeat(count) + '</div>',
   ]) {
-    const small = median(source(250));
-    const large = median(source(1000));
-    assert.ok(large < 10 || large < small * 8,
-      `full parse grew ${large / small} times for ${source(1)}`);
+    const small = source(250);
+    const large = source(1000);
+    parse(small, { ext: 'md' });
+    parse(large, { ext: 'md' });
+    const result = growthLimit({
+      smallRun: () => parse(small, { ext: 'md' }),
+      largeRun: () => parse(large, { ext: 'md' }),
+      floor: 10,
+    });
+    assert.ok(result.ok,
+      `full parse grew ${result.large / result.small} times for ${source(1)}`);
   }
 });
 
