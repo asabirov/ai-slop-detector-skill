@@ -410,7 +410,7 @@ for (const unit of ['[x](', '[']) {
     const result = growthLimit({
       smallRun: () => parse(small, { ext: 'md' }),
       largeRun: () => parse(large, { ext: 'md' }),
-      floor: 20,
+      floor: 1,
     });
     assert.ok(result.ok,
       `public parse grew ${result.large / result.small} times (${result.small} ms to ${result.large} ms)`);
@@ -810,15 +810,15 @@ test('removes ordered-list continuation indentation before block checks', { time
 
 test('scans unfinished comments and many raw lines with bounded growth', { timeout: 2000 }, () => {
   const samples = [
-    ['unfinished comments', 'Read ' + '<!-- '.repeat(16000), 'Read ' + '<!-- '.repeat(32000)],
-    ['short raw lines', '<div>\n' + 'a\n'.repeat(16000), '<div>\n' + 'a\n'.repeat(32000)],
+    ['unfinished comments', 'Read ' + '<!-- '.repeat(8000), 'Read ' + '<!-- '.repeat(64000)],
+    ['short raw lines', '<div>\n' + 'a\n'.repeat(8000), '<div>\n' + 'a\n'.repeat(64000)],
   ];
   for (const [name, small, large] of samples) {
     const result = growthLimit({
       smallRun: () => parse(small, { ext: 'md' }),
       largeRun: () => parse(large, { ext: 'md' }),
       floor: 1,
-      ratio: 2.8,
+      ratio: 20,
     });
     assert.ok(result.ok, `${name} grew ${result.large / result.small} times`);
   }

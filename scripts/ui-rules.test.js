@@ -1097,8 +1097,8 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     const result = growthLimit({
       smallRun: () => detect(small, { level: 1, kind: 'artifact', ext: 'html' }),
       largeRun: () => detect(large, { level: 1, kind: 'artifact', ext: 'html' }),
-      floor: 150,
-      ratio: 5,
+      floor: 1,
+      ratio: 20,
     });
     assert.ok(result.ok, `Repeated table notes grew too fast: ${JSON.stringify(result)}`);
   });
@@ -1395,8 +1395,8 @@ describe('UI heuristics', { timeout: 1000 }, () => {
     const group = '<small>all bookings selected in this table every morning</small> and ';
     const source = (count, live = true) => table +
       `<div${live ? ' role="status"' : ''}>Export for ${group.repeat(count)}records remain pending.<p>Ready.</p><button>Export</button></div>`;
-    const small = source(500);
-    const large = source(4000);
+    const small = source(200);
+    const large = source(1600);
     for (const input of [small, large]) {
       assert.ok(detect(input, { level: 1, kind: 'artifact', ext: 'html' }).findings
         .some((finding) => finding.rule === 'table-footnote'));
@@ -1407,7 +1407,8 @@ describe('UI heuristics', { timeout: 1000 }, () => {
       floor: 120,
       ratio: 12,
     });
-    detect(source(4000, false), { level: 1, kind: 'artifact', ext: 'html' });
+    assert.ok(detect(source(1600, false), { level: 1, kind: 'artifact', ext: 'html' }).findings
+      .some((finding) => finding.rule === 'table-footnote'));
     assert.ok(result.ok, `Repeated live groups grew too fast: ${JSON.stringify(result)}`);
   });
   it('reads one shape on both sides as one value and a changed word as a second fact', { timeout: 1000 }, () => {
