@@ -37,9 +37,8 @@ test('a peeled annotated tag is not a tag of its own', { timeout: 1000 }, () => 
   assert.deepEqual([...releaseTags(lsRemote('v2.4.0', 'v2.4.0^{}'))], ['v2.4.0']);
 });
 
-test('the bump rewrites the install command and the prose beside it', { timeout: 1000 }, () => {
+test('the bump rewrites the npx commands and the prose beside them', { timeout: 1000 }, () => {
   const bumped = bumpReadmeTag(fs.readFileSync(README, 'utf8'), 'v9.9.9');
-  assert.match(bumped, /skills add https:\/\/github\.com\/asabirov\/ai-slop-detector-skill\/tree\/v9\.9\.9 /);
   assert.match(bumped, /npx -y "\$REPO#v9\.9\.9"/);
   assert.equal(/v(?!9\.9\.9)\d+\.\d+\.\d+/.test(bumped), false);
 });

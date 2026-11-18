@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// The README pins an install tag, and a release leaves that pin a version
+// The README pins a release tag, and a release leaves that pin a version
 // behind. `main` takes no push, so the release workflow cannot fix it in place;
 // it runs this to produce the one-file change and opens a pull request with it.
 //
@@ -42,10 +42,10 @@ function latestReleaseTag(lsRemoteOutput) {
   return tags.sort((a, b) => versionOrder(b) - versionOrder(a))[0];
 }
 
-// Every `vX.Y.Z` in the README names the tag to install, in an install command,
-// an `npx` git ref or the prose beside them. One replacement covers all of
-// them, and a test holds the README to a single tag so a historical mention
-// cannot be rewritten without somebody noticing.
+// Every `vX.Y.Z` in the README names the tag to run, in an `npx` git ref or the
+// prose beside it. One replacement covers all of them, and a test holds the
+// README to a single tag so a historical mention cannot be rewritten without
+// somebody noticing.
 function bumpReadmeTag(readme, tag) {
   if (!RELEASE_TAG.test(tag)) throw new Error(`not a release tag: ${tag}`);
   return readme.replace(RELEASE_TAG_ANYWHERE, tag);

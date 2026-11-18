@@ -55,26 +55,21 @@ Each level adds rules to the one below.
 | `1` | At least one error finding |
 | `2` | Bad arguments, or no file matched |
 
-## What's where
-
-| Path | Owns |
-| --- | --- |
-| [SKILL.md](SKILL.md) | Agent instructions, including the editorial checks for interface copy |
-| `bin/slop-detector.js` | Command-line arguments, file discovery and exit codes |
-| `scripts/detect.js` | The engine that the three rule packs share |
-| `scripts/rules/` | The rule packs |
-| `scripts/lib/` | Parsers and test helpers |
-| `fixtures/` | Slop and clean samples for the tests |
-| [docs/ai-slop-detector.md](docs/ai-slop-detector.md) | Every rule with its level and severity, the text parser, the coverage limits of the UI rules, and how to extend the tool |
-| [AGENTS.md](AGENTS.md) | The rules for changing the code |
-
 ## How to run and verify it
 
-Install the tagged skill for Claude Code and Codex:
+Install the latest version:
 
-```bash
-DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill/tree/v2.12.0 --skill ai-slop-detector --agent claude-code codex --global
+```sh
+DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill --skill ai-slop-detector --agent claude-code codex --global
 ```
+
+Update it later:
+
+```sh
+DO_NOT_TRACK=1 npx skills update ai-slop-detector --global
+```
+
+`DO_NOT_TRACK=1` turns off the telemetry of the skills CLI. The CLI needs Node.js, npm and Git.
 
 `DO_NOT_TRACK=1` stops the skills tool from sending telemetry. The installer puts the skill in `~/.agents/skills/ai-slop-detector` and links it into `~/.claude/skills`. Then ask the agent: "check this README for AI slop".
 
@@ -125,7 +120,7 @@ npx -y "$REPO#v2.12.0" 'src/**/*.js' --json
 
 | Task | Command |
 | --- | --- |
-| Update or roll back | Run the install command with another tag. The [releases page](https://github.com/asabirov/ai-slop-detector-skill/releases) lists the newest tag |
+| Update or roll back | The [releases page](https://github.com/asabirov/ai-slop-detector-skill/releases) lists the newest tag |
 | Remove the skill | `DO_NOT_TRACK=1 npx skills remove ai-slop-detector --agent claude-code codex --global` |
 | Run the unit tests and fixtures | `npm test` |
 | Run the detector on its own code | `npm run lint:self` |
