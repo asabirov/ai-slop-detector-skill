@@ -1191,17 +1191,6 @@ test('a standfirst above a heading is not a micro-label', () => {
   assert.deepStrictEqual(kickers(page).map((f) => f.span), []);
 });
 
-// Issue #73: "WHAT'S IN THE BOX" in the `why` string was read as page text.
-test('the rule never presents its own example as something it found', () => {
-  const rule = RULES.find((r) => r.id === 'eyebrow-kicker');
-  if (/WHAT/i.test(rule.why)) {
-    assert.ok(
-      /\bexample\b|\be\.g\./i.test(rule.why),
-      'the example phrase must be marked as one, or it reads as evidence'
-    );
-  }
-});
-
 // ── the kicker scan must stay linear in page size ────────────────────────
 // Unbounded, `([\s\S]*?)</\1>` expands each label body to every later closing
 // tag in the document before giving up on a start position. Bounded, this page

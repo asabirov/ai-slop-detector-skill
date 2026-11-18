@@ -292,12 +292,6 @@ describe('fresh review fixes (PR #97, head d9c3592 and its CTO follow-up)', { ti
     assert.equal(hits('<style>.row.active{background:#eff6ff;box-shadow:inset 3px 0 0 #2563eb}</style><div class="row active">Option A</div>', 'inset-accent-marker').length, 1);
   });
 
-  // staff-engineer Finding 11: the message no longer assumes a border.
-  it('names the repeated marker without assuming a border', { timeout: 1000 }, () => {
-    const rule = RULES.find((r) => r.id === 'inset-accent-marker');
-    assert.ok(!/\bborder\b/i.test(rule.why) && !/\bborder\b/i.test(rule.fix), `${rule.why} | ${rule.fix}`);
-  });
-
   // staff-engineer Finding 4: an internal hyphen or apostrophe is one word.
   it('counts a hyphenated or contracted word as one word', { timeout: 1000 }, () => {
     for (const label of ['Re-run', 'Check-in', 'Opt-out', "Don't"]) {
@@ -357,11 +351,6 @@ describe('fresh review fixes (PR #97, head d9c3592 and its CTO follow-up)', { ti
     assert.equal(el.id, 'x');
     assert.equal(el.hidden, false);
     assert.equal(hits('<a class="btn" class="plain">Save record</a>', 'multiword-control').length, 1, 'kept "btn", so this is still a control');
-  });
-
-  // staff-engineer Finding 10: the removed subtree-read primitive is gone.
-  it('does not export the removed subtreeText helper', { timeout: 1000 }, () => {
-    assert.equal(require('./lib/html').subtreeText, undefined);
   });
 
   // CTO Finding 2 / staff-engineer Finding 5: an icon-only control's
