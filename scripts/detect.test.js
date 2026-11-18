@@ -5,7 +5,6 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { performance } = require('node:perf_hooks');
 const { detect, resolveLevel, kindForPath, SEVERITY, VERDICT_ICON, LEVELS } = require('./detect');
 const { RULES } = require('./rules');
 const { NAMED } = require('./lib/entities');
@@ -206,20 +205,17 @@ test('quoted tag data does not become visible prose', { timeout: 1000 }, () => {
 });
 
 test('strips many unfinished quoted tags within a bounded growth ratio', { timeout: 2000 }, () => {
-  const measure = (scan, count) => {
-    const source = '<a title="'.repeat(count);
-    const start = performance.now();
-    scan(source);
-    return performance.now() - start;
-  };
-  const median = (scan, count) => [measure(scan, count), measure(scan, count), measure(scan, count)]
-    .sort((a, b) => a - b)[1];
+  const source = (count) => '<a title="'.repeat(count);
   for (const scan of [stripTags, visibleTextRuns]) {
-    measure(scan, 500);
-    const small = median(scan, 500);
-    const large = median(scan, 2000);
-    assert.ok(large < 10 || large < small * 8,
-      `${scan.name} grew ${large / small} times on unfinished tags`);
+    const small = source(500);
+    const large = source(2000);
+    const result = growthLimit({
+      smallRun: () => scan(small),
+      largeRun: () => scan(large),
+      floor: 10,
+    });
+    assert.ok(result.ok,
+      `${scan.name} grew ${result.large / result.small} times on unfinished tags`);
   }
 });
 
@@ -407,22 +403,18 @@ test('inline Markdown tables retain numeric cell text', { timeout: 1000 }, () =>
 
 for (const unit of ['[x](', '[']) {
   test(`public Markdown parse bounds unfinished links: ${unit}`, { timeout: 5000 }, () => {
-    const median = (count) => {
-      const source = 'Read ' + unit.repeat(count);
-      parse(source, { ext: 'md' });
-      const times = [];
-      for (let i = 0; i < 3; i++) {
-        const start = performance.now();
-        const ctx = parse(source, { ext: 'md' });
-        times.push(performance.now() - start);
-        assert.strictEqual(ctx.codeless, source);
-      }
-      return times.sort((a, b) => a - b)[1];
-    };
-    const small = median(2000);
-    const large = median(8000);
-    assert.ok(large < 20 || large < small * 8,
-      `public parse grew ${large / small} times (${small} ms to ${large} ms)`);
+    const source = (count) => 'Read ' + unit.repeat(count);
+    const small = source(2000);
+    const large = source(8000);
+    assert.strictEqual(parse(small, { ext: 'md' }).codeless, small);
+    assert.strictEqual(parse(large, { ext: 'md' }).codeless, large);
+    const result = growthLimit({
+      smallRun: () => parse(small, { ext: 'md' }),
+      largeRun: () => parse(large, { ext: 'md' }),
+      floor: 20,
+    });
+    assert.ok(result.ok,
+      `public parse grew ${result.large / result.small} times (${result.small} ms to ${result.large} ms)`);
     assert.strictEqual(parse('Read [label](<target>) and [next](url).', { ext: 'md' }).codeless,
       'Read label and next.');
   });
@@ -817,50 +809,41 @@ test('removes ordered-list continuation indentation before block checks', { time
   assert.strictEqual(markdownArrow('- <textarea>\n  - text\n  \\&nearr;\n  </textarea>'), true);
 });
 
-test('scans unfinished comments and many raw lines with bounded growth', { timeout: 2000 }, () => {
-  const median = (source) => {
-    parse(source, { ext: 'md' });
-    const times = [];
-    for (let i = 0; i < 5; i++) {
-      const start = performance.now();
-      parse(source, { ext: 'md' });
-      times.push(performance.now() - start);
-    }
-    return times.sort((a, b) => a - b)[2];
-  };
-  const commentSmall = median('Read ' + '<!-- '.repeat(16000));
-  const commentLarge = median('Read ' + '<!-- '.repeat(32000));
-  const lineSmall = median('<div>\n' + 'a\n'.repeat(16000));
-  const lineLarge = median('<div>\n' + 'a\n'.repeat(32000));
-  assert.ok(commentLarge < commentSmall * 2.8,
-    `unfinished comments grew ${commentLarge / commentSmall} times`);
-  assert.ok(lineLarge < lineSmall * 2.8,
-    `short raw lines grew ${lineLarge / lineSmall} times`);
+test('scans unfinished comments with bounded growth', { timeout: 2000 }, () => {
+  const comments = growthLimit({
+    smallRun: () => parse('Read ' + '<!-- '.repeat(16000), { ext: 'md' }),
+    largeRun: () => parse('Read ' + '<!-- '.repeat(32000), { ext: 'md' }),
+    ratio: 2.8,
+    warmup: 11,
+    samples: 5,
+  });
+  assert.ok(comments.ok,
+    `unfinished comments grew ${comments.large / comments.small} times`);
+});
+
+test('scans many raw lines with bounded growth', { timeout: 2000 }, () => {
+  const lines = growthLimit({
+    smallRun: () => parse('<div>\n' + 'a\n'.repeat(16000), { ext: 'md' }),
+    largeRun: () => parse('<div>\n' + 'a\n'.repeat(32000), { ext: 'md' }),
+    ratio: 2.8,
+    warmup: 3,
+    samples: 7,
+  });
+  assert.ok(lines.ok,
+    `short raw lines grew ${lines.large / lines.small} times`);
 });
 
 test('scans multiline unfinished raw tokens with bounded growth', { timeout: 2000 }, () => {
-  const median = (values) => values.sort((a, b) => a - b)[3];
-  const measure = (source) => {
-    const start = performance.now();
-    parse(source, { ext: 'md' });
-    return performance.now() - start;
-  };
   for (const opener of ['<!--\n', '<a title="']) {
-    const sources = [6000, 24000].map((count) => '<div>\n' + opener + 'abc\n'.repeat(count));
-    for (let round = 0; round < 2; round++) {
-      for (const source of sources) measure(source);
-    }
-    const times = [[], []];
-    for (let round = 0; round < 7; round++) {
-      for (const index of round % 2 ? [1, 0] : [0, 1]) {
-        times[index].push(measure(sources[index]));
-      }
-    }
-    const small = median(times[0]);
-    const large = median(times[1]);
-    console.log(JSON.stringify({ opener, small, large, ratio: large / small, times }));
-    assert.ok(large < small * 8,
-      `${JSON.stringify(opener)} grew ${large / small} times for four times the input`);
+    const source = (count) => '<div>\n' + opener + 'abc\n'.repeat(count);
+    const small = source(6000);
+    const large = source(24000);
+    const result = growthLimit({
+      smallRun: () => parse(small, { ext: 'md' }),
+      largeRun: () => parse(large, { ext: 'md' }),
+    });
+    assert.ok(result.ok,
+      `${JSON.stringify(opener)} grew ${result.large / result.small} times for four times the input`);
   }
 });
 
@@ -1928,19 +1911,17 @@ for (const [name, source, runs, attrs] of [
 });
 
 test('unfinished script closes scale within a geometric budget', { timeout: 1400 }, () => {
-  const sizes = [2000, 4000, 8000];
-  const times = [];
-  for (const size of sizes) {
-    const source = 'Read <script>' + '</script x=" '.repeat(size);
-    assert.equal(reviewRead(source).codeless, 'Read');
-    const samples = [];
-    for (let i = 0; i < 3; i++) {
-      const start = performance.now();
-      assert.equal(reviewRead(source).codeless, 'Read');
-      samples.push(performance.now() - start);
-    }
-    times.push(samples.sort((a, b) => a - b)[1]);
-  }
-  assert.ok(times[2] < 800, `largest sample took ${times[2].toFixed(1)} ms`);
-  assert.ok(times[2] < 5 * Math.max(times[1], 1), `geometric samples: ${times}`);
+  const source = (size) => 'Read <script>' + '</script x=" '.repeat(size);
+  const middle = source(4000);
+  const large = source(8000);
+  assert.equal(reviewRead(middle).codeless, 'Read');
+  assert.equal(reviewRead(large).codeless, 'Read');
+  const result = growthLimit({
+    smallRun: () => reviewRead(middle),
+    largeRun: () => reviewRead(large),
+    floor: 5,
+    ratio: 5,
+  });
+  assert.ok(result.large < 800, `largest sample took ${result.large.toFixed(1)} ms`);
+  assert.ok(result.ok, `geometric samples: ${result.small} to ${result.large}`);
 });

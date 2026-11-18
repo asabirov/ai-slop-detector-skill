@@ -10,8 +10,15 @@
 // no retry for one passing round to satisfy.
 // why: wall-clock growth tests failed under CPU load and passed on rerun
 
+// Thread CPU time excludes the JIT and GC worker threads that
+// process.cpuUsage counts, so it is a cleaner measure of the parse work.
+// Node 20 has no threadCpuUsage, so it falls back to process.cpuUsage.
+const cpuUsage = process.threadCpuUsage
+  ? process.threadCpuUsage.bind(process)
+  : process.cpuUsage.bind(process);
+
 function cpuMillis() {
-  const usage = process.cpuUsage();
+  const usage = cpuUsage();
   return (usage.user + usage.system) / 1000;
 }
 

@@ -73,28 +73,30 @@ test('equals inside an unquoted opening value stays data', { timeout: 1000 }, ()
 
 for (const opening of ['Read <!--', 'Read']) {
   test(`public parse bounds lazy list growth: ${opening}`, { timeout: 4000 }, () => {
-    const median = (depth, lines) => {
-      const source = '- '.repeat(depth) + opening + '\n' + 'lazy\n'.repeat(lines);
-      parse(source, { ext: 'md' });
-      const times = [];
-      for (let i = 0; i < 3; i++) {
-        const start = performance.now();
-        const ctx = parse(source, { ext: 'md' });
-        times.push(performance.now() - start);
-        assert.ok(ctx.codeless.includes(opening));
-        assert.equal(ctx.codeless.match(/lazy/g).length, lines);
-      }
-      return times.sort((a, b) => a - b)[1];
+    const source = (depth, lines) => '- '.repeat(depth) + opening + '\n' + 'lazy\n'.repeat(lines);
+    const check = (depth, lines) => {
+      const ctx = parse(source(depth, lines), { ext: 'md' });
+      assert.ok(ctx.codeless.includes(opening));
+      assert.equal(ctx.codeless.match(/lazy/g).length, lines);
+      return ctx;
     };
-    const small = median(2000, 2000);
-    const deep = median(8000, 2000);
-    const long = median(2000, 8000);
-    const both = median(8000, 8000);
-    assert.ok(both < 200, `56 KB of lazy list content took ${both} ms`);
-    assert.ok(both < 20 || both < small * 8,
-      `4x depth and lines grew ${both / small} times (${small} ms to ${both} ms)`);
-    assert.ok(deep < 20 || deep < small * 8, `depth took ${deep} ms`);
-    assert.ok(long < 20 || long < small * 8, `lines took ${long} ms`);
+    const small = source(2000, 2000);
+    const deep = source(8000, 2000);
+    const long = source(2000, 8000);
+    const both = source(8000, 8000);
+    check(2000, 2000);
+    check(8000, 2000);
+    check(2000, 8000);
+    check(8000, 8000);
+    const smallRun = () => parse(small, { ext: 'md' });
+    const bothResult = growthLimit({ smallRun, largeRun: () => parse(both, { ext: 'md' }), floor: 20 });
+    const deepResult = growthLimit({ smallRun, largeRun: () => parse(deep, { ext: 'md' }), floor: 20 });
+    const longResult = growthLimit({ smallRun, largeRun: () => parse(long, { ext: 'md' }), floor: 20 });
+    assert.ok(bothResult.large < 200, `56 KB of lazy list content took ${bothResult.large} ms`);
+    assert.ok(bothResult.ok,
+      `4x depth and lines grew ${bothResult.large / bothResult.small} times (${bothResult.small} ms to ${bothResult.large} ms)`);
+    assert.ok(deepResult.ok, `depth took ${deepResult.large} ms`);
+    assert.ok(longResult.ok, `lines took ${longResult.large} ms`);
   });
 }
 
