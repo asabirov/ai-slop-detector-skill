@@ -71,7 +71,7 @@ DO_NOT_TRACK=1 npx skills update ai-slop-detector --global
 
 `DO_NOT_TRACK=1` turns off the telemetry of the skills CLI. The CLI needs Node.js, npm and Git.
 
-`DO_NOT_TRACK=1` stops the skills tool from sending telemetry. The installer puts the skill in `~/.agents/skills/ai-slop-detector` and links it into `~/.claude/skills`. Then ask the agent: "check this README for AI slop".
+The installer puts the skill in `~/.agents/skills/ai-slop-detector` and links it into `~/.claude/skills`. Then ask the agent: "check this README for AI slop".
 
 | Dependency | Needed for |
 | --- | --- |
@@ -120,7 +120,7 @@ npx -y "$REPO#v2.12.0" 'src/**/*.js' --json
 
 | Task | Command |
 | --- | --- |
-| Update or roll back | The [releases page](https://github.com/asabirov/ai-slop-detector-skill/releases) lists the newest tag |
+| Update the skill | `DO_NOT_TRACK=1 npx skills update ai-slop-detector --global` |
 | Remove the skill | `DO_NOT_TRACK=1 npx skills remove ai-slop-detector --agent claude-code codex --global` |
 | Run the unit tests and fixtures | `npm test` |
 | Run the detector on its own code | `npm run lint:self` |
