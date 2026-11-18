@@ -28,7 +28,7 @@ AI-assisted drafts can keep chatbot greetings, vague claims, and comments that o
 | Skill stays in scope | It never runs a command or reviews untouched files on its own |
 | Level 1 is the merge gate | Higher levels are polish |
 | No npm package | `npx` installs from this repository, so the runner needs network access to GitHub |
-| JavaScript and TypeScript skip the visual rules | The output counts the skipped files. `--as artifact` reads the code as prose and can cause false positives |
+| `.js`, `.mjs`, `.cjs`, `.ts`, `.mts` and `.cts` files skip the visual rules by default | The output counts the skipped files. To check interface copy, add `--as artifact`. The code is then read as prose, which can cause false positives |
 
 | Rule pack | Reads | Finds |
 | --- | --- | --- |
@@ -51,8 +51,8 @@ Each level adds rules to the one below.
 
 | Exit code | Meaning |
 | --- | --- |
-| `0` | No `error` finding |
-| `1` | At least one `error` finding |
+| `0` | No error finding |
+| `1` | At least one error finding |
 | `2` | Bad arguments, or no file matched |
 
 ## What's where
@@ -80,9 +80,9 @@ DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill
 
 | Dependency | Needed for |
 | --- | --- |
-| Node.js 22.20.0 or newer | The installer, `skills` 1.9.0 |
+| Node.js 22.20.0 or newer | The installer, skills 1.9.0 |
 | Node.js 20 or newer | The detector |
-| npm | The installer |
+| npm | The installer and `npx` runs from a tag |
 | Git | The installer and `npx` runs from a tag |
 | Network access to GitHub | The installer and `npx` runs from a tag |
 
@@ -132,6 +132,6 @@ npx -y "$REPO#v2.12.0" 'src/**/*.js' --json
 | Run both, as CI does | `npm run verify` |
 | Draw the demo image again | `python3 docs/render-demo.py > assets/demo.svg` |
 
-To change a rule, open an issue that names the rule `id` and shows the case.
+To change a rule, open an issue that names the rule id and shows the case.
 
 License: [MIT](LICENSE).
