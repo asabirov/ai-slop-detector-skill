@@ -73,28 +73,28 @@ test('equals inside an unquoted opening value stays data', { timeout: 1000 }, ()
 
 for (const opening of ['Read <!--', 'Read']) {
   test(`public parse bounds lazy list growth: ${opening}`, { timeout: 4000 }, () => {
-    const median = (depth, lines) => {
-      const source = '- '.repeat(depth) + opening + '\n' + 'lazy\n'.repeat(lines);
-      parse(source, { ext: 'md' });
-      const times = [];
-      for (let i = 0; i < 3; i++) {
-        const start = performance.now();
-        const ctx = parse(source, { ext: 'md' });
-        times.push(performance.now() - start);
+    const source = (depth, lines) => '- '.repeat(depth) + opening + '\n' + 'lazy\n'.repeat(lines);
+    const small = source(2000, 2000);
+    const cases = [
+      ['depth', source(8000, 2000)],
+      ['lines', source(2000, 8000)],
+      ['4x depth and lines', source(8000, 8000)],
+    ];
+    for (const [name, large] of cases) {
+      for (const input of [small, large]) {
+        const ctx = parse(input, { ext: 'md' });
         assert.ok(ctx.codeless.includes(opening));
-        assert.equal(ctx.codeless.match(/lazy/g).length, lines);
+        assert.equal(ctx.codeless.match(/lazy/g).length, input.match(/lazy/g).length);
       }
-      return times.sort((a, b) => a - b)[1];
-    };
-    const small = median(2000, 2000);
-    const deep = median(8000, 2000);
-    const long = median(2000, 8000);
-    const both = median(8000, 8000);
-    assert.ok(both < 200, `56 KB of lazy list content took ${both} ms`);
-    assert.ok(both < 20 || both < small * 8,
-      `4x depth and lines grew ${both / small} times (${small} ms to ${both} ms)`);
-    assert.ok(deep < 20 || deep < small * 8, `depth took ${deep} ms`);
-    assert.ok(long < 20 || long < small * 8, `lines took ${long} ms`);
+      const result = growthLimit({
+        smallRun: () => parse(small, { ext: 'md' }),
+        largeRun: () => parse(large, { ext: 'md' }),
+        floor: 20,
+      });
+      assert.ok(result.large < 200, `56 KB of lazy list content took ${result.large} ms`);
+      assert.ok(result.ok,
+        `${name} grew ${result.large / result.small} times (${result.small} ms to ${result.large} ms)`);
+    }
   });
 }
 
