@@ -1,14 +1,98 @@
 # ai-slop-detector
 
-An agent skill and optional command-line linter that help developers review prose, interfaces, and code comments for empty claims and distracting presentation.
+[![Tests](https://github.com/asabirov/ai-slop-detector-skill/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/asabirov/ai-slop-detector-skill/actions/workflows/tests.yml) [![Release](https://img.shields.io/github/v/release/asabirov/ai-slop-detector-skill)](https://github.com/asabirov/ai-slop-detector-skill/releases) [![License](https://img.shields.io/github/license/asabirov/ai-slop-detector-skill)](LICENSE)
 
-This project combines editorial judgment with deterministic checks. It does not require scans after every edit or ban certain styles unconditionally: necessary safety comments and intentional native UI fonts should remain acceptable during review.
+An agent skill and optional command-line linter that help developers review prose, interfaces, and code comments for empty claims and distracting presentation.
 
 ![CLI demo: a chatbot greeting fails the ban level; clean prose passes with exit code zero](assets/demo.svg)
 
-## Quick start
+## Why it exists, and what it turned down
 
-You need Node.js 20 or newer and Git. `npx` gets the detector at a release tag and runs it:
+AI-assisted drafts can keep chatbot greetings, vague claims, and comments that only describe the code.
+
+| Option | Outcome | Reason |
+| --- | --- | --- |
+| Scan after every edit | Turned down | The skill makes one pass over finished work |
+| Ban a style in all cases | Turned down | Safety comments and intentional native UI fonts stay acceptable |
+| Decide who wrote the work | Turned down | Neither tool can prove it |
+
+## Design
+
+![The agent skill reports a passage, a problem and a correction. The command-line tool routes files to its rules and returns an exit code.](docs/diagrams/how-it-works.png)
+
+| Choice | What it means |
+| --- | --- |
+| Skill for judgment | It reports the passage, the reader's problem and a specific correction |
+| Tool for repeatable patterns | It checks many files and gives stable exit codes for CI |
+| Skill acts on finished work | It runs before a pull request or other delivery, and skips routine chat replies |
+| Skill stays in scope | It never runs a command or reviews untouched files on its own |
+| Level 1 is the merge gate | Higher levels are polish |
+| No npm package | `npx` installs from this repository, so the runner needs network access to GitHub |
+| JavaScript and TypeScript skip the visual rules | The output counts the skipped files. `--as artifact` reads the code as prose and can cause false positives |
+
+| Rule pack | Reads | Finds |
+| --- | --- | --- |
+| Visual | Markup and the CSS a page applies | Fake protocol URIs, decorative monospace, emoji headings |
+| Visual | Same | Gradients, glow shadows, nested cards, oversized stats |
+| Visual | Same | Multi-word buttons, repeated field captions, duplicate status badges |
+| Visual | Same | An explanatory line under or beside a table or chart |
+| Text | Visible prose, and attributes such as `title`, `alt` and `placeholder` | "Not just X, but Y", sycophancy, clusters of inflated words |
+| Text | Same | A reply that repeats the message before it |
+| Comments | Source files | Design documents written into code comments |
+
+Each level adds rules to the one below.
+
+| `--level` | Name | Use |
+| --- | --- | --- |
+| `1` | `ban` | Merge gate |
+| `2` | `recommended` | Default, polish |
+| `3` | `strict` | Polish |
+| `4` | `paranoid` | Polish |
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | No `error` finding |
+| `1` | At least one `error` finding |
+| `2` | Bad arguments, or no file matched |
+
+## What's where
+
+| Path | Owns |
+| --- | --- |
+| [SKILL.md](SKILL.md) | Agent instructions, including the editorial checks for interface copy |
+| `bin/slop-detector.js` | Command-line arguments, file discovery and exit codes |
+| `scripts/detect.js` | The engine that the three rule packs share |
+| `scripts/rules/` | The rule packs |
+| `scripts/lib/` | Parsers and test helpers |
+| `fixtures/` | Slop and clean samples for the tests |
+| [docs/ai-slop-detector.md](docs/ai-slop-detector.md) | Every rule with its level and severity, the text parser, the coverage limits of the UI rules, and how to extend the tool |
+| [AGENTS.md](AGENTS.md) | The rules for changing the code |
+
+## How to run and verify it
+
+Install the tagged skill for Claude Code and Codex:
+
+```bash
+DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill/tree/v2.12.0 --skill ai-slop-detector --agent claude-code codex --global
+```
+
+`DO_NOT_TRACK=1` stops the skills tool from sending telemetry. The installer puts the skill in `~/.agents/skills/ai-slop-detector` and links it into `~/.claude/skills`. Then ask the agent: "check this README for AI slop".
+
+| Dependency | Needed for |
+| --- | --- |
+| Node.js 22.20.0 or newer | The installer, `skills` 1.9.0 |
+| Node.js 20 or newer | The detector |
+| npm | The installer |
+| Git | The installer and `npx` runs from a tag |
+| Network access to GitHub | The installer and `npx` runs from a tag |
+
+To run the installed tool:
+
+```bash
+node ~/.agents/skills/ai-slop-detector/bin/slop-detector.js <path>
+```
+
+To try the tool with no install, run this. The first scan fails on purpose, because the sample holds a chatbot greeting. Replace the sample path with a file or directory to scan your own work.
 
 ```bash
 REPO=github:asabirov/ai-slop-detector-skill
@@ -18,51 +102,20 @@ npx -y "$REPO#v2.12.0" slop.md --level 1
 npx -y "$REPO#v2.12.0" clean.md --level 1
 ```
 
-The first scan reports `sycophancy-opener` and exits **1**. That failure is expected, because the sample holds a chatbot greeting. The second scan reports `PASS` and exits **0**. Replace the sample path with a file or directory to scan your own work.
+```text
+slop.md
 
-## Why it exists
+  ✗ [sycophancy-opener] Great question!
+      RLHF chat residue ("Certainly!", "Great question!", "I’d be happy to…") that survived from a chatbot into published copy. Near-diagnostic.
+      fix: Delete the opener. Start with the point.
 
-AI-assisted drafts can keep chatbot greetings, vague claims, and comments that only describe the code. The skill finds specific problems in a finished artifact. The optional command-line tool finds repeatable patterns across files and gives stable exit codes for CI. Neither tool can prove who wrote the work.
-
-## Install, update, roll back, and remove
-
-Install the tagged skill for Claude Code and Codex:
-
-```bash
-DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill/tree/v2.12.0 --skill ai-slop-detector --agent claude-code codex --global
+✗ FAIL  [level ban]  1 file(s), 1 error(s), 0 medium, 0 warning(s)
+✓ PASS  [level ban]  1 file(s), 0 error(s), 0 medium, 0 warning(s)
 ```
 
-`DO_NOT_TRACK=1` stops the skills tool from sending telemetry. The installer, `skills` 1.9.0, needs Node.js 22.20.0 or newer, npm and Git. The detector itself runs on Node.js 20. The installer puts the skill in `~/.agents/skills/ai-slop-detector` and links it into `~/.claude/skills`. The command-line tool is in the same folder:
+The first scan exits **1** and the second exits **0**.
 
-```bash
-node ~/.agents/skills/ai-slop-detector/bin/slop-detector.js <path>
-```
-
-To update or roll back, run the install command again with another release tag. The [releases page](https://github.com/asabirov/ai-slop-detector-skill/releases) lists the newest tag. To remove the skill:
-
-```bash
-DO_NOT_TRACK=1 npx skills remove ai-slop-detector --agent claude-code codex --global
-```
-
-## Using the skill
-
-The agent checks its work before it opens a pull request or sends other finished work. It does not check routine chat replies. You can also ask: "check this README for AI slop". The skill makes one focused pass. It reports the passage, the reader's problem and a specific correction. [SKILL.md](SKILL.md) holds the agent instructions, including the editorial checks for interface copy. The skill never runs a command or reviews untouched files on its own.
-
-## What the command-line tool checks
-
-Three rule packs share one engine:
-
-- **Visual** reads markup and the CSS a page applies. It finds fake protocol URIs, monospace used as decoration, emoji headings, gradients, glow shadows, nested cards, oversized stats, multi-word buttons, repeated field captions, duplicate status badges, and an explanatory line placed under or beside a table or chart.
-- **Text** reads visible prose and the attributes a person reads, such as `title`, `alt` and `placeholder`. It finds "not just X, but Y", sycophancy, clusters of inflated words, and a reply that repeats the message before it.
-- **Comments** reads source files. It finds design documents written into code comments.
-
-There are four levels. Each level adds rules to the one below: `ban`, `recommended` (the default), `strict` and `paranoid`. Only `error` findings give a non-zero exit code. Level 1 is the merge gate and the higher levels are polish.
-
-The [reference](docs/ai-slop-detector.md) lists every rule with its level and severity. It also covers the text parser, the coverage limits of the UI rules, and how to extend the tool.
-
-## Running it in CI
-
-Pin a release tag. An unpinned run follows `main`, and a rule that gets stricter can fail a build that passed yesterday.
+In CI, pin a release tag. An unpinned run follows `main`, and a rule that gets stricter can fail a build that passed yesterday.
 
 ```bash
 REPO=github:asabirov/ai-slop-detector-skill
@@ -70,20 +123,15 @@ npx -y "$REPO#v2.12.0" src scripts --level 1
 npx -y "$REPO#v2.12.0" 'src/**/*.js' --json
 ```
 
-There is no npm package. `npx` installs from this repository, so the runner needs network access to GitHub.
+| Task | Command |
+| --- | --- |
+| Update or roll back | Run the install command with another tag. The [releases page](https://github.com/asabirov/ai-slop-detector-skill/releases) lists the newest tag |
+| Remove the skill | `DO_NOT_TRACK=1 npx skills remove ai-slop-detector --agent claude-code codex --global` |
+| Run the unit tests and fixtures | `npm test` |
+| Run the detector on its own code | `npm run lint:self` |
+| Run both, as CI does | `npm run verify` |
+| Draw the demo image again | `python3 docs/render-demo.py > assets/demo.svg` |
 
-JavaScript and TypeScript files skip the visual rules by default, and the output says how many files skipped them. To check interface copy in such a file, add `--as artifact`. The code is then read as prose, which can cause false positives.
+To change a rule, open an issue that names the rule `id` and shows the case.
 
-## Check that it works
-
-```bash
-npm test           # unit tests and fixtures
-npm run lint:self  # the detector must pass its own rules
-npm run verify     # both of the above, the script CI runs
-```
-
-To change a rule, open an issue that names the rule `id` and shows the case. [AGENTS.md](AGENTS.md) has the rules for changing the code. The demo image above comes from `python3 docs/render-demo.py > assets/demo.svg`.
-
-## License
-
-[MIT](LICENSE).
+License: [MIT](LICENSE).

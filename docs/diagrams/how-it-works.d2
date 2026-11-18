@@ -1,0 +1,41 @@
+direction: down
+(** -> **)[*].style.stroke: "#57606A"
+(** <-> **)[*].style.stroke: "#57606A"
+(** -> **)[*].style.font-size: 24
+(** <-> **)[*].style.font-size: 24
+**.style.font-size: 28
+
+title: "Two ways to check finished work" {
+  near: top-center
+  shape: text
+  style: {font-size: 40; bold: true; font-color: "#1F2328"}
+}
+
+classes: {
+  outside: {style: {fill: "#ECEAE4"; stroke: "#6B675F"; font-color: "#1F2328"}}
+  way-in: {style: {fill: "#DCEAF7"; stroke: "#2F6596"; font-color: "#1F2328"}}
+  core: {style: {fill: "#DDF0E4"; stroke: "#2E7350"; font-color: "#1F2328"}}
+  records: {style: {fill: "#F8EBCB"; stroke: "#8F6A12"; font-color: "#1F2328"}}
+  group: {style: {fill: "#FAFAF8"; stroke: "#8C959F"; font-color: "#1F2328"}}
+}
+
+work: Finished work {class: outside}
+
+skill: Agent skill {
+  class: group
+  pass: One focused\npass {class: way-in}
+  report: Passage, problem\nand correction {class: records}
+  pass -> report
+}
+
+cli: Command-line tool {
+  class: group
+  route: Route by\nfile type {class: way-in}
+  packs: Visual, Text and\nComments rules {class: core}
+  level: Keep the rules\nof the level {class: core}
+  exit: Exit 1 on an error finding\nExit 0 otherwise {class: records}
+  route -> packs -> level -> exit
+}
+
+work -> skill: agent reviews
+work -> cli: you or CI run
