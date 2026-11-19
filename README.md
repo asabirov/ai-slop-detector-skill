@@ -60,7 +60,7 @@ Each level adds rules to the one below.
 Install the latest version:
 
 ```sh
-DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill --skill ai-slop-detector --agent claude-code codex --global
+DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/ai-slop-detector-skill --skill ai-slop-detector --agent claude-code codex --global -y
 ```
 
 Update it later:
@@ -121,7 +121,7 @@ npx -y "$REPO#v2.12.0" 'src/**/*.js' --json
 | Task | Command |
 | --- | --- |
 | Update the skill | `DO_NOT_TRACK=1 npx skills update ai-slop-detector --global` |
-| Remove the skill | `DO_NOT_TRACK=1 npx skills remove ai-slop-detector --agent claude-code codex --global` |
+| Remove the skill | `DO_NOT_TRACK=1 npx skills remove ai-slop-detector --agent claude-code codex --global -y` |
 | Run the unit tests and fixtures | `npm test` |
 | Run the detector on its own code | `npm run lint:self` |
 | Run both, as CI does | `npm run verify` |
